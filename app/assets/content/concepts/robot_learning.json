@@ -1,0 +1,67 @@
+[
+  {
+    "id": "sim2real_transfer",
+    "title": "Sim-to-Real Transfer",
+    "definition": "Training policies in simulation and deploying them on real robots. The reality gap — differences in physics, rendering, dynamics, and sensor noise between sim and real — causes policies to fail when transferred. Bridged via domain randomization, system identification, or fine-tuning.",
+    "intuition": "Like training a pilot only on a flight simulator, then putting them in a real cockpit. The simulator doesn't perfectly model turbulence, weather, or instrument lag. Domain randomization is like training in hundreds of slightly wrong simulators — the pilot learns to handle anything because no single sim was 'right.'",
+    "practical_example": "Training a robot hand to rotate a Rubik's cube (OpenAI, 2019). Policy trained in Isaac Gym with massive domain randomization: friction ±50%, mass ±30%, joint damping ±40%, visual texture randomization. 100B sim steps, transferred zero-shot to real robot with ~70% success.",
+    "failure_mode": "Reality gap too large: sim dynamics don't capture contact modes (e.g., soft deformable objects, liquids, articulated mechanisms). Symptoms: policy works perfectly in sim but fails immediately on real robot. Fix: improve sim fidelity for critical dynamics, use residual RL (sim policy + real-world correction), or switch to real-world fine-tuning.",
+    "interview_answer": "Sim2real is the dominant paradigm for robot learning because real-world data is expensive and risky. The core challenge is the reality gap. Domain randomization is the most practical solution: randomize physics params, visual appearance, and dynamics during training so the policy becomes robust to sim-real mismatch. Key implementation: randomize the parameters that matter most for your task (contact dynamics for manipulation, terrain for locomotion). Complementary approaches: system identification to narrow the randomization range, and residual policies for real-world fine-tuning.",
+    "tags": ["robot_learning"],
+    "difficulty": 3,
+    "importance": 5,
+    "related_concept_ids": ["domain_randomization", "system_identification", "domain_adaptation"]
+  },
+  {
+    "id": "domain_randomization",
+    "title": "Domain Randomization",
+    "definition": "Training with randomized simulation parameters (physics, rendering, dynamics) so the policy treats the real world as just another random variation. Parameters randomized include: mass, friction, damping, visual textures, lighting, camera pose, observation noise, action delays.",
+    "intuition": "If you learn to cook in 1000 different kitchens — different stoves, different pans, different temperatures — you'll handle any new kitchen because you've seen enough variation. The real world is just kitchen #1001. The key: randomize enough that reality falls within your training distribution.",
+    "practical_example": "Sim2real for robotic grasping: randomize object mass (0.01-2.0 kg), friction (0.3-1.0), table height (±5cm), camera position (±2cm), lighting direction, gripper finger friction. Train with PPO across 1024 parallel environments. The policy learns invariance to all these factors.",
+    "failure_mode": "Randomization range too wide: policy becomes overly conservative, performing worst-case behavior everywhere. Randomization range too narrow: doesn't cover real-world variation. Symptoms: either cautious/slow policy or failed transfer. Fix: use automatic domain randomization (ADR) that expands ranges based on performance, or use system identification to set realistic ranges.",
+    "interview_answer": "Domain randomization makes sim2real work at scale. The insight: if the policy has seen enough variation during training, the real world becomes just another sample from the training distribution. In practice, I randomize physics (mass, friction, damping), dynamics (action delay, control frequency), and visual properties (textures, lighting, camera). The critical design choice is the randomization distribution — too narrow and you don't cover reality, too wide and the policy becomes conservative. ADR (Automatic Domain Randomization) addresses this by expanding ranges when the policy succeeds and narrowing when it fails.",
+    "tags": ["robot_learning"],
+    "difficulty": 3,
+    "importance": 5,
+    "related_concept_ids": ["sim2real_transfer", "system_identification", "visual_randomization"]
+  },
+  {
+    "id": "behavior_cloning",
+    "title": "Behavior Cloning (BC)",
+    "definition": "Supervised learning on expert demonstrations: learn π(a|s) directly from (state, action) pairs collected by an expert. Simple and effective when demonstrations are plentiful and the state space is well-covered. Suffers from compounding errors due to covariate shift.",
+    "intuition": "Like learning to drive by watching dashcam footage of a good driver and imitating their steering at each frame. Works great for situations the expert demonstrated. But the moment you drift slightly off the expert's trajectory — perhaps due to a minor prediction error — you enter states the expert never showed you, and errors compound: small drift → unfamiliar state → bigger error → more unfamiliar state.",
+    "practical_example": "Learning a 6-DOF pick-and-place policy from 100 teleoperated demonstrations. With image observations and a ResNet encoder: BC achieves 60% success. Adding data augmentation (random crops, color jitter) brings it to 75%. DAgger with 20 additional corrective demonstrations reaches 90%.",
+    "failure_mode": "Covariate shift / compounding errors: the policy makes a small mistake, enters a state distribution not covered by demos, makes bigger mistakes. Symptoms: works in easy cases but fails on slight perturbations, degrades over longer horizons. Fix: use DAgger (online expert correction), add noise during data collection, use action chunking, or switch to offline RL.",
+    "interview_answer": "BC is the simplest imitation learning approach — supervised learning on (state, action) pairs from demonstrations. It works surprisingly well when you have enough diverse demonstrations and the right architecture. The fundamental limitation is compounding errors from covariate shift: the policy's mistakes push it into out-of-distribution states. Practical fixes: DAgger for online correction, action chunking (predicting sequences rather than single actions), data augmentation, and collecting demonstrations with intentional perturbations. For industry, BC is often the first thing to try — if it works with 50-100 demos, you've saved months over RL.",
+    "tags": ["robot_learning", "rl"],
+    "difficulty": 2,
+    "importance": 5,
+    "related_concept_ids": ["imitation_learning", "dagger", "covariate_shift", "offline_rl"]
+  },
+  {
+    "id": "action_chunking",
+    "title": "Action Chunking for Manipulation",
+    "definition": "Instead of predicting a single action per timestep, predict a sequence (chunk) of K future actions at once. Reduces effective horizon, mitigates compounding errors in BC, and produces smoother trajectories. Used in ACT (Action Chunking with Transformers) and diffusion policies.",
+    "intuition": "Instead of giving turn-by-turn GPS directions one step at a time, you give the next 10 steps at once. The driver can plan smoother turns because they see the upcoming trajectory. If one step is slightly off, the remaining chunk keeps them on track rather than going off-course.",
+    "practical_example": "ACT (Action Chunking with Transformers) for bimanual manipulation: predict chunks of K=100 timesteps (2 seconds at 50Hz). A CVAE encoder captures multi-modal behavior, transformer decoder generates the chunk. Achieves near-human performance on complex bimanual tasks with only 50 demonstrations.",
+    "failure_mode": "Chunk too long: can't react to unexpected perturbations or dynamic changes. Chunk too short: loses the compounding error benefit. Also: temporal blending between consecutive chunks can cause jittery behavior if not done carefully. Fix: use exponential weighting for chunk blending, choose K based on task reactivity needs.",
+    "interview_answer": "Action chunking addresses the compounding error problem in behavior cloning by predicting sequences of actions rather than one at a time. The key insight: predicting K steps at once reduces the effective decision horizon by K, making the supervised learning problem easier. In ACT, K=100 works well for manipulation tasks. Combined with temporal ensembling (blending overlapping chunks), it produces smooth, robust trajectories. This idea is also central to diffusion policies, which generate entire action chunks via iterative denoising.",
+    "tags": ["robot_learning", "generative_control"],
+    "difficulty": 3,
+    "importance": 4,
+    "related_concept_ids": ["behavior_cloning", "diffusion_policy", "imitation_learning"]
+  },
+  {
+    "id": "visuomotor_policy",
+    "title": "Visuomotor Policies",
+    "definition": "End-to-end policies that map raw visual observations (RGB/RGB-D images) directly to motor commands without hand-designed perception pipelines. Typically: CNN/ViT encoder → spatial features → policy head (MLP or transformer) → actions.",
+    "intuition": "Instead of building separate perception (detect object) → planning (compute grasp) → control (execute motion) modules, you train one neural network that sees the camera image and outputs joint velocities. Like teaching someone to catch a ball by practice rather than by explaining physics equations.",
+    "practical_example": "ResNet-18 encoder with spatial softmax → 64-dim feature → MLP → 7-DOF joint velocities for pick-and-place. Trained on 200 teleoperated demonstrations with random crops for augmentation. Key: spatial softmax preserves spatial structure better than global average pooling for manipulation tasks.",
+    "failure_mode": "Visual overfitting: policy memorizes specific visual features (table texture, lighting) rather than task-relevant structure. Symptoms: works in training environment, fails with any visual change. Fix: aggressive data augmentation (random crops, color jitter, background randomization), use pre-trained vision encoders (R3M, CLIP, DINOv2).",
+    "interview_answer": "Visuomotor policies are the standard approach for learning manipulation from images. The key architectural choices: use a pre-trained vision encoder (DINOv2 or R3M) rather than training from scratch, add spatial features (not just global pooling), and apply heavy data augmentation. For sample efficiency, pre-trained encoders are a game-changer — they reduce the demo requirement from thousands to tens. The main risk is visual overfitting, which is addressed by augmentation and domain randomization. In practice, I prefer frozen pre-trained encoders with a lightweight policy head for most manipulation tasks.",
+    "tags": ["robot_learning", "perception"],
+    "difficulty": 3,
+    "importance": 4,
+    "related_concept_ids": ["behavior_cloning", "sim2real_transfer", "representation_learning"]
+  }
+]

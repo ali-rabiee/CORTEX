@@ -1,0 +1,54 @@
+[
+  {
+    "id": "point_cloud_processing",
+    "title": "Point Cloud Processing for Robotics",
+    "definition": "Point clouds are unordered sets of 3D points {(x,y,z)} from depth sensors (LiDAR, RGB-D cameras). Processed by architectures like PointNet (per-point MLP + max pooling for permutation invariance), PointNet++ (hierarchical grouping), or voxelization approaches.",
+    "intuition": "A point cloud is like a 3D scan made of millions of dots. Unlike images (ordered grid), points have no fixed order — shuffling them should give the same result. PointNet's key trick: process each point independently, then take the max across all points to get a global summary. Like asking each witness for their observation, then taking the most extreme/notable one.",
+    "practical_example": "Grasping pipeline: RGB-D camera → point cloud → PointNet++ segmentation → per-object point clusters → GraspNet grasp pose prediction → execution. Preprocessing: voxel downsampling (0.005m voxel), RANSAC plane removal (table), statistical outlier removal.",
+    "failure_mode": "Sensor noise at object edges creates phantom points between objects. Transparent/reflective objects produce missing/incorrect depth. Symptoms: segmentation leaks between adjacent objects, grasps planned on phantom geometry. Fix: temporal point cloud filtering, use learned depth completion for specular surfaces, RGB-based segmentation as prior.",
+    "interview_answer": "Point clouds are the standard 3D representation for manipulation. PointNet/PointNet++ handle the key challenge of permutation invariance. In practice, I preprocess with voxel downsampling, outlier removal, and workspace cropping. For manipulation, PointNet++ with per-point features works well for segmentation and grasp prediction. Key engineering detail: depth sensor choice matters — structured light (RealSense) has different noise characteristics than time-of-flight (Azure Kinect). For transparent objects, RGB-guided depth completion or multi-view fusion is necessary.",
+    "tags": ["perception"],
+    "difficulty": 3,
+    "importance": 4,
+    "related_concept_ids": ["depth_estimation", "object_segmentation", "grasp_prediction"]
+  },
+  {
+    "id": "pose_estimation_6d",
+    "title": "6D Object Pose Estimation",
+    "definition": "Estimating the full 6-DOF pose (3D rotation R ∈ SO(3) + 3D translation t ∈ R³) of known objects from RGB or RGB-D images. Methods: template matching, keypoint detection + PnP, direct regression, render-and-compare. Rotation representations: quaternion, rotation matrix, 6D continuous (Zhou et al.).",
+    "intuition": "Given an image of a mug on a table, figure out exactly where it is (translation: 30cm forward, 10cm left, 5cm above table) and how it's rotated (handle pointing right, tilted 15°). This is the information a robot needs to plan a grasp. The hard part: rotation is tricky to represent — quaternions have double-cover, Euler angles have gimbal lock.",
+    "practical_example": "FoundationPose: category-level 6D pose estimation using render-and-compare. Given a CAD model and an RGB-D observation, iteratively refine the pose by rendering the model at the current estimate and comparing to the observation. Works for unseen object instances within a category.",
+    "failure_mode": "Symmetry ambiguity: a bowl looks the same from many angles, so multiple rotations are equally correct. Training with a single ground-truth rotation causes the network to average between valid poses. Symptoms: predicted rotation is incorrect but loss is low. Fix: use symmetry-aware loss functions, predict distributions over rotations, or use canonical orientation definitions.",
+    "interview_answer": "6D pose estimation maps visual observations to SE(3) poses for robotic manipulation. Key design choices: the 6D continuous rotation representation (Zhou et al.) avoids discontinuities of quaternions/Euler angles. For known objects with CAD models, render-and-compare methods (MegaPose, FoundationPose) work well. For novel objects, category-level methods generalize across instances. The main challenges: symmetry (handle with symmetry-aware losses), occlusion (handle with multi-view fusion), and specular/transparent objects (handle with RGB-D fusion or specialized networks).",
+    "tags": ["perception", "robot_learning"],
+    "difficulty": 4,
+    "importance": 4,
+    "related_concept_ids": ["point_cloud_processing", "camera_calibration", "grasp_prediction"]
+  },
+  {
+    "id": "object_segmentation",
+    "title": "Object Segmentation for Manipulation",
+    "definition": "Pixel-level identification of object instances in a scene. Instance segmentation (separate each object), semantic segmentation (label each pixel by class), panoptic segmentation (both). For robotics: SAM (Segment Anything Model) provides zero-shot segmentation from prompts.",
+    "intuition": "Before a robot can pick something up, it needs to know which pixels in the image belong to which object. Segmentation draws those boundaries. SAM changed the game: instead of training a custom model for each object category, you can point at or draw a box around anything and get a high-quality mask.",
+    "practical_example": "Tabletop manipulation pipeline: RGB image → SAM with grid point prompts → instance masks → depth map + mask → per-object point cloud → grasp planning. For cluttered scenes: use SAM's 'segment everything' mode, then filter by workspace bounds and minimum size.",
+    "failure_mode": "Under-segmentation in clutter: touching objects merged into one segment. Over-segmentation: one object split into multiple segments (especially textured objects). Symptoms: robot attempts to grasp two objects as one, or grasps only part of an object. Fix: use RGB-D fusion for segmentation, fine-tune on domain-specific data, add post-processing heuristics (convexity, size bounds).",
+    "interview_answer": "Object segmentation is the first step in most manipulation pipelines. SAM has largely solved the general segmentation problem — it produces high-quality masks from minimal prompts (point clicks, bounding boxes). For robotics, the workflow is: SAM for masks → combine with depth for 3D reasoning → per-object processing. Challenges remain in heavy clutter (touching objects), transparent objects, and real-time performance. For production, I'd fine-tune SAM or use FastSAM for speed, combined with tracking (SAM-Track) for temporal consistency.",
+    "tags": ["perception"],
+    "difficulty": 2,
+    "importance": 4,
+    "related_concept_ids": ["point_cloud_processing", "pose_estimation_6d", "foundation_models_vision"]
+  },
+  {
+    "id": "camera_calibration",
+    "title": "Camera Calibration and Hand-Eye Calibration",
+    "definition": "Intrinsic calibration: focal length (fx,fy), principal point (cx,cy), distortion coefficients. Extrinsic calibration: transformation between camera frame and world/robot frame. Hand-eye calibration: AX=XB problem to find the fixed transform between camera and robot end-effector (eye-in-hand) or camera and robot base (eye-to-hand).",
+    "intuition": "Intrinsics tell the camera 'what does my image mean in 3D?' (how pixels map to rays). Extrinsics tell the robot 'where is the camera in my coordinate system?' Without accurate calibration, a robot pointing at pixel (320, 240) might reach 2cm off — which is the difference between a successful grasp and a miss.",
+    "practical_example": "Eye-in-hand calibration: mount checkerboard on table, move robot to 15-20 poses capturing the board from different angles. Solve AX=XB where A=robot_pose changes, B=camera_pose changes (from checkerboard detection). Validate: command robot to touch known points, measure error. Target: <2mm reprojection error.",
+    "failure_mode": "Insufficient pose diversity: all calibration poses from similar angles → poorly constrained rotation estimate. Symptoms: accurate in calibration region, large errors elsewhere. Also: thermal drift changes intrinsics over time, especially for cheap sensors. Fix: capture from diverse angles/distances, recalibrate after thermal stabilization, use online calibration refinement.",
+    "interview_answer": "Camera calibration is foundational for any vision-based robot system. Intrinsic calibration (OpenCV's calibrateCamera) gives you the lens model. The critical piece for robotics is hand-eye calibration — relating the camera to the robot frame. For eye-in-hand: solve AX=XB with diverse poses. For eye-to-hand: similar but the camera is fixed. Key practical details: use at least 15 diverse poses, verify with physical touch tests (not just reprojection error), and recalibrate when the setup changes. The biggest mistake I see: not accounting for the time delay between capturing the image and reading the robot pose.",
+    "tags": ["perception", "systems"],
+    "difficulty": 2,
+    "importance": 4,
+    "related_concept_ids": ["pose_estimation_6d", "point_cloud_processing", "depth_estimation"]
+  }
+]

@@ -1,0 +1,54 @@
+[
+  {
+    "id": "vla_models",
+    "title": "Vision-Language-Action (VLA) Models",
+    "definition": "VLAs are foundation models that take visual observations and language instructions as input and output robot actions. They extend VLMs with action prediction, trained on large-scale robot demonstration datasets. Examples: RT-2, Octo, OpenVLA. Architecture: vision encoder + language model + action head.",
+    "intuition": "A VLM can look at a scene and answer 'what do you see?' A VLA goes further: 'given what you see and the instruction pick up the red cup, what should the robot do?' It bridges language understanding, visual perception, and physical action in one model. Like giving a robot both eyes and a brain that understands natural language commands.",
+    "practical_example": "RT-2: PaLM-E (VLM) fine-tuned on robot demonstration data. Actions tokenized as text tokens (e.g., 'move_x: 0.05, move_y: -0.02'). Trained on 130K episodes from real robots. Can follow novel instructions by combining language understanding with physical grounding. Octo: smaller, open-source VLA trained on Open X-Embodiment dataset.",
+    "failure_mode": "Action space mismatch: VLA trained on one robot's action space (e.g., 7-DOF absolute joint positions) fails on different embodiments. Language grounding failure: model correctly identifies objects but maps to wrong physical actions. Symptoms: correct object identification but wrong grasp approach. Fix: embodiment-specific fine-tuning, action space normalization, add proprioceptive input.",
+    "interview_answer": "VLAs represent the convergence of foundation models and robotics — one model that sees, understands language, and acts. RT-2 showed that VLMs can be fine-tuned into effective robot policies by tokenizing actions. The key challenges: (1) action space generalization across embodiments (solved partially by datasets like Open X-Embodiment), (2) real-time inference (large models are slow — need distillation or efficient architectures), (3) safety (language understanding doesn't guarantee safe physical behavior). I think VLAs will become the default for high-level task policies, with specialized low-level controllers for precision.",
+    "tags": ["foundation_models", "robot_learning"],
+    "difficulty": 4,
+    "importance": 5,
+    "related_concept_ids": ["vlm_models", "behavior_cloning", "language_grounding"]
+  },
+  {
+    "id": "vlm_models",
+    "title": "Vision-Language Models (VLMs)",
+    "definition": "Models that jointly process images and text, enabling tasks like visual question answering, image captioning, and visual reasoning. Architecture: vision encoder (ViT/CLIP) → projection → language model (LLM). Examples: GPT-4V, Claude Vision, LLaVA, Gemini.",
+    "intuition": "A VLM can 'see' and 'talk' about what it sees. Show it a robot workspace photo and ask 'what objects are graspable?' and it can reason about the scene. It's the eyes and reasoning brain, but not the hands — it can plan but not act (that's what VLAs add).",
+    "practical_example": "Using GPT-4V for robotic task planning: capture workspace image → 'Given this scene, plan the steps to sort objects by color. Output as numbered actions.' → parse structured output → execute with low-level controller. Works for long-horizon tasks where classical planning fails due to perception complexity.",
+    "failure_mode": "Spatial reasoning failures: VLMs can identify objects but struggle with precise spatial relationships ('is the cup to the left or right of the bowl?'). Hallucination: confidently describe objects that aren't there. Symptoms: robot reaches for nonexistent objects or wrong locations. Fix: validate VLM outputs with detection/segmentation, use VLMs for high-level planning only (not precise spatial commands).",
+    "interview_answer": "VLMs bring common-sense reasoning and language understanding to robot perception. The practical pattern: use VLMs for high-level scene understanding and task planning, then hand off to specialized modules for precise spatial reasoning and control. Key insight: VLMs are excellent at semantic understanding ('this is a cluttered kitchen with dishes to clean') but poor at precise spatial reasoning ('the mug handle is 2cm to the left'). In production, I combine VLM-based task planning with classical perception (pose estimation, point clouds) for execution.",
+    "tags": ["foundation_models", "perception"],
+    "difficulty": 3,
+    "importance": 5,
+    "related_concept_ids": ["vla_models", "language_grounding", "task_planning"]
+  },
+  {
+    "id": "language_grounding",
+    "title": "Language Grounding in Robotics",
+    "definition": "Connecting natural language to physical actions, objects, and spatial concepts in the real world. Includes: referring expression comprehension ('pick up the red cup near the edge'), affordance prediction ('what can I do with this?'), and instruction following ('stack the blocks by color').",
+    "intuition": "When a human says 'pick up the heavy one,' the robot needs to connect 'heavy' (language) to a physical property it can estimate, identify which object is heaviest, and plan a grasp. Grounding is the bridge between abstract language and concrete physical reality.",
+    "practical_example": "SayCan (Google): LLM proposes candidate actions in natural language, a learned affordance model scores which actions are physically feasible given the current state. LLM says 'pick up the sponge,' affordance model checks 'is a sponge visible and reachable?' → combined score selects the best feasible action.",
+    "failure_mode": "Grounding failure: language maps to wrong physical entity or impossible action. Example: 'move it closer' — what is 'it'? closer to what? Ambiguity in language + imprecise spatial understanding = wrong action. Fix: explicit disambiguation prompts, maintain dialogue context, use pointing/gaze for reference resolution.",
+    "interview_answer": "Language grounding connects LLM reasoning to physical robot capabilities. The key frameworks: SayCan (affordance-weighted language planning), Code as Policies (LLM generates Python code for robot APIs), and VLAs (end-to-end language-conditioned policies). The main challenge is the gap between what language describes abstractly and what the robot can physically do. In practice, I advocate for a grounding verification step: after the LLM proposes an action, check it against perception (can I see that object?) and kinematics (can I reach it?) before executing.",
+    "tags": ["foundation_models", "robot_learning"],
+    "difficulty": 3,
+    "importance": 4,
+    "related_concept_ids": ["vla_models", "vlm_models", "task_planning"]
+  },
+  {
+    "id": "representation_learning",
+    "title": "Visual Representation Learning for Robotics",
+    "definition": "Learning visual features that are useful for downstream robot tasks, typically through pre-training on large datasets. Methods: contrastive learning (CLIP, R3M), masked autoencoders (MAE), self-supervised video prediction. Key: representations should capture task-relevant structure while being invariant to irrelevant visual variation.",
+    "intuition": "Raw pixels contain too much irrelevant information (shadows, textures, lighting) and not enough task-relevant structure (object pose, contact state). Representation learning compresses images into a feature space where 'similar' means 'similar for the task' — two images of a cup in different lighting should have similar features if the cup is in the same pose.",
+    "practical_example": "R3M: pre-trained on Ego4D human video data with time-contrastive + language-alignment objectives. Fine-tune a manipulation policy with R3M features instead of raw pixels: 10x fewer demonstrations needed. DINOv2 features also work well as frozen encoders for manipulation with just a linear probe.",
+    "failure_mode": "Representation doesn't capture task-relevant features: pre-trained on ImageNet (objects in context) but manipulation needs fine-grained spatial features (contact points, precise object pose). Symptoms: features don't discriminate between success/failure states. Fix: use robotics-specific pre-training (R3M, Voltron), fine-tune last layers, or train a small task-specific head.",
+    "interview_answer": "Pre-trained visual representations are a game-changer for sample-efficient robot learning. Instead of learning to see and act from scratch, we use pre-trained encoders (R3M, DINOv2, CLIP) and learn only the policy head. In practice: frozen pre-trained encoder + small MLP policy trained on 50-100 demos works surprisingly well for many manipulation tasks. The choice of pre-training matters: R3M (human video) and Voltron (robot video) capture manipulation-relevant features better than ImageNet-pretrained models. Key trade-off: frozen encoders are sample-efficient but may miss task-specific features; fine-tuning the last few layers helps when you have enough data.",
+    "tags": ["foundation_models", "perception"],
+    "difficulty": 3,
+    "importance": 4,
+    "related_concept_ids": ["visuomotor_policy", "behavior_cloning", "vlm_models"]
+  }
+]

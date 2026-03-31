@@ -1,0 +1,32 @@
+[
+  {
+    "id": "sys_q1",
+    "question": "A deployed robot policy's success rate gradually drops from 95% to 70% over several weeks without any code changes. The most likely cause is:",
+    "options": ["Model weights degrading over time", "Hardware wear affecting motor precision", "Environmental drift — lighting, camera calibration, or object positioning has changed", "Memory leak in the inference server"],
+    "correct_answer": 2,
+    "explanation": "Silent environmental drift is the most common cause of gradual performance degradation. Camera calibration shifts with temperature changes, lighting varies seasonally, object inventories change. The policy was never robust to these variations. Fix: continuous monitoring with automated alerts, periodic recalibration, and training with more environmental variation.",
+    "concept_ids": ["deployment_thinking", "evaluation_methodology"],
+    "difficulty": 2,
+    "tags": ["systems"]
+  },
+  {
+    "id": "sys_q2",
+    "question": "When optimizing a diffusion policy for real-time robot control, the correct optimization order is:",
+    "options": ["Quantization → fewer steps → TensorRT", "Fewer denoising steps (DDIM) → FP16 → TensorRT compilation → async pipeline", "TensorRT → quantization → fewer steps", "Async pipeline → fewer steps → quantization"],
+    "correct_answer": 1,
+    "explanation": "Start with the highest-impact, safest optimization: reducing denoising steps with DDIM (10x speedup, minimal quality loss). Then numerical precision reduction (FP16, ~2x speedup). Then compilation (TensorRT, ~1.5x). Finally, architectural optimization with async pipeline (overlap inference with execution). Each step should be validated against the full evaluation suite before proceeding.",
+    "concept_ids": ["latency_optimization", "diffusion_policy"],
+    "difficulty": 3,
+    "tags": ["systems"]
+  },
+  {
+    "id": "sys_q3",
+    "question": "The most critical requirement for ML experiment reproducibility is:",
+    "options": ["Using the same GPU hardware", "Logging every hyperparameter, code version, data version, and environment", "Running experiments sequentially", "Using only deterministic operations"],
+    "correct_answer": 1,
+    "explanation": "Complete logging is the foundation — without knowing the exact configuration, no amount of deterministic hardware can reproduce results. You need: git commit hash, pip freeze / conda env export, data version (DVC hash), all hyperparameters, and random seeds. GPU determinism helps but is secondary to knowing what was actually run.",
+    "concept_ids": ["experiment_tracking"],
+    "difficulty": 2,
+    "tags": ["systems"]
+  }
+]

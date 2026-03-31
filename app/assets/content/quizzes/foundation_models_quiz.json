@@ -1,0 +1,32 @@
+[
+  {
+    "id": "fm_q1",
+    "question": "The key challenge when deploying Vision-Language-Action (VLA) models across different robot embodiments is:",
+    "options": ["Language understanding degrades", "Visual encoders need retraining", "Action space mismatch — different robots have different action representations", "Compute requirements are too high"],
+    "correct_answer": 2,
+    "explanation": "VLAs are trained with specific action representations (e.g., 7-DOF joint positions for a Franka arm). When transferring to a different robot with different kinematics, joint limits, or action conventions, the action head must be adapted. Language and vision understanding transfer much better. Cross-embodiment datasets like Open X-Embodiment partially address this.",
+    "concept_ids": ["vla_models"],
+    "difficulty": 3,
+    "tags": ["foundation_models"]
+  },
+  {
+    "id": "fm_q2",
+    "question": "VLMs (Vision-Language Models) are most reliable for robotic applications when used for:",
+    "options": ["Precise spatial reasoning (e.g., measuring distances)", "High-level scene understanding and task planning", "Real-time control at 100Hz", "Generating exact grasp poses"],
+    "correct_answer": 1,
+    "explanation": "VLMs excel at semantic understanding ('this is a messy desk with scattered tools') and task decomposition ('to clean up: first sort, then stack, then wipe'). They're poor at precise spatial reasoning ('the cup is 12.3cm to the left') and too slow for real-time control. Best used as high-level planners with specialized modules for spatial/motor execution.",
+    "concept_ids": ["vlm_models", "language_grounding"],
+    "difficulty": 2,
+    "tags": ["foundation_models"]
+  },
+  {
+    "id": "fm_q3",
+    "question": "In SayCan, the LLM's language score is combined with an affordance score because:",
+    "options": ["To improve language understanding", "To ground the LLM's suggestions in what's physically possible given the current state", "To speed up inference", "To handle multi-turn dialogue"],
+    "correct_answer": 1,
+    "explanation": "An LLM might suggest 'pick up the cup' when no cup is visible, or 'fly to the shelf' when the robot can't fly. The affordance model checks each proposed action against the current observation: is the target object visible? Is the action physically feasible? The combined score selects actions that are both semantically sensible AND physically possible.",
+    "concept_ids": ["language_grounding"],
+    "difficulty": 2,
+    "tags": ["foundation_models"]
+  }
+]

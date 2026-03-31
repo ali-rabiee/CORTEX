@@ -1,0 +1,41 @@
+[
+  {
+    "id": "diffusion_policy",
+    "title": "Diffusion Policy",
+    "definition": "Uses denoising diffusion probabilistic models (DDPMs) to generate robot action sequences. Starting from Gaussian noise, iteratively denoise to produce action chunks conditioned on observations. Naturally handles multimodal action distributions — can represent multiple valid ways to accomplish a task.",
+    "intuition": "Imagine a sculptor starting with a rough block of marble (noise) and iteratively refining it into a statue (action sequence). Each denoising step adds detail. The key advantage over BC: if there are two valid ways to pick up a mug (left side or right side), diffusion can represent both modes instead of averaging them into an invalid middle path.",
+    "practical_example": "Diffusion Policy for bimanual manipulation: 2-step observation history (images + proprioception) → U-Net-based diffusion model → predict 16-step action chunks. With DDIM sampling (10 denoising steps instead of 100), runs at 10Hz on a GPU. Outperforms BC by 20-40% on multi-modal manipulation tasks.",
+    "failure_mode": "Inference too slow for reactive control: full DDPM requires 100+ denoising steps per action chunk. With DDIM acceleration, still 10-20 steps needed. Symptoms: robot moves in stop-and-go pattern due to inference latency. Fix: use DDIM with fewer steps (10), consistency models, or distilled single-step generators. Also: noise schedule tuning is critical — wrong schedule produces either conservative or jittery actions.",
+    "interview_answer": "Diffusion policies are the state-of-the-art for learning multi-modal manipulation behaviors. The key advantage: they naturally represent multiple valid action modes without mode averaging. Architecture: observation encoder → conditioning → U-Net denoising network → action chunks. In practice: DDIM with 10 steps is fast enough for 10Hz control. Combine with action chunking (predict 16 steps) for temporal consistency. The main trade-off vs BC: higher quality but slower inference and harder to train. I see diffusion policies as the default for manipulation tasks with multi-modal behavior (assembly, tool use, bimanual).",
+    "tags": ["generative_control", "robot_learning"],
+    "difficulty": 4,
+    "importance": 5,
+    "related_concept_ids": ["action_chunking", "behavior_cloning", "multimodal_distributions"]
+  },
+  {
+    "id": "flow_matching",
+    "title": "Flow Matching for Action Generation",
+    "definition": "Flow matching learns a continuous-time vector field that transports samples from a simple distribution (Gaussian) to the target distribution (actions). Simpler training than diffusion (no noise schedule), faster inference (fewer ODE solver steps). Conditional flow matching enables conditioning on observations.",
+    "intuition": "Imagine a river that flows from a random starting point to exactly where you need to go. Flow matching learns the current of this river — given any point in the flow, it tells you which direction to move. Compared to diffusion (which adds and removes noise), flow matching directly learns the transport map. Simpler math, faster in practice.",
+    "practical_example": "π₀ (Physical Intelligence): uses flow matching to generate robot action sequences from observations. Trains on large-scale multi-task robot data. Generates 50-step action chunks using an ODE solver with 5-10 integration steps. Achieves real-time control at 15Hz.",
+    "failure_mode": "ODE solver instability: the learned vector field may have regions where the flow is poorly defined, causing numerical issues. Symptoms: occasional action jumps or NaN outputs. Fix: use adaptive ODE solvers (Dopri5), train with flow regularization, clip extreme vector field values during inference.",
+    "interview_answer": "Flow matching is emerging as a cleaner alternative to diffusion for robot action generation. The advantage: simpler training objective (regress to the conditional vector field), faster inference (5-10 ODE steps vs 20-100 diffusion steps), and no noise schedule to tune. π₀ from Physical Intelligence shows this works at scale for multi-task robot control. Compared to diffusion policies, flow matching offers similar multimodality with simpler training and faster inference. I expect flow matching to become the default generative approach for robot control.",
+    "tags": ["generative_control"],
+    "difficulty": 4,
+    "importance": 4,
+    "related_concept_ids": ["diffusion_policy", "action_chunking"]
+  },
+  {
+    "id": "multimodal_distributions",
+    "title": "Multi-Modal Action Distributions",
+    "definition": "When multiple valid action sequences exist for the same observation (e.g., reaching left or right around an obstacle). Gaussian policies (BC, PPO) average these modes, producing invalid intermediate actions. Handled by mixture models, diffusion/flow matching, or VAE-based approaches (CVAE).",
+    "intuition": "Asked to go around a table, you can go left or right — both are correct. A single Gaussian averages these into 'go straight through the table.' Multi-modal methods represent both options and commit to one during execution. This is why diffusion policies work so well for manipulation — real tasks have many valid solutions.",
+    "practical_example": "Block stacking: the gripper can approach from any direction. BC with MSE loss averages all approach angles → hovers above block without committing. Diffusion policy samples one valid approach direction each time → clean, committed trajectories with varying approach angles across rollouts.",
+    "failure_mode": "Mode collapse: the model learns only one of multiple valid modes, losing diversity. In VAEs: KL term overpowers reconstruction → posterior collapses to prior. In diffusion: insufficient model capacity or training → converges to dominant mode. Symptoms: always takes the same approach despite multiple valid options. Fix: increase model capacity, use beta-VAE scheduling, ensure diverse training data.",
+    "interview_answer": "Multi-modal action distributions are the fundamental reason why diffusion/flow matching policies outperform simple BC for manipulation. The problem: many real tasks have multiple valid solutions, and MSE-loss BC averages them into invalid actions. Solutions ranked by expressiveness: (1) Gaussian mixture models — simple but limited modes, (2) CVAEs — flexible but training can be tricky, (3) diffusion/flow matching — most expressive, handle arbitrary distributions. In practice, the choice depends on real-time requirements: GMMs for fast control (1000Hz), diffusion for complex manipulation (10Hz).",
+    "tags": ["generative_control"],
+    "difficulty": 3,
+    "importance": 4,
+    "related_concept_ids": ["diffusion_policy", "behavior_cloning", "flow_matching"]
+  }
+]

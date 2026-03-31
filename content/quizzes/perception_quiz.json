@@ -1,0 +1,32 @@
+[
+  {
+    "id": "percep_q1",
+    "question": "PointNet achieves permutation invariance over point clouds by:",
+    "options": ["Sorting points by distance before processing", "Using per-point MLPs followed by a symmetric aggregation function (max pooling)", "Converting to a regular voxel grid", "Using graph neural networks on nearest neighbors"],
+    "correct_answer": 1,
+    "explanation": "PointNet processes each point independently through shared MLPs, then applies max pooling — a symmetric function — across all points to produce a global feature. Since max pooling gives the same result regardless of input order, the output is permutation-invariant. This is more elegant than sorting (which requires defining an ordering) and avoids voxelization overhead.",
+    "concept_ids": ["point_cloud_processing"],
+    "difficulty": 2,
+    "tags": ["perception"]
+  },
+  {
+    "id": "percep_q2",
+    "question": "For 6D pose estimation, the 6D continuous rotation representation (Zhou et al.) is preferred over quaternions because:",
+    "options": ["It's more compact (fewer parameters)", "It avoids the discontinuity problem that makes quaternions hard to learn with neural networks", "It's faster to compute", "It handles symmetries automatically"],
+    "correct_answer": 1,
+    "explanation": "Quaternions have antipodal equivalence (q and -q represent the same rotation), creating a discontinuity in the representation space that makes learning difficult. The 6D continuous representation (first two columns of the rotation matrix) provides a continuous, unique mapping without discontinuities. It's actually larger (6 values vs 4) but much easier to learn.",
+    "concept_ids": ["pose_estimation_6d"],
+    "difficulty": 3,
+    "tags": ["perception"]
+  },
+  {
+    "id": "percep_q3",
+    "question": "During hand-eye calibration, insufficient diversity in calibration poses primarily leads to:",
+    "options": ["Incorrect intrinsic parameters", "Accurate calibration in the sampled region but large errors elsewhere", "Complete calibration failure", "Slow convergence of the solver"],
+    "correct_answer": 1,
+    "explanation": "The AX=XB solver needs diverse pose pairs to fully constrain the 6-DOF transform. If all poses are from similar angles/positions, the rotation component is poorly constrained. The calibration appears successful (low residual in the sampled region) but generalization is poor. This is why the recommendation is 15-20 poses from diverse orientations.",
+    "concept_ids": ["camera_calibration"],
+    "difficulty": 2,
+    "tags": ["perception"]
+  }
+]

@@ -1,0 +1,52 @@
+[
+  {
+    "id": "robot_q1",
+    "question": "A robot policy trained in simulation achieves 95% success but drops to 30% on the real robot. The most likely cause is:",
+    "options": ["Insufficient training steps in simulation", "Reality gap — sim physics/rendering doesn't match real world", "The reward function is too sparse", "The policy architecture is too small"],
+    "correct_answer": 1,
+    "explanation": "The large sim-to-real performance gap (95% → 30%) is the classic reality gap problem. The policy overfit to simulation-specific dynamics (friction, contact models, visual appearance) that don't transfer. Solutions: domain randomization, system identification, or real-world fine-tuning.",
+    "concept_ids": ["sim2real_transfer", "domain_randomization"],
+    "difficulty": 2,
+    "tags": ["robot_learning"]
+  },
+  {
+    "id": "robot_q2",
+    "question": "In behavior cloning, compounding errors occur because:",
+    "options": ["The expert demonstrations are noisy", "Small prediction errors push the policy into states not covered by demonstrations", "The loss function doesn't penalize large errors enough", "The model memorizes demonstrations instead of generalizing"],
+    "correct_answer": 1,
+    "explanation": "Compounding errors (covariate shift) is the fundamental challenge of BC. A small prediction error at timestep t causes the policy to drift into a state distribution not seen in demonstrations. At timestep t+1, the policy is in an unfamiliar state, makes a larger error, drifts further, and errors cascade. DAgger addresses this by collecting expert corrections in the policy's own state distribution.",
+    "concept_ids": ["behavior_cloning"],
+    "difficulty": 2,
+    "tags": ["robot_learning"]
+  },
+  {
+    "id": "robot_q3",
+    "question": "Domain randomization with too wide a parameter range typically causes:",
+    "options": ["The policy fails to converge during training", "The policy becomes overly conservative, performing worst-case behavior", "The simulation becomes unstable", "The policy only works in simulation"],
+    "correct_answer": 1,
+    "explanation": "When randomization ranges are too wide, the policy must handle extremely diverse conditions including adversarial combinations. It learns the safest, most conservative behavior that works across all conditions — which may be too cautious for the real world. The fix is ADR (Automatic Domain Randomization) that expands ranges based on performance.",
+    "concept_ids": ["domain_randomization", "sim2real_transfer"],
+    "difficulty": 3,
+    "tags": ["robot_learning"]
+  },
+  {
+    "id": "robot_q4",
+    "question": "Action chunking (predicting K future actions at once) primarily helps behavior cloning by:",
+    "options": ["Reducing computational cost", "Reducing the effective decision horizon, which mitigates compounding errors", "Making the policy smoother", "Enabling parallel execution on the robot"],
+    "correct_answer": 1,
+    "explanation": "Action chunking reduces the number of independent decisions the policy makes over a trajectory. With K=100, a 1000-step task only requires 10 decisions instead of 1000. Fewer decisions = fewer opportunities for errors to compound. Smoother trajectories are a benefit but not the primary mechanism — it's the horizon reduction that addresses BC's core weakness.",
+    "concept_ids": ["action_chunking", "behavior_cloning"],
+    "difficulty": 3,
+    "tags": ["robot_learning"]
+  },
+  {
+    "id": "robot_q5",
+    "question": "Using a pre-trained visual encoder (e.g., R3M, DINOv2) instead of training from scratch for visuomotor policies primarily helps with:",
+    "options": ["Inference speed", "Sample efficiency — needing far fewer demonstrations", "Handling dynamic environments", "Multi-task generalization"],
+    "correct_answer": 1,
+    "explanation": "Pre-trained visual encoders have already learned useful visual features from large-scale data. For manipulation, this means the policy only needs to learn the mapping from features to actions, not how to process raw pixels. In practice, this reduces demonstration requirements by 5-10x: from hundreds to tens of demonstrations.",
+    "concept_ids": ["visuomotor_policy", "representation_learning"],
+    "difficulty": 2,
+    "tags": ["robot_learning", "perception"]
+  }
+]

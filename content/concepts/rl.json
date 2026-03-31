@@ -1,0 +1,80 @@
+[
+  {
+    "id": "ppo_clipping",
+    "title": "Proximal Policy Optimization (PPO) — Clipping Mechanism",
+    "definition": "PPO constrains policy updates by clipping the probability ratio r(θ) = π_new(a|s)/π_old(a|s) to [1-ε, 1+ε], preventing destructively large policy changes. The clipped surrogate objective is: L^CLIP = E[min(r(θ)·A, clip(r(θ), 1-ε, 1+ε)·A)].",
+    "intuition": "Imagine updating your driving strategy after a bad day. Without clipping, you might overcorrect — go from 'too aggressive' to 'refuse to merge.' PPO's clip (typically ε=0.2) is a speed limit on how much your policy can change in one update. The min() ensures you only get the pessimistic (conservative) benefit.",
+    "practical_example": "Training a robot arm to stack blocks using PPO with ε=0.2. After 500K env steps, the policy reliably reaches 85% success. Compare: vanilla policy gradient diverged at 200K steps. Key detail: PPO needs multiple epochs (3-10) per batch, unlike TRPO's single constrained step.",
+    "failure_mode": "Entropy collapse: policy becomes deterministic too early, converging to a single action mode. Symptoms: reward plateaus, action std → 0. Root cause: entropy coefficient too low. Fix: increase entropy bonus to 0.01-0.05, monitor policy entropy.",
+    "interview_answer": "PPO stabilizes policy gradient training by clipping the importance sampling ratio between old and new policies. The key insight is the min of clipped and unclipped objectives — this creates a pessimistic bound that prevents destructive updates. In practice, PPO with ε=0.2, batch_size=2048, 10 epochs per update, and entropy bonus 0.01 is a strong default for continuous control. Compared to TRPO, PPO is simpler (no conjugate gradient) and scales better.",
+    "tags": ["rl", "robot_learning"],
+    "difficulty": 3,
+    "importance": 5,
+    "related_concept_ids": ["trpo", "policy_gradients", "kl_divergence", "entropy_regularization", "sac"]
+  },
+  {
+    "id": "sac",
+    "title": "Soft Actor-Critic (SAC)",
+    "definition": "SAC is an off-policy actor-critic algorithm that maximizes a trade-off between expected return and entropy: J(π) = E[Σ r(s,a) + α·H(π(·|s))]. It uses two Q-networks, a value network, and automatic temperature (α) tuning.",
+    "intuition": "SAC is like a policy that's rewarded for being both good and creative. The entropy term encourages exploration by penalizing deterministic behavior. The automatic temperature α finds the right balance — early in training α is high (explore more), later it decreases (exploit more).",
+    "practical_example": "Training a dexterous hand to rotate a cube in MuJoCo. SAC reaches 90% success in 2M steps vs PPO needing 10M steps. The replay buffer lets SAC reuse past experience. Key: use two Q-networks with min to prevent overestimation (clipped double Q).",
+    "failure_mode": "Q-function overestimation: despite double-Q trick, value estimates can still diverge in complex environments. Symptoms: Q-values grow unbounded, policy degrades suddenly. Fix: increase target network update period (τ=0.005), add reward scaling, use layer normalization in critics.",
+    "interview_answer": "SAC maximizes both reward and entropy, which prevents premature convergence and provides natural exploration. The key innovation is the automatic temperature parameter α that adapts the entropy-reward trade-off during training. Being off-policy with a replay buffer gives SAC much better sample efficiency than PPO. For robot learning where real data is expensive, SAC is often preferred. The trade-off: it can exploit simulator artifacts stored in the replay buffer during sim2real transfer.",
+    "tags": ["rl"],
+    "difficulty": 3,
+    "importance": 5,
+    "related_concept_ids": ["ppo_clipping", "off_policy_learning", "entropy_regularization", "replay_buffer"]
+  },
+  {
+    "id": "policy_gradients",
+    "title": "Policy Gradient Methods",
+    "definition": "Policy gradient methods directly optimize the policy π_θ(a|s) by estimating the gradient of expected return: ∇J(θ) = E[∇log π_θ(a|s) · A(s,a)], where A is the advantage function. The policy is updated via gradient ascent on this objective.",
+    "intuition": "Instead of figuring out the value of every state (value-based), policy gradients directly tune the knobs that control behavior. Think of a robot arm — rather than mapping every joint angle to a value, you directly adjust the parameters that choose which angle to move to. The advantage A tells you: 'was this action better or worse than average?'",
+    "practical_example": "REINFORCE algorithm for a CartPole task. Sample trajectories, compute returns, estimate advantage (return - baseline), update policy. With a learned value function baseline, variance drops significantly. For continuous actions, output mean and std of a Gaussian.",
+    "failure_mode": "High variance gradients causing unstable training. Symptoms: erratic reward curves, no convergence even with enough data. Fix: use advantage estimation (GAE), increase batch size, add baseline. Also: for continuous actions, unconstrained std can collapse to zero (similar to PPO entropy collapse).",
+    "interview_answer": "Policy gradients are the foundation of modern RL for continuous control. The key equation is the policy gradient theorem: ∇J = E[∇log π · A]. In practice, we use GAE (λ=0.95) for advantage estimation and normalize advantages per batch. The main challenge is high variance — addressed by baselines, larger batches, and methods like PPO/TRPO that constrain update size. Policy gradients naturally handle continuous action spaces, unlike DQN which requires discretization.",
+    "tags": ["rl"],
+    "difficulty": 2,
+    "importance": 5,
+    "related_concept_ids": ["ppo_clipping", "sac", "advantage_estimation", "value_functions"]
+  },
+  {
+    "id": "reward_shaping",
+    "title": "Reward Shaping",
+    "definition": "Reward shaping modifies the reward function to provide denser learning signals while preserving the optimal policy. Potential-based shaping R'(s,a,s') = R(s,a,s') + γΦ(s') - Φ(s) guarantees policy invariance. Non-potential-based shaping can change the optimal policy.",
+    "intuition": "Sparse rewards are like learning to cook with only a pass/fail test at the end. Reward shaping adds intermediate feedback: 'the sauce smells good' (closer to goal), 'the temperature is right' (subgoal achieved). But bad shaping can teach shortcuts — a robot that hovers near the goal without actually reaching it.",
+    "practical_example": "Training a robot to pick and place objects. Sparse reward: +1 only on successful place. Shaped reward: +distance_reduction + grasp_bonus + height_bonus. Problem: robot learns to pick up and hold the object (maximizing grasp + height bonuses) without placing it. Fix: use potential-based shaping or curriculum with sparse final reward.",
+    "failure_mode": "Reward hacking: agent exploits shaped reward without achieving the intended goal. Common in robotics: robot shakes object to maximize 'movement' reward, or hovers near goal to collect proximity reward. Fix: use potential-based shaping (proven to be policy-invariant), minimize auxiliary rewards, verify with sparse reward evaluation.",
+    "interview_answer": "Reward shaping provides denser learning signals for sparse-reward tasks, which is critical in robotics where exploration is expensive. The key theoretical result: potential-based shaping (R' = R + γΦ(s') - Φ(s)) provably preserves the optimal policy. Non-potential-based shaping is dangerous — it can create local optima. In practice, I use a combination: potential-based terms for guidance plus the true sparse reward, and always evaluate final performance on the unshaped reward.",
+    "tags": ["rl", "robot_learning"],
+    "difficulty": 3,
+    "importance": 4,
+    "related_concept_ids": ["sparse_rewards", "curriculum_learning", "exploration"]
+  },
+  {
+    "id": "offline_rl",
+    "title": "Offline Reinforcement Learning",
+    "definition": "Offline RL learns a policy from a fixed dataset of previously collected transitions (s, a, r, s') without any additional environment interaction. Key challenge: distributional shift between the learned policy and the behavior policy that collected the data. Methods include CQL, IQL, and TD3+BC.",
+    "intuition": "Like learning to drive from dashcam footage without ever getting behind the wheel. The data shows what happened, but you can't try new things to see what would happen. The danger: your policy might choose actions that look good according to the Q-function but are actually out-of-distribution — the Q-function is just guessing for actions it's never seen.",
+    "practical_example": "Using a dataset of 100K robot grasping attempts (mixed quality) to train a grasping policy. CQL adds a penalty for Q-values of out-of-distribution actions, keeping the policy close to observed behavior. IQL avoids querying the Q-function for unseen actions entirely by using expectile regression.",
+    "failure_mode": "Overestimation of Q-values for out-of-distribution actions leads to policy collapse. The policy selects actions where the Q-function is incorrectly optimistic. Symptoms: high Q-values but low actual returns when deployed. Fix: use conservative methods (CQL, IQL), increase conservatism parameter, filter dataset quality.",
+    "interview_answer": "Offline RL is critical for robotics because online interaction is expensive and risky. The core challenge is distributional shift — the learned policy may take actions never seen in the dataset, where Q-estimates are unreliable. CQL addresses this by penalizing Q-values for unseen actions. IQL is more elegant — it never queries Q for actions outside the dataset by using expectile regression. In practice, dataset quality matters enormously: diverse, high-quality data outperforms volume. I think offline RL + online fine-tuning is the practical sweet spot.",
+    "tags": ["rl"],
+    "difficulty": 4,
+    "importance": 4,
+    "related_concept_ids": ["behavior_cloning", "distributional_shift", "replay_buffer"]
+  },
+  {
+    "id": "value_functions",
+    "title": "Value Functions (V and Q)",
+    "definition": "V(s) = E[Σ γ^t r_t | s_0 = s] estimates expected cumulative reward from state s. Q(s,a) = E[Σ γ^t r_t | s_0 = s, a_0 = a] estimates it from state-action pair (s,a). The advantage A(s,a) = Q(s,a) - V(s) measures how much better action a is compared to the average.",
+    "intuition": "V(s) is like knowing the overall quality of a chess position. Q(s,a) is knowing the quality of a specific move in that position. The advantage A(s,a) tells you: 'was this move better or worse than what you'd normally do here?' It's the signal that drives policy improvement — positive advantage means 'do more of this.'",
+    "practical_example": "In actor-critic methods for robot locomotion, the critic learns V(s) and we estimate A(s,a) using GAE: A^GAE = Σ (γλ)^t δ_t where δ_t = r_t + γV(s_{t+1}) - V(s_t). Lambda=0.95 gives a good bias-variance trade-off. The critic architecture typically shares early layers with the actor.",
+    "failure_mode": "Value function overestimation leading to policy degradation. In Q-learning: max operator causes systematic overestimation. In actor-critic: critic can overfit to limited data in early training. Fix: double Q-learning, target networks with slow update (τ=0.005), large replay buffers, proper normalization.",
+    "interview_answer": "Value functions are the backbone of most RL algorithms. V(s) and Q(s,a) estimate expected returns, and the advantage A = Q - V drives policy updates. In practice, GAE (Generalized Advantage Estimation) with λ=0.95 provides the best bias-variance trade-off for advantage computation. Key implementation details: normalize advantages per batch, use separate target networks for stability, and consider shared vs separate actor-critic architectures based on the task complexity.",
+    "tags": ["rl"],
+    "difficulty": 2,
+    "importance": 5,
+    "related_concept_ids": ["policy_gradients", "advantage_estimation", "temporal_difference"]
+  }
+]

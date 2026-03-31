@@ -1,0 +1,62 @@
+[
+  {
+    "id": "rl_q1",
+    "question": "When using PPO for robot manipulation and the policy converges to a single deterministic action early in training, the most likely cause is:",
+    "options": ["Learning rate too high", "Entropy coefficient too low", "Discount factor too high", "Batch size too small"],
+    "correct_answer": 1,
+    "explanation": "Low entropy coefficient allows the policy to collapse to a single mode — the entropy term is what prevents premature determinism. Increasing the entropy bonus to 0.01-0.05 encourages continued exploration. A high learning rate would cause instability rather than convergence, and discount factor/batch size have different failure signatures.",
+    "concept_ids": ["ppo_clipping"],
+    "difficulty": 3,
+    "tags": ["rl"]
+  },
+  {
+    "id": "rl_q2",
+    "question": "What is the key advantage of SAC over PPO for real-robot training where data collection is expensive?",
+    "options": ["SAC is more stable during training", "SAC is off-policy and can reuse data via replay buffer", "SAC doesn't require hyperparameter tuning", "SAC produces smoother control signals"],
+    "correct_answer": 1,
+    "explanation": "SAC is off-policy — it stores all past experience in a replay buffer and can learn from it repeatedly. This makes SAC much more sample-efficient than PPO, which is on-policy and discards data after each update. When real-robot data costs time and risk, this sample efficiency advantage is decisive.",
+    "concept_ids": ["sac", "ppo_clipping"],
+    "difficulty": 2,
+    "tags": ["rl"]
+  },
+  {
+    "id": "rl_q3",
+    "question": "In the SM-2 spaced repetition algorithm, what happens to the interval when you rate recall quality as 2 (poor but not total failure)?",
+    "options": ["Interval doubles", "Interval resets to 1 day", "Interval stays the same", "Interval increases by ease factor"],
+    "correct_answer": 1,
+    "explanation": "In SM-2, any quality rating below 3 is treated as a failure, which resets repetitions to 0 and interval to 1 day. The item needs to be relearned from scratch. Quality 3+ is considered successful recall, with interval increasing based on the ease factor.",
+    "concept_ids": ["value_functions"],
+    "difficulty": 2,
+    "tags": ["rl"]
+  },
+  {
+    "id": "rl_q4",
+    "question": "Potential-based reward shaping (R' = R + γΦ(s') - Φ(s)) guarantees:",
+    "options": ["Faster convergence", "The same optimal policy as the original reward", "No reward hacking", "Better exploration"],
+    "correct_answer": 1,
+    "explanation": "The key theoretical result of potential-based shaping (Ng et al., 1999) is policy invariance — the optimal policy under the shaped reward is identical to the optimal policy under the original reward. It may help with faster convergence in practice, but the guarantee is specifically about preserving the optimal policy.",
+    "concept_ids": ["reward_shaping"],
+    "difficulty": 3,
+    "tags": ["rl"]
+  },
+  {
+    "id": "rl_q5",
+    "question": "In offline RL, the core challenge of distributional shift means:",
+    "options": ["The reward distribution changes over time", "The observation distribution differs between train and test", "The learned policy may select actions not seen in the training data, where Q-estimates are unreliable", "The data collection policy is non-stationary"],
+    "correct_answer": 2,
+    "explanation": "In offline RL, the learned policy may query the Q-function for (state, action) pairs that were never observed in the dataset. For these out-of-distribution actions, the Q-function is extrapolating and often overestimates values, leading the policy to select bad actions it thinks are good. This is why methods like CQL penalize Q-values for unseen actions.",
+    "concept_ids": ["offline_rl"],
+    "difficulty": 3,
+    "tags": ["rl"]
+  },
+  {
+    "id": "rl_q6",
+    "question": "The advantage function A(s,a) = Q(s,a) - V(s) is preferred over raw returns in policy gradients because:",
+    "options": ["It's faster to compute", "It reduces variance by centering the learning signal around the average", "It automatically handles continuous action spaces", "It removes the need for discount factors"],
+    "correct_answer": 1,
+    "explanation": "The advantage centers the learning signal: positive A means 'this action was better than average,' negative means worse. Raw returns have high variance because they include the baseline expected return at every state. By subtracting V(s) (the average return from state s), variance is dramatically reduced while keeping the gradient unbiased.",
+    "concept_ids": ["value_functions", "policy_gradients"],
+    "difficulty": 2,
+    "tags": ["rl"]
+  }
+]

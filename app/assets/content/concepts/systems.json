@@ -1,0 +1,54 @@
+[
+  {
+    "id": "experiment_tracking",
+    "title": "Experiment Tracking and Reproducibility",
+    "definition": "Systematic logging of hyperparameters, metrics, code versions, data versions, and artifacts for every training run. Tools: W&B (Weights & Biases), MLflow, TensorBoard. Reproducibility requires: fixed seeds, deterministic ops, versioned data, containerized environments.",
+    "intuition": "Like a lab notebook for ML experiments. When your colleague asks 'what was the learning rate for the run that got 90% success?' you need an instant answer, not a folder of untitled scripts. Good tracking means any result can be reproduced by anyone on the team at any time.",
+    "practical_example": "W&B setup for RL training: log every 1000 steps — reward, episode length, loss, entropy, learning rate. Log hyperparameters as config. Save model checkpoints as artifacts with data version tags. Custom W&B panels for comparing runs across hyperparameter sweeps. Use sweep agents for automated hyperparameter search.",
+    "failure_mode": "Results not reproducible: 'worked on my machine' syndrome. Random seeds not fixed, GPU non-determinism, data pipeline changed between runs, library version drift. Symptoms: best result can't be recreated. Fix: log everything (code hash, pip freeze, data hash), use containers (Docker), set CUBLAS_WORKSPACE_CONFIG for GPU determinism.",
+    "interview_answer": "Experiment tracking is non-negotiable for professional ML work. My setup: W&B for metrics/hyperparams/artifacts, git for code, DVC for data versioning, Docker for environment reproducibility. Key principles: (1) every run must be reproducible from its logged config, (2) compare runs on equal footing (same eval protocol), (3) track compute cost alongside performance. In industry, the ability to trace any deployed model back to its exact training configuration is a hard requirement for debugging production issues.",
+    "tags": ["systems"],
+    "difficulty": 2,
+    "importance": 5,
+    "related_concept_ids": ["evaluation_methodology", "deployment_thinking"]
+  },
+  {
+    "id": "evaluation_methodology",
+    "title": "Evaluation Methodology for Robot Learning",
+    "definition": "Rigorous assessment of robot policy performance. Includes: success rate (primary), failure mode analysis, sim-to-real transfer metrics, generalization tests (novel objects, positions), robustness tests (perturbations), and statistical significance (multiple seeds, confidence intervals).",
+    "intuition": "A 90% success rate in the lab means nothing if you only tested on 10 trials with the same object in the same position. Proper evaluation means: 100+ trials, varied conditions, reporting confidence intervals, and categorizing failure modes. It's the difference between 'it works' and 'it works and I know when it will fail.'",
+    "practical_example": "Manipulation policy evaluation: 100 trials across 5 object categories × 4 initial positions = 2000 total trials. Report: overall success rate (85% ± 3%), per-category breakdown, failure mode taxonomy (grasp slip: 40% of failures, perception error: 30%, planning failure: 30%). Include sim and real results separately.",
+    "failure_mode": "Cherry-picked results: only reporting best seed, testing only on easy configurations, not controlling for environmental variation. Also: sim evaluation doesn't predict real performance — policies that reach 99% in sim may drop to 60% in real. Fix: always report real-robot results, use sufficient trial counts (50+), report standard deviation across seeds, test on held-out configurations.",
+    "interview_answer": "Rigorous evaluation is what separates research demos from deployable systems. My evaluation protocol: (1) define success criteria precisely (binary success, not continuous metrics), (2) test across varied conditions (objects, positions, lighting), (3) report mean ± std across 3+ seeds and 50+ trials, (4) categorize every failure. In industry, I also add: edge case discovery (adversarial testing), long-horizon reliability (1000+ sequential executions), and degradation testing (what breaks first as conditions change). The most important metric is rarely the one in the paper — it's the failure mode distribution.",
+    "tags": ["systems"],
+    "difficulty": 2,
+    "importance": 5,
+    "related_concept_ids": ["experiment_tracking", "deployment_thinking", "failure_analysis"]
+  },
+  {
+    "id": "deployment_thinking",
+    "title": "Deployment Thinking for Robot Systems",
+    "definition": "Designing robot learning systems with deployment constraints in mind from day one: inference latency, compute budget, failure recovery, monitoring, and graceful degradation. The gap between a research demo and a production robot is mostly systems engineering.",
+    "intuition": "A research demo runs on an A100 with a human ready to hit the e-stop. A deployed system runs on an edge GPU 24/7 with no human in the loop. Deployment thinking means asking: 'What happens when the model outputs garbage? What if inference takes 200ms instead of 50ms? What if the camera gets occluded?'",
+    "practical_example": "Deploying a pick-and-place policy: model distillation from a 300M diffusion model to a 10M student model for edge inference. Add a confidence threshold — if the policy's predicted uncertainty exceeds a bound, stop and request human intervention. Monitor: inference latency p99, prediction confidence, success rate rolling window, camera health.",
+    "failure_mode": "Silent failure: the system continues operating but performance degrades without alerting anyone. Example: camera calibration drifts over weeks, success rate slowly drops from 95% to 70%. Nobody notices until production quality complaints. Fix: continuous monitoring dashboards, automated performance regression alerts, periodic recalibration schedules.",
+    "interview_answer": "Deployment is where most robot learning projects fail — not because the model is bad, but because the systems around it aren't robust. Key principles: (1) latency budget — know your control loop timing and design inference to fit, (2) failure detection — the system must know when it's failing (confidence estimation, anomaly detection), (3) graceful degradation — when confidence is low, fall back to safer behavior or stop, (4) monitoring — dashboards for success rate, latency, confidence distribution in production, (5) update pipeline — ability to retrain and redeploy without downtime. The question I always ask: 'What happens at 3 AM when nobody is watching?'",
+    "tags": ["systems"],
+    "difficulty": 3,
+    "importance": 5,
+    "related_concept_ids": ["experiment_tracking", "evaluation_methodology", "latency_optimization"]
+  },
+  {
+    "id": "latency_optimization",
+    "title": "Inference Latency Optimization for Robot Control",
+    "definition": "Reducing the time from observation to action output to meet real-time control requirements. Techniques: model distillation, quantization (FP16/INT8), TensorRT compilation, batched inference, async perception-control pipelines, model pruning. Target: <50ms for manipulation, <10ms for reactive control.",
+    "intuition": "A robot reaching for a moving object can't wait 500ms for a diffusion model to generate an action. Latency directly limits control bandwidth — at 100ms latency, you can only correct 10 times per second. Every millisecond matters for reactive, contact-rich tasks.",
+    "practical_example": "Optimizing a diffusion policy: original (100 denoising steps, FP32) → 1.5s per action. Step 1: DDIM (10 steps) → 150ms. Step 2: FP16 inference → 100ms. Step 3: TensorRT compilation → 60ms. Step 4: async pipeline (predict next chunk while executing current) → effective 30ms latency. Total: 50x speedup.",
+    "failure_mode": "Optimized model has different behavior: quantization changes numerical outputs enough to affect policy behavior. Symptoms: policy works in FP32 but fails in FP16/INT8 — subtle action differences compound. Fix: calibrate quantization on representative data, validate post-optimization on full evaluation suite, use mixed-precision (sensitive layers in FP32).",
+    "interview_answer": "Latency optimization is critical for deploying learned robot policies. My optimization stack: (1) algorithmic — reduce denoising steps with DDIM/consistency models, (2) numerical — FP16 inference, mixed precision where needed, (3) compilation — TensorRT/ONNX for GPU, TFLite for edge, (4) architectural — async pipelines so inference runs in parallel with execution. Key insight: it's often better to use a smaller, faster model with slightly lower accuracy than a large slow one — the control bandwidth improvement more than compensates. Target latencies: <50ms for pick-and-place, <10ms for contact-rich tasks, <1ms for joint-level reactive control.",
+    "tags": ["systems"],
+    "difficulty": 3,
+    "importance": 4,
+    "related_concept_ids": ["diffusion_policy", "deployment_thinking", "model_distillation"]
+  }
+]

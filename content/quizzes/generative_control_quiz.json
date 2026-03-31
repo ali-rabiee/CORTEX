@@ -1,0 +1,32 @@
+[
+  {
+    "id": "gc_q1",
+    "question": "Diffusion policies handle multi-modal action distributions better than standard behavior cloning because:",
+    "options": ["They use larger networks", "The iterative denoising process can represent arbitrary distributions without mode averaging", "They train on more data", "They use recurrent architectures"],
+    "correct_answer": 1,
+    "explanation": "Standard BC with MSE loss fits a unimodal Gaussian, which averages multiple valid modes into an invalid intermediate action. Diffusion models learn the full distribution through iterative denoising — they can represent arbitrary multimodal distributions. During inference, each denoising trajectory naturally samples from one mode.",
+    "concept_ids": ["diffusion_policy", "multimodal_distributions"],
+    "difficulty": 3,
+    "tags": ["generative_control"]
+  },
+  {
+    "id": "gc_q2",
+    "question": "Flow matching offers an advantage over diffusion models for robot control primarily because:",
+    "options": ["It produces higher quality actions", "It's simpler to train (no noise schedule) and faster at inference (fewer ODE steps)", "It handles images better", "It works with discrete action spaces"],
+    "correct_answer": 1,
+    "explanation": "Flow matching learns a direct transport from noise to data via a vector field, requiring no noise schedule design. At inference, the ODE can be solved in 5-10 steps (vs 20-100 for diffusion). The training objective is simpler (direct vector field regression). Quality is comparable to diffusion — the advantage is practical simplicity and speed.",
+    "concept_ids": ["flow_matching", "diffusion_policy"],
+    "difficulty": 3,
+    "tags": ["generative_control"]
+  },
+  {
+    "id": "gc_q3",
+    "question": "When a behavior cloning policy trained with MSE loss on pick-and-place demos hovers above the object without committing to a grasp direction, the likely cause is:",
+    "options": ["Insufficient demonstrations", "Mode averaging — MSE loss averages multiple valid approach directions", "The observation space is too high-dimensional", "Action scaling is incorrect"],
+    "correct_answer": 1,
+    "explanation": "If demonstrations include approaches from different angles (left, right, top), MSE loss finds the Gaussian mean — which is directly above the object. This 'averaged' action isn't a valid grasp approach, so the robot hovers. Diffusion policies or mixture models can represent the multiple valid modes without averaging.",
+    "concept_ids": ["multimodal_distributions", "behavior_cloning"],
+    "difficulty": 2,
+    "tags": ["generative_control", "robot_learning"]
+  }
+]
