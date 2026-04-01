@@ -1,0 +1,82 @@
+[
+  {
+    "id": "mlf_q1",
+    "question": "During backpropagation through a 50-layer network using sigmoid activations, you observe that gradients in the first 10 layers are on the order of $10^{-12}$. Which modification most directly addresses this without changing the architecture depth?",
+    "options": ["Increase the learning rate by $10^6$ to compensate for small gradients", "Replace sigmoid activations with ReLU to keep gradients in $\\{0, 1\\}$ for active units", "Add L2 regularization to prevent weights from shrinking", "Use a larger batch size to get more stable gradient estimates"],
+    "correct_answer": 1,
+    "explanation": "The vanishing gradient problem with sigmoid arises because $\\sigma'(x) \\leq 0.25$ everywhere, so gradients shrink exponentially as $\\prod_l \\sigma'(z^{(l)})$. ReLU has gradient exactly 1 for positive inputs and 0 otherwise, eliminating the multiplicative shrinkage for active neurons. Increasing the learning rate is a band-aid that introduces instability and doesn't fix the exponential decay structure. L2 regularization shrinks weights further (worsening the problem), and batch size affects variance of estimates, not systematic attenuation.",
+    "concept_ids": ["backpropagation", "activation_functions"],
+    "difficulty": 3,
+    "tags": ["ml_fundamentals"]
+  },
+  {
+    "id": "mlf_q2",
+    "question": "Standard self-attention in a Transformer has $O(n^2 d)$ time complexity for sequence length $n$ and embedding dimension $d$. A colleague claims that for a 32k-token context, simply switching to FlashAttention makes the theoretical complexity sub-quadratic. What is wrong with this claim?",
+    "options": ["FlashAttention is sub-quadratic — the claim is correct", "FlashAttention reduces the constant factor and memory from $O(n^2)$ to $O(n)$ via tiling and recomputation, but the arithmetic complexity remains $O(n^2 d)$", "FlashAttention only works for causal (decoder) attention, not full self-attention", "FlashAttention achieves $O(n \\log n)$ by approximating attention with a sparse pattern"],
+    "correct_answer": 1,
+    "explanation": "FlashAttention is an exact algorithm — it computes the same $\\text{softmax}(QK^T / \\sqrt{d})V$ result. Its innovation is IO-awareness: by tiling the computation into SRAM-sized blocks and never materializing the full $n \\times n$ attention matrix in HBM, it reduces memory from $O(n^2)$ to $O(n)$ and achieves significant wall-clock speedups. However, the total FLOP count remains $O(n^2 d)$. Sub-quadratic arithmetic complexity requires approximations like Linformer, Performer, or sparse patterns — FlashAttention does not approximate.",
+    "concept_ids": ["transformers", "attention_mechanisms"],
+    "difficulty": 4,
+    "tags": ["ml_fundamentals"]
+  },
+  {
+    "id": "mlf_q3",
+    "question": "When fine-tuning a pre-trained vision model on a small dataset (5k images), you switch from Adam ($\\beta_1=0.9, \\beta_2=0.999$) to SGD with momentum 0.9 and observe better final accuracy despite slower initial convergence. Which explanation best accounts for this?",
+    "options": ["SGD has fewer hyperparameters, reducing the chance of misconfiguration", "Adam's per-parameter adaptive learning rates can overfit to noise in small-data regimes because rare but noisy gradient features get disproportionately large effective step sizes", "SGD's momentum term provides better exploration of the loss landscape than Adam", "Adam requires a warmup schedule that was not used, and this is the only issue"],
+    "correct_answer": 1,
+    "explanation": "Adam divides by $\\sqrt{\\hat{v}_t} + \\epsilon$, where $\\hat{v}_t$ is the second moment estimate. For parameters with sparse or infrequent gradient signals, $\\hat{v}_t$ stays small, leading to large effective step sizes that can overfit to noise — a well-documented issue (Wilson et al., 2017). In small-data regimes this is particularly problematic because gradient noise is higher relative to the true signal. SGD applies a uniform learning rate, acting as an implicit regularizer. While warmup helps Adam, the fundamental adaptivity-overfitting tradeoff remains even with proper scheduling.",
+    "concept_ids": ["optimizers", "fine_tuning"],
+    "difficulty": 4,
+    "tags": ["ml_fundamentals"]
+  },
+  {
+    "id": "mlf_q4",
+    "question": "A batch normalization layer computes $\\hat{x}_i = (x_i - \\mu_B) / \\sqrt{\\sigma_B^2 + \\epsilon}$ during training using batch statistics $\\mu_B, \\sigma_B^2$. At test time with a single input, batch statistics are meaningless. What does standard BN do at inference?",
+    "options": ["Computes statistics across the spatial dimensions of the single input (instance normalization)", "Uses exponential moving averages of $\\mu_B$ and $\\sigma_B^2$ accumulated during training", "Disables normalization entirely and uses raw activations", "Runs the input through the network multiple times with dropout to estimate statistics"],
+    "correct_answer": 1,
+    "explanation": "During training, BN maintains running (exponential moving) averages: $\\mu_{\\text{run}} \\leftarrow (1-m)\\mu_{\\text{run}} + m \\cdot \\mu_B$ and similarly for variance. At inference, these stored running statistics replace batch statistics, making predictions deterministic and independent of other samples in a batch. This is why calling `model.eval()` in PyTorch is critical — it switches BN from batch statistics to running statistics. Using spatial statistics would be instance normalization (a different technique), and disabling normalization would break the learned scale/shift parameters.",
+    "concept_ids": ["batch_normalization", "training_inference_gap"],
+    "difficulty": 3,
+    "tags": ["ml_fundamentals"]
+  },
+  {
+    "id": "mlf_q5",
+    "question": "You train a network with dropout $p=0.5$ and achieve good validation performance. At inference you disable dropout but forget to scale the weights. Compared to correct inference behavior, what happens to the activations in a dropped-out layer?",
+    "options": ["Activations are approximately half the expected magnitude", "Activations are approximately double the expected magnitude, potentially saturating downstream nonlinearities", "Activations are unchanged because dropout only affects gradients, not forward pass", "Activations become noisier but with correct expected value"],
+    "correct_answer": 1,
+    "explanation": "During training with $p=0.5$, each neuron's output is zeroed independently with probability 0.5, so the expected sum of inputs to the next layer is halved. At inference with all neurons active but no scaling, each layer passes through roughly $2\\times$ the activation magnitude that downstream layers were trained to expect. The standard correction is to multiply weights by $(1-p)$ at test time (or equivalently, use inverted dropout during training, dividing activations by $(1-p)$ so no test-time adjustment is needed). The $2\\times$ magnification compounds across layers and can cause saturation or numerical issues.",
+    "concept_ids": ["dropout", "regularization"],
+    "difficulty": 3,
+    "tags": ["ml_fundamentals"]
+  },
+  {
+    "id": "mlf_q6",
+    "question": "For a 10-class classification task, a colleague uses MSE loss between one-hot targets and softmax outputs instead of cross-entropy. The model trains but converges slower and to a worse optimum. What is the fundamental reason cross-entropy outperforms MSE here?",
+    "options": ["MSE is not differentiable at the one-hot target values", "Cross-entropy's gradient $\\hat{y}_i - y_i$ does not saturate when the softmax output is confident but wrong, whereas MSE's gradient includes a $\\hat{y}_i(1-\\hat{y}_i)$ factor that vanishes near 0 or 1", "MSE requires the outputs to sum to 1, which creates a harder optimization constraint", "Cross-entropy uses log probabilities which are numerically more stable in all cases"],
+    "correct_answer": 1,
+    "explanation": "For cross-entropy with softmax, the gradient with respect to the logit $z_i$ simplifies to $\\hat{y}_i - y_i$, which is large whenever the prediction is wrong regardless of confidence. For MSE with softmax, the gradient includes $\\hat{y}_i(1 - \\hat{y}_i)$ from the softmax Jacobian — this term approaches 0 when $\\hat{y}_i$ is near 0 or 1. So when the model is confidently wrong ($\\hat{y}_{\\text{correct}} \\approx 0$), MSE produces tiny gradients (learning plateau) while cross-entropy produces strong corrective gradients. This gradient saturation is the primary cause of slower and worse convergence.",
+    "concept_ids": ["loss_functions", "classification"],
+    "difficulty": 4,
+    "tags": ["ml_fundamentals"]
+  },
+  {
+    "id": "mlf_q7",
+    "question": "You observe that training loss continues to decrease while validation loss starts increasing after epoch 15. Training accuracy reaches 99.8% but validation accuracy plateaus at 72%. You increase L2 regularization weight from $10^{-4}$ to $10^{-2}$ and the gap narrows but validation accuracy drops to 68%. What is the most likely diagnosis?",
+    "options": ["The model is still overfitting — increase regularization further to $10^{-1}$", "The regularization is now too strong, underfitting the data; the right approach is moderate regularization combined with other strategies (data augmentation, dropout, early stopping)", "The learning rate is too high, causing oscillation around the optimum", "The training and validation sets have different distributions (dataset shift)"],
+    "correct_answer": 1,
+    "explanation": "The initial scenario is classic overfitting (train-val gap). Increasing L2 to $10^{-2}$ reduced the gap (less overfitting) but hurt absolute performance — the model is now too constrained and underfitting. This is the bias-variance tradeoff in action: $10^{-4}$ gives high variance (overfitting), $10^{-2}$ gives high bias (underfitting). The optimal regularization strength lies somewhere in between, and in practice, combining moderate L2 with complementary techniques (augmentation for implicit regularization, dropout for co-adaptation reduction, early stopping at epoch 15) is more effective than relying on a single regularizer cranked to extreme values.",
+    "concept_ids": ["overfitting", "regularization", "bias_variance"],
+    "difficulty": 3,
+    "tags": ["ml_fundamentals"]
+  },
+  {
+    "id": "mlf_q8",
+    "question": "A 5-layer CNN uses $3 \\times 3$ kernels with stride 1 and no dilation in every layer. What is the theoretical receptive field of a single neuron in the final feature map, and what is the most direct way to increase it without adding layers or parameters?",
+    "options": ["Receptive field is $7 \\times 7$; use larger kernels ($5 \\times 5$)", "Receptive field is $11 \\times 11$; use dilated convolutions to exponentially grow the receptive field with the same kernel size", "Receptive field is $15 \\times 15$; use strided convolutions to cover more spatial area", "Receptive field is $11 \\times 11$; use $1 \\times 1$ convolutions between layers to mix channels and implicitly increase spatial coverage"],
+    "correct_answer": 1,
+    "explanation": "For $L$ layers of $3 \\times 3$ convolutions with stride 1 and no dilation, the receptive field is $1 + 2L$. With $L=5$: RF $= 1 + 2(5) = 11$. Dilated convolutions with exponentially increasing rates (e.g., $1, 2, 4, 8, 16$) grow the receptive field as $1 + 2\\sum_l d_l$ without adding parameters — for those dilation rates the RF becomes $1 + 2(1+2+4+8+16) = 63$, a massive increase from 11. Larger kernels increase parameters quadratically. Strided convolutions increase RF multiplicatively but reduce spatial resolution (lossy downsampling). $1 \\times 1$ convolutions have zero spatial extent and do not affect receptive field.",
+    "concept_ids": ["cnns", "receptive_field", "dilated_convolutions"],
+    "difficulty": 4,
+    "tags": ["ml_fundamentals"]
+  }
+]

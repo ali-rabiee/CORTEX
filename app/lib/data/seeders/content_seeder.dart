@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../../domain/entities/concept.dart';
@@ -40,6 +41,7 @@ class ContentSeeder {
       'foundation_models',
       'generative_control',
       'systems',
+      'ml_fundamentals',
     ];
 
     final allConcepts = <Concept>[];
@@ -53,7 +55,7 @@ class ContentSeeder {
             jsonList.map((j) => Concept.fromJson(j as Map<String, dynamic>)).toList();
         allConcepts.addAll(concepts);
       } catch (e) {
-        // Skip missing domain files gracefully
+        debugPrint('Failed to load concepts for $domain: $e');
         continue;
       }
     }
@@ -82,6 +84,7 @@ class ContentSeeder {
       'foundation_models',
       'generative_control',
       'systems',
+      'ml_fundamentals',
     ];
 
     final allQuestions = <QuizQuestion>[];
@@ -96,6 +99,7 @@ class ContentSeeder {
             .toList();
         allQuestions.addAll(questions);
       } catch (e) {
+        debugPrint('Failed to load quizzes for $domain: $e');
         continue;
       }
     }

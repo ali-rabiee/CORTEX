@@ -6,6 +6,7 @@ import '../../core/app_config.dart';
 import '../../core/theme/app_colors.dart';
 import '../../domain/entities/quiz_question.dart';
 import '../shared/loading_indicator.dart';
+import '../shared/math_text.dart';
 
 final quizQuestionsProvider =
     FutureProvider<List<QuizQuestion>>((ref) async {
@@ -201,8 +202,8 @@ class _QuizScreenState extends ConsumerState<QuizScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Text(
-                    question.explanation,
+                  MathText(
+                    text: question.explanation,
                     style: const TextStyle(
                       color: AppColors.textSecondary,
                       fontSize: 14,

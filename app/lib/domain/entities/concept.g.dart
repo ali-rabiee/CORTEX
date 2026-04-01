@@ -12,13 +12,13 @@ _$ConceptImpl _$$ConceptImplFromJson(Map<String, dynamic> json) =>
       title: json['title'] as String,
       definition: json['definition'] as String,
       intuition: json['intuition'] as String,
-      practicalExample: json['practicalExample'] as String,
-      failureMode: json['failureMode'] as String,
-      interviewAnswer: json['interviewAnswer'] as String,
+      practicalExample: json['practical_example'] as String,
+      failureMode: json['failure_mode'] as String,
+      interviewAnswer: json['interview_answer'] as String,
       tags: (json['tags'] as List<dynamic>).map((e) => e as String).toList(),
       difficulty: (json['difficulty'] as num).toInt(),
       importance: (json['importance'] as num).toInt(),
-      relatedConceptIds: (json['relatedConceptIds'] as List<dynamic>)
+      relatedConceptIds: (json['related_concept_ids'] as List<dynamic>)
           .map((e) => e as String)
           .toList(),
     );
@@ -29,11 +29,11 @@ Map<String, dynamic> _$$ConceptImplToJson(_$ConceptImpl instance) =>
       'title': instance.title,
       'definition': instance.definition,
       'intuition': instance.intuition,
-      'practicalExample': instance.practicalExample,
-      'failureMode': instance.failureMode,
-      'interviewAnswer': instance.interviewAnswer,
+      'practical_example': instance.practicalExample,
+      'failure_mode': instance.failureMode,
+      'interview_answer': instance.interviewAnswer,
       'tags': instance.tags,
       'difficulty': instance.difficulty,
       'importance': instance.importance,
-      'relatedConceptIds': instance.relatedConceptIds,
+      'related_concept_ids': instance.relatedConceptIds,
     };

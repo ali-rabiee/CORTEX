@@ -1,11 +1,12 @@
-/// The six knowledge domains tracked by CORTEX.
+/// The seven knowledge domains tracked by CORTEX.
 enum DomainTag {
   rl('Reinforcement Learning', 'RL'),
   robotLearning('Robot Learning', 'Robot'),
   perception('Perception', 'Percep.'),
   foundationModels('Foundation Models', 'FM'),
   generativeControl('Generative Control', 'GenCtrl'),
-  systems('Systems', 'Systems');
+  systems('Systems', 'Systems'),
+  mlFundamentals('ML Fundamentals', 'ML');
 
   const DomainTag(this.label, this.shortLabel);
 
@@ -26,6 +27,8 @@ enum DomainTag {
         return DomainTag.generativeControl;
       case 'systems':
         return DomainTag.systems;
+      case 'ml_fundamentals':
+        return DomainTag.mlFundamentals;
       default:
         throw ArgumentError('Unknown domain tag: $value');
     }
@@ -45,6 +48,8 @@ enum DomainTag {
         return 'generative_control';
       case DomainTag.systems:
         return 'systems';
+      case DomainTag.mlFundamentals:
+        return 'ml_fundamentals';
     }
   }
 }

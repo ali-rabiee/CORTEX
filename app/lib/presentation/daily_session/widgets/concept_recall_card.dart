@@ -4,6 +4,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../domain/entities/concept.dart';
 import '../../shared/domain_tag_chip.dart';
 import '../../shared/difficulty_stars.dart';
+import '../../shared/math_text.dart';
 
 /// Card that shows concept title (face) and full details (revealed).
 class ConceptRecallCard extends StatelessWidget {
@@ -127,8 +128,8 @@ class _Section extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          Text(
-            content,
+          MathText(
+            text: content,
             style: const TextStyle(
               color: AppColors.textSecondary,
               fontSize: 14,

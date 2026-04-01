@@ -13,9 +13,9 @@ _$QuizQuestionImpl _$$QuizQuestionImplFromJson(Map<String, dynamic> json) =>
       options: (json['options'] as List<dynamic>)
           .map((e) => e as String)
           .toList(),
-      correctAnswer: (json['correctAnswer'] as num).toInt(),
+      correctAnswer: (json['correct_answer'] as num).toInt(),
       explanation: json['explanation'] as String,
-      conceptIds: (json['conceptIds'] as List<dynamic>)
+      conceptIds: (json['concept_ids'] as List<dynamic>)
           .map((e) => e as String)
           .toList(),
       difficulty: (json['difficulty'] as num).toInt(),
@@ -27,9 +27,9 @@ Map<String, dynamic> _$$QuizQuestionImplToJson(_$QuizQuestionImpl instance) =>
       'id': instance.id,
       'question': instance.question,
       'options': instance.options,
-      'correctAnswer': instance.correctAnswer,
+      'correct_answer': instance.correctAnswer,
       'explanation': instance.explanation,
-      'conceptIds': instance.conceptIds,
+      'concept_ids': instance.conceptIds,
       'difficulty': instance.difficulty,
       'tags': instance.tags,
     };

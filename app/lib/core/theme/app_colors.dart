@@ -27,6 +27,7 @@ class AppColors {
   static const domainFoundation = Color(0xFFF0883E);
   static const domainGenerative = Color(0xFFF778BA);
   static const domainSystems = Color(0xFF79C0FF);
+  static const domainML = Color(0xFFE3B341);
 
   // Semantic
   static const success = Color(0xFF3FB950);
@@ -72,6 +73,8 @@ class AppColors {
         return domainGenerative;
       case 'systems':
         return domainSystems;
+      case 'ml_fundamentals':
+        return domainML;
       default:
         return textSecondary;
     }

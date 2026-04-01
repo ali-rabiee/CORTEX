@@ -43,7 +43,7 @@ class AppDatabase extends _$AppDatabase {
         await into(userStatsTable).insert(
           UserStatsTableCompanion.insert(),
         );
-        // Initialize domain progress for all 6 domains
+        // Initialize domain progress for all 7 domains
         for (final domain in [
           'rl',
           'robot_learning',
@@ -51,6 +51,7 @@ class AppDatabase extends _$AppDatabase {
           'foundation_models',
           'generative_control',
           'systems',
+          'ml_fundamentals',
         ]) {
           await into(domainProgressTable).insert(
             DomainProgressTableCompanion.insert(domain: domain),

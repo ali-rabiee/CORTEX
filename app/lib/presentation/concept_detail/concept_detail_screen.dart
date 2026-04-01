@@ -8,6 +8,7 @@ import '../../domain/entities/concept.dart';
 import '../../domain/entities/review_card.dart';
 import '../shared/domain_tag_chip.dart';
 import '../shared/difficulty_stars.dart';
+import '../shared/math_text.dart';
 import '../shared/loading_indicator.dart';
 
 final conceptDetailProvider =
@@ -205,8 +206,8 @@ class _Section extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          Text(
-            content,
+          MathText(
+            text: content,
             style: const TextStyle(
               color: AppColors.textSecondary,
               fontSize: 14,

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../shared/math_text.dart';
 import 'session_provider.dart';
 import 'widgets/concept_recall_card.dart';
 import 'widgets/quality_rating_bar.dart';
@@ -271,8 +272,8 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Text(
-                    question.explanation,
+                  MathText(
+                    text: question.explanation,
                     style: const TextStyle(
                       color: AppColors.textSecondary,
                       fontSize: 14,
