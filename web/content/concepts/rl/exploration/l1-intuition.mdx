@@ -1,23 +1,151 @@
 ---
 concept: exploration
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Exploration-Exploitation Tradeoff in plain language: what is
-    it, and why does it matter?"
+  prompt: "Explain the exploration problem in plain language. What is the difference between undirected and directed exploration, and why does the distinction matter?"
   keyPoints:
-    - Imagine choosing restaurants in a new city.
-    - "Exploitation: keep going to the best restaurant you've found so far."
-    - "Exploration: try an unknown restaurant that might be even better (or
-      terrible)."
-check: []
-papers: []
+    - "You only learn about actions you take, and you only take actions you currently believe in — so a policy can be confidently stuck on a mediocre strategy forever."
+    - "Undirected exploration ($\\epsilon$-greedy, entropy bonuses, action noise) adds randomness that is re-drawn every step. It explores *locally*."
+    - "Directed exploration tracks what you are uncertain about and deliberately goes there, so the value of unvisited states propagates backwards and pulls the agent forward."
+    - "The distinction is not cosmetic. On a chain where $N$ correct choices in a row are needed, undirected exploration needs about $K^N$ attempts; directed exploration is polynomial."
+media:
+  - kind: lecture
+    title: "RL Course by David Silver — Lecture 9: Exploration and Exploitation"
+    url: https://www.youtube.com/watch?v=sGuiWX07sKw
+    source: "Google DeepMind · David Silver"
+    minutes: 99
+    note: "Builds the bandit theory — regret, UCB, Thompson sampling — then carries it into MDPs. The regret framing in the first half is what makes 'how much exploration' a quantitative question rather than a hyperparameter."
+  - kind: article
+    title: "Exploration by Random Network Distillation"
+    url: https://arxiv.org/abs/1810.12894
+    source: "Burda, Edwards, Storkey, Klimov"
+    note: "The cleanest modern intrinsic-reward method, and the paper is unusually honest about the noisy-TV problem that sank prediction-error curiosity. Read Section 2 for why a *random fixed* target sidesteps it."
+  - kind: article
+    title: "Reinforcement Learning: An Introduction (2nd ed.)"
+    url: http://incompleteideas.net/book/the-book-2nd.html
+    source: "Sutton & Barto"
+    note: "Chapter 2 is the bandit chapter and the right place to build intuition before MDPs complicate it. Section 2.7 on UCB is the derivation reproduced in Level 2."
+check:
+  - id: exp_l1_c1
+    prompt: "Why is $\\epsilon$-greedy fundamentally inadequate on a task requiring a long specific sequence of actions before any reward appears?"
+    options:
+      - "Because $\\epsilon$ decays too quickly in standard schedules"
+      - "Because the randomness is re-drawn independently at every step, so reaching a state $N$ correct choices away requires getting lucky $N$ times in a row — a probability that shrinks exponentially in $N$"
+      - "Because $\\epsilon$-greedy cannot be used with function approximation"
+      - "Because it explores states rather than actions"
+    answer: 1
+    explanation: "The failure is about *temporal extent*, not the value of $\\epsilon$. Independent per-step noise produces a random walk, and a random walk does not commit to a plan. No schedule fixes this: raising $\\epsilon$ makes each individual step more random and therefore makes an $N$-step correct sequence *less* likely, not more. What is needed is exploration that persists across steps — which is what an uncertainty bonus propagated by value backups, or a sampled value function held fixed for a whole episode, gives you."
+  - id: exp_l1_c2
+    prompt: "A curiosity bonus rewards the agent for transitions its forward model predicts badly. What is the classic failure of this?"
+    options:
+      - "It makes training unstable because the bonus is non-stationary"
+      - "The noisy-TV problem: a genuinely stochastic transition is unpredictable forever, so it yields a permanent bonus and the agent parks in front of it instead of exploring"
+      - "It only works in discrete action spaces"
+      - "The forward model overfits and the bonus goes to zero everywhere"
+    answer: 1
+    explanation: "Prediction error conflates two very different things: what you have not learned yet, and what is inherently unlearnable. Epistemic uncertainty shrinks with data; aleatoric noise does not, so it is an inexhaustible source of reward. Random Network Distillation's fix is elegant — predict the output of a *fixed randomly initialised network* on the observation, which is a deterministic function, so there is no irreducible noise and the error genuinely does go to zero on states you have visited."
+  - id: exp_l1_c3
+    prompt: "On a real robot arm, what is the usual practical answer to a hard exploration problem?"
+    options:
+      - "A carefully tuned intrinsic-motivation bonus"
+      - "Sidestep it — demonstrations, scripted resets, or a shaped reward — because random exploration on hardware is slow, potentially damaging, and the sample budget for it does not exist"
+      - "Increase $\\epsilon$ and run longer"
+      - "Thompson sampling with a large ensemble"
+    answer: 1
+    explanation: "This is worth saying plainly in an interview, because it is what practitioners actually do. Deep exploration research is mostly evaluated in simulators where a million episodes is cheap; on hardware, a few hundred episodes is a good day and an exploring policy can break the robot. So the field's answer for manipulation is to remove the exploration problem rather than solve it — start from demonstrations, and use RL for fine-tuning where the search is local. Knowing the methods *and* knowing they are rarely deployed on hardware is the complete answer."
 ---
 
-## Intuition
+## Why it is a problem at all
 
-Imagine choosing restaurants in a new city. Exploitation: keep going to the best restaurant you've found so far. Exploration: try an unknown restaurant that might be even better (or terrible). The optimal strategy depends on how long you'll be in the city ($T$) — with only one night left, exploit; with a year ahead, explore more. In RL, this maps directly to the discount factor $\gamma$ and horizon. The deeper challenge in high-dimensional robotics: $\epsilon$-greedy and UCB fail because random exploration in $\mathbb{R}^n$ action spaces almost never finds rewarding actions — you need structured exploration.
+Supervised learning gets a label for every input. Reinforcement learning gets a
+reward only for the action it took — and the action it took came from the policy
+it currently believes in.
 
-## In practice
+That circularity is the whole problem. A policy that has settled on a mediocre
+strategy generates data that confirms the mediocre strategy is fine, because it
+never generates data about anything else.
 
-Training a robot to open novel doors (diverse handles, hinges). $\epsilon$-greedy with $\epsilon = 0.1$ in the 7-DOF action space is hopeless — random joint torques almost never produce useful grasps. Instead, use: (1) curiosity-driven exploration: $r^{\text{int}} = \|\hat{s}_{t+1} - s_{t+1}\|^2$ from a forward dynamics model, rewarding novel states; (2) RND (Random Network Distillation): $r^{\text{int}} = \|f_\theta(s) - f_{\text{fixed}}(s)\|^2$ where the bonus decreases as states become familiar; (3) SAC's entropy regularization as implicit exploration. In practice, combining SAC + curiosity bonuses with $\beta_{\text{int}} = 0.1$ and decaying $\beta$ over training works well.
+<Intuition>
+You move to a new city and try one restaurant. It is decent. Go back and you
+reliably get a decent meal; try somewhere new and you might get worse. Follow
+"pick the best known option" strictly and you eat at the same decent restaurant
+for a decade, never learning that the place two streets over is superb.
+
+Now make it harder. The superb place is at the end of an unmarked alley, three
+turns in, and every wrong turn puts you back on the main street. Wandering
+randomly will not find it — not because you are unlucky, but because random
+wandering does not *commit* to going anywhere.
+</Intuition>
+
+## Two kinds of exploration
+
+<Figure src="/figures/exploration-combination-lock.svg"
+        alt="A chain of states where one action advances and the others reset to the start, with the only reward at the far end. Below, a comparison of epsilon-greedy needing K to the N attempts against directed exploration propagating an uncertainty bonus backwards."
+        caption="The chain makes the distinction concrete. Per-step randomness has to guess right N times running; an uncertainty bonus that propagates through value backups pulls the agent forward deliberately." />
+
+<Steps>
+<Step title="Undirected: add noise">
+$\epsilon$-greedy, Gaussian action noise, an entropy bonus. Cheap, universal,
+and it works whenever the good behaviour is a small perturbation of the current
+one. The randomness is redrawn every step, so it produces a random walk.
+</Step>
+
+<Step title="Directed: go where you are uncertain">
+Track what you have not seen — visit counts, an ensemble's disagreement, a
+novelty score — and add it to the reward or use it to pick actions. Crucially,
+because it enters the reward, value backups carry it backwards: states that
+*lead to* unexplored regions become valuable, so the agent walks toward the
+frontier instead of stumbling near it.
+</Step>
+
+<Step title="Posterior sampling: commit for a while">
+Sample one plausible value function and act greedily on it for an entire
+episode. Different samples produce different coherent strategies, which is
+temporally extended exploration without needing an explicit bonus. Bootstrapped
+DQN is the practical version.
+</Step>
+</Steps>
+
+<KeyIdea>
+The difference is **temporal extent**. Per-step noise cannot execute a plan it
+does not already have. Anything that propagates — a bonus through value backups,
+or a sampled value function held fixed for an episode — can. Raising $\epsilon$
+does not help and actively hurts: it makes each step more random, so an $N$-step
+correct sequence becomes *less* likely.
+</KeyIdea>
+
+## The trap in curiosity
+
+The obvious directed method is to reward the agent for surprising itself: keep a
+forward model, and pay out where its predictions are worst.
+
+<Warning>
+This has a famous failure called the **noisy TV**. Put a screen showing random
+static in the environment. Its next frame is genuinely unpredictable, so the
+prediction error never falls, so the bonus never runs out — and the agent sits
+watching static forever, maximising its intrinsic reward perfectly.
+
+The confusion is between *epistemic* uncertainty (things you have not learned
+yet, which shrink with data) and *aleatoric* noise (things that are inherently
+random and never shrink). Prediction error measures their sum. Random Network
+Distillation's fix is to make the prediction target a fixed randomly-initialised
+network applied to the observation — a deterministic function, so there is no
+irreducible noise, and the error really does go to zero on states you have
+visited enough.
+</Warning>
+
+## What actually happens on robots
+
+Most of this literature is evaluated where a million episodes is affordable. On
+a real arm, a few hundred episodes is a good day, and an exploring policy is a
+policy doing unpredictable things with a heavy machine.
+
+So the practical answer in robot learning is usually to **remove** the
+exploration problem rather than solve it: start from demonstrations so the
+policy is already competent, use scripted resets so episodes are cheap, and
+apply RL for local fine-tuning where the search is small. Knowing the methods
+and knowing they are rarely deployed on hardware is a more useful thing to say
+than either half alone.
+
+<WatchThis />

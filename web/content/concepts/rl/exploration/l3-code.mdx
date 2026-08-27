@@ -1,0 +1,183 @@
+---
+concept: exploration
+level: 3
+status: final
+recall:
+  prompt: "Implement RND as an intrinsic reward. What normalisations does it need, and why does each one matter?"
+  keyPoints:
+    - "Fixed random target network, trained predictor, intrinsic reward is the squared error. The target's parameters must never receive gradients — that is the whole method."
+    - "Normalise observations with running statistics *before* both networks. A randomly initialised network's output scale is arbitrary, so unnormalised inputs make the error dominated by whichever feature has the largest raw magnitude."
+    - "Normalise the intrinsic reward by a running estimate of its standard deviation, because its scale changes by orders of magnitude over training as novelty is exhausted."
+    - "Keep two value heads with separate discounts — the extrinsic stream is episodic, the intrinsic one is usually treated as non-episodic so novelty is not truncated by episode boundaries."
+check:
+  - id: exp_l3_c1
+    prompt: "Why must the RND target network's parameters be frozen and never trained?"
+    options:
+      - "To save memory during training"
+      - "Because the method measures how well the predictor has learned a *fixed* function; if the target moved, the error would reflect the target's drift rather than the agent's familiarity with the state"
+      - "Because random initialisation gives better features than trained ones"
+      - "Because training both would be unstable"
+    answer: 1
+    explanation: "The whole construction is a proxy for 'how many similar states have I seen?', built as regression difficulty against a target that is guaranteed learnable and deterministic. Train the target and you have two moving networks and the error no longer means anything — worse, they could collapse to matching each other trivially, which would zero the bonus everywhere including on genuinely novel states."
+  - id: exp_l3_c2
+    prompt: "You add RND to an agent without normalising the intrinsic reward. What is the likely symptom?"
+    options:
+      - "The intrinsic reward is always zero"
+      - "Early in training the intrinsic reward is enormous relative to the extrinsic one and swamps it; later it decays toward zero and stops contributing at all — so the effective exploration coefficient sweeps across orders of magnitude on its own"
+      - "The predictor network diverges"
+      - "The agent explores too little from the start"
+    answer: 1
+    explanation: "The bonus scale is set by an arbitrary random network's output magnitude and by how unfamiliar states currently are, and the second changes by orders of magnitude over a run. Without normalisation you are not tuning one coefficient, you are getting an uncontrolled schedule. Dividing by a running standard deviation of the intrinsic returns pins the scale so $\\beta$ means something stable."
+  - id: exp_l3_c3
+    prompt: "Why do RND implementations use two value heads with different discount factors rather than just adding the bonuses into one reward?"
+    options:
+      - "Two heads train faster than one"
+      - "The two reward streams have different structure: the extrinsic one is episodic and often long-horizon, while the intrinsic one is treated as non-episodic so novelty is not artificially truncated at episode boundaries — and they are best estimated with different discounts"
+      - "Because the intrinsic reward is negative"
+      - "To avoid overestimation bias in the max"
+    answer: 1
+    explanation: "Two independent design decisions get bundled here and both matter. Different discounts because the intrinsic signal is usefully shorter-horizon than the task. And non-episodic treatment for the intrinsic stream because a state's novelty does not stop mattering because an episode ended — treating it episodically makes the agent behave as though dying resets the world's unexploredness, which discourages the risky exploration you were paying for."
+---
+
+## RND end to end
+
+<CodeWalk title="Random Network Distillation">
+
+```python title="rnd.py"
+import torch, torch.nn as nn
+
+class RND(nn.Module):
+    def __init__(self, obs_dim, feat_dim=128, hidden=256):
+        super().__init__()
+        # The target is random and FROZEN. Its whole job is to be a fixed,
+        # deterministic, guaranteed-learnable function of the observation.
+        self.target = nn.Sequential(
+            nn.Linear(obs_dim, hidden), nn.ReLU(),
+            nn.Linear(hidden, feat_dim),
+        )
+        for p in self.target.parameters():
+            p.requires_grad_(False)
+
+        self.predictor = nn.Sequential(
+            nn.Linear(obs_dim, hidden), nn.ReLU(),
+            nn.Linear(hidden, hidden), nn.ReLU(),
+            nn.Linear(hidden, feat_dim),
+        )
+
+        # Running stats: observations in, intrinsic returns out.
+        self.register_buffer("obs_mean", torch.zeros(obs_dim))
+        self.register_buffer("obs_var", torch.ones(obs_dim))
+        self.register_buffer("int_ret_std", torch.ones(()))
+
+    def _norm_obs(self, obs):
+        # A random network's output scale is arbitrary, so raw inputs make the
+        # error dominated by whichever feature has the largest units.
+        return ((obs - self.obs_mean) / self.obs_var.sqrt().clamp(min=1e-6)).clamp(-5, 5)
+
+    def intrinsic_reward(self, obs):
+        z = self._norm_obs(obs)
+        with torch.no_grad():
+            err = (self.predictor(z) - self.target(z)).pow(2).mean(-1)
+        # Scale changes by orders of magnitude over training; without this,
+        # beta is an uncontrolled schedule rather than a hyperparameter.
+        return err / self.int_ret_std.clamp(min=1e-6)
+
+    def loss(self, obs):
+        z = self._norm_obs(obs)
+        return (self.predictor(z) - self.target(z).detach()).pow(2).mean()
+```
+
+</CodeWalk>
+
+Three lines carry the method. `requires_grad_(False)` on the target is the
+method — a trained target would make the error measure the target's drift rather
+than the agent's familiarity. The observation normalisation matters more than it
+looks, because a random network's output scale is set by its inputs and nothing
+else. And dividing by the running intrinsic-return standard deviation is what
+turns $\beta$ into a hyperparameter instead of a schedule.
+
+## Two value heads
+
+```python title="agent.py"
+class TwoStreamCritic(nn.Module):
+    """Extrinsic reward is episodic; intrinsic is not.
+
+    A state's novelty does not stop mattering because an episode ended.
+    Treating the intrinsic stream episodically makes the agent act as if
+    dying resets the world's unexploredness — which discourages exactly the
+    risky exploration the bonus is paying for.
+    """
+    def __init__(self, obs_dim, hidden=256):
+        super().__init__()
+        self.trunk = nn.Sequential(nn.Linear(obs_dim, hidden), nn.Tanh())
+        self.v_ext = nn.Linear(hidden, 1)
+        self.v_int = nn.Linear(hidden, 1)
+
+    def forward(self, obs):
+        h = self.trunk(obs)
+        return self.v_ext(h).squeeze(-1), self.v_int(h).squeeze(-1)
+
+
+# Separate GAE per stream, then combine the advantages.
+adv_ext = gae(r_ext, v_ext, dones, gamma=0.999, lam=0.95)   # long, episodic
+adv_int = gae(r_int, v_int, dones=None, gamma=0.99, lam=0.95)  # shorter, non-episodic
+advantages = adv_ext + beta * adv_int
+```
+
+<Warning>
+Adding an intrinsic bonus changes the MDP you are solving, and the change is
+**non-stationary** — the bonus decays as states become familiar, so the value
+function is chasing a target that moves for reasons unrelated to policy
+improvement. Either anneal $\beta$ so the final policy optimises the real
+reward, or keep the streams separate as above and be explicit that the deployed
+objective is the extrinsic head.
+</Warning>
+
+## The cheaper options, and when they are enough
+
+<Steps>
+<Step title="Entropy bonus (already in SAC, PPO)">
+One line, no extra networks, and it is the right tool whenever the good
+behaviour is a perturbation of the current one. It is undirected, so it will not
+solve a chain — but most tasks are not chains.
+</Step>
+
+<Step title="Ensemble disagreement">
+Train $M$ critics on bootstrapped data and use their standard deviation as the
+bonus, or sample one per episode and act greedily on it. Simpler than a density
+model, and the per-episode variant gives temporally extended exploration for
+almost no code.
+</Step>
+
+<Step title="Then RND">
+Reach for it when the reward is genuinely sparse and the state space is large
+enough that counts are meaningless. It brings two networks, three
+normalisations, and a coefficient — real complexity, worth paying only when the
+cheaper options have visibly failed.
+</Step>
+</Steps>
+
+## Measuring whether it is working
+
+```python title="diagnostics.py"
+# State coverage beats intrinsic-reward magnitude as a metric: the bonus can
+# be large simply because the predictor is undertrained, which says nothing
+# about whether the agent is reaching new places.
+def coverage(visited_states, grid=64):
+    """Fraction of a discretised state space touched this run."""
+    keys = {tuple((s * grid).astype(int)) for s in visited_states}
+    return len(keys) / (grid ** visited_states.shape[1])
+
+# For a hard-exploration task, the honest metric is progress-based:
+#   - furthest room / stage / milestone reached
+#   - number of distinct milestones hit at least once
+# Mean episode return hides everything, because it stays at zero right up
+# until exploration succeeds and then jumps.
+```
+
+<KeyIdea>
+Mean return is the wrong curve for a hard-exploration problem. It is flat at
+zero while exploration is failing *and* while it is nearly succeeding, so it
+carries no gradient of information for you as the engineer. Track coverage or
+milestone counts, which move continuously and tell you whether to keep going.
+</KeyIdea>

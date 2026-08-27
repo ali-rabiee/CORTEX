@@ -1,0 +1,192 @@
+---
+concept: exploration
+level: 4
+status: final
+recall:
+  prompt: "Trace the deep-exploration literature. What did each method fix, and why has almost none of it shipped on real robots?"
+  keyPoints:
+    - "Bootstrapped DQN (2016) made exploration temporally extended: sample one value function from an ensemble and act on it for a whole episode, rather than re-randomising each step."
+    - "Pseudo-counts (2016) generalised visit counts to high-dimensional states via a density model, recovering the $1/\\sqrt{N}$ bonus shape."
+    - "ICM (2017) used forward-model prediction error and exposed the noisy-TV problem; RND (2018) fixed it by predicting a fixed random function, so the target has no aleatoric noise."
+    - "Go-Explore (2019) argued the bottleneck was *detachment and derailment* — losing track of promising states — and solved it by archiving states and returning to them before exploring. Almost none of this is used on hardware, where the answer is demonstrations."
+papers:
+  - key: osband2016bootstrapped
+    title: "Deep Exploration via Bootstrapped DQN"
+    authors: "Ian Osband, Charles Blundell, Alexander Pritzel, Benjamin Van Roy"
+    venue: NeurIPS
+    year: 2016
+    arxiv: "1602.04621"
+    takeaway: "Approximates a posterior over value functions with a bootstrapped ensemble and commits to one sampled head per episode — temporally extended exploration with no intrinsic reward at all."
+  - key: bellemare2016pseudocounts
+    title: "Unifying Count-Based Exploration and Intrinsic Motivation"
+    authors: "Marc G. Bellemare, Sriram Srinivasan, Georg Ostrovski, Tom Schaul, David Saxton, Rémi Munos"
+    venue: NeurIPS
+    year: 2016
+    arxiv: "1606.01868"
+    takeaway: "Derives pseudo-counts from a density model's change in probability after one observation, recovering tabular counts as a special case and making the $1/\\sqrt{N}$ bonus usable from pixels."
+  - key: pathak2017icm
+    title: "Curiosity-driven Exploration by Self-supervised Prediction"
+    authors: "Deepak Pathak, Pulkit Agrawal, Alexei A. Efros, Trevor Darrell"
+    venue: ICML
+    year: 2017
+    arxiv: "1705.05363"
+    takeaway: "Rewards forward-model prediction error in a learned feature space chosen by an inverse model, so the agent is curious about what it can control rather than about pixel noise."
+  - key: burda2018rnd
+    title: "Exploration by Random Network Distillation"
+    authors: "Yuri Burda, Harrison Edwards, Amos Storkey, Oleg Klimov"
+    venue: ICLR
+    year: 2019
+    arxiv: "1810.12894"
+    takeaway: "Predict a fixed randomly-initialised network's output. The target is deterministic, so the error carries no aleatoric term and the noisy-TV failure disappears — novelty detection as plain regression."
+  - key: ecoffet2019goexplore
+    title: "Go-Explore: a New Approach for Hard-Exploration Problems"
+    authors: "Adrien Ecoffet, Joost Huizinga, Joel Lehman, Kenneth O. Stanley, Jeff Clune"
+    venue: arXiv
+    year: 2019
+    arxiv: "1901.10995"
+    takeaway: "Names detachment and derailment as the real obstacles, and answers them by archiving visited states and *returning* to a promising one before exploring from it."
+  - key: badia2020agent57
+    title: "Agent57: Outperforming the Atari Human Benchmark"
+    authors: "Adrià Puigdomènech Badia, Bilal Piot, Steven Kapturowski, Pablo Sprechmann, Alex Vitvitskyi, Daniel Guo, Charles Blundell"
+    venue: ICML
+    year: 2020
+    arxiv: "2003.13350"
+    takeaway: "Runs a family of policies spanning exploratory to exploitative with separate intrinsic and extrinsic value heads, and uses a bandit to choose among them — treating the exploration-exploitation setting itself as something to be learned."
+check:
+  - id: exp_l4_c1
+    prompt: "What did Bootstrapped DQN provide that a per-step exploration bonus does not?"
+    options:
+      - "A tighter regret bound"
+      - "Temporal consistency: a sampled value function is a coherent hypothesis, so acting greedily on it for a whole episode produces a plan — whereas per-step randomness cannot execute a multi-step strategy it does not already have"
+      - "Compatibility with continuous actions"
+      - "Removal of the deadly triad"
+    answer: 1
+    explanation: "The word 'deep' in deep exploration is about depth in time, not network depth, and this is the paper that made that concrete. Each ensemble head is a plausible world consistent with the data so far; committing to one for an episode means acting on that hypothesis long enough to test it. Re-sampling every step would average the heads and collapse the behaviour back to something like dithering."
+  - id: exp_l4_c2
+    prompt: "ICM computes prediction error in a learned feature space rather than in pixel space. What is that choice for?"
+    options:
+      - "To reduce computational cost"
+      - "The features are trained with an inverse model that predicts the action from consecutive states, so the representation keeps what the agent can *control* and discards what it cannot — partially defending against being curious about irrelevant noise"
+      - "To make the reward differentiable"
+      - "To allow the forward model to be linear"
+    answer: 1
+    explanation: "It is a targeted defence against the noisy-TV problem, and worth contrasting with RND's. ICM tries to filter the *input*: a feature space trained to support action prediction should not represent things the actions do not affect, like falling leaves in the background. It helps but does not fully solve it, since controllable stochasticity still yields irreducible error. RND attacks the other end — making the *target* deterministic — which is why it is the more robust fix."
+  - id: exp_l4_c3
+    prompt: "Go-Explore diagnoses 'detachment' and 'derailment'. What are they?"
+    options:
+      - "Two forms of overestimation bias"
+      - "Detachment: the agent forgets about a promising frontier it visited earlier because the bonus there has already been consumed. Derailment: exploratory noise prevents it from reliably re-executing the long action sequence needed to get back to that frontier"
+      - "Two failure modes of the value function approximator"
+      - "Instabilities caused by non-stationary intrinsic rewards"
+    answer: 1
+    explanation: "The reframing is that the bottleneck is not deciding *where* to explore but reliably *getting back there*. Detachment says the frontier is lost from the agent's attention; derailment says even knowing where to go, the same exploratory noise that finds new states also wrecks the long deterministic sequence needed to return. Hence the archive-and-return architecture, which separates 'return to a known state' from 'explore from it' — a decomposition that reads as obvious afterwards and was not."
+---
+
+## Making exploration last longer than a step
+
+<PaperCard refKey="osband2016bootstrapped" />
+
+The insight is that the problem with $\epsilon$-greedy is not the amount of
+randomness but its *incoherence*. Train an ensemble of value heads on
+bootstrapped samples of the data, and each head is a plausible hypothesis about
+the world. Sample one at the start of an episode and act greedily on it
+throughout, and you get behaviour that is internally consistent — a plan, tested
+long enough to find out whether it was right.
+
+<KeyIdea>
+"Deep exploration" means depth in *time*, not network depth. Everything in this
+level is a different mechanism for making exploration persist across steps:
+bonuses that propagate through value backups, sampled value functions held fixed
+for an episode, or an explicit archive you return to.
+</KeyIdea>
+
+## Counting the uncountable
+
+<PaperCard refKey="bellemare2016pseudocounts" />
+
+The tabular theory says the bonus should scale as $1/\sqrt{N(s)}$, and $N(s)$ is
+meaningless for pixels. Pseudo-counts recover it by asking a density model how
+much its probability for $s$ increases after observing $s$ once more — a
+quantity that behaves like a count and reduces to the true count in the tabular
+case. That reduction is what earns the word "unifying" in the title.
+
+## Curiosity, and the noisy TV
+
+<PaperGrid>
+<PaperCard refKey="pathak2017icm" />
+<PaperCard refKey="burda2018rnd" />
+</PaperGrid>
+
+ICM rewards forward-model prediction error, with one important refinement: the
+error is measured in a feature space trained by an *inverse* model that predicts
+the action from consecutive states. Features that support that prediction are
+about things the agent can control, so background randomness is partially
+filtered out. Partially — controllable stochasticity still produces irreducible
+error.
+
+RND attacks the other end of the problem. Make the prediction target a fixed
+randomly-initialised network applied to the observation. That is a deterministic
+function, so there is no aleatoric component at all, and the error is pure
+epistemic uncertainty that genuinely goes to zero on states you have seen.
+
+<Warning>
+This is the pattern worth carrying away. Prediction error was measuring
+"unlearnable" together with "not yet learned". ICM tries to clean the *input*;
+RND changes the *target* to something guaranteed learnable. The second is a
+stronger move, and it generalises — when a diagnostic conflates two quantities,
+constraining the setup so only one can be present usually beats filtering after
+the fact.
+</Warning>
+
+## The reframing
+
+<PaperCard refKey="ecoffet2019goexplore" />
+
+Go-Explore argues the field had been solving the wrong problem. The difficulty
+is not deciding where to explore; it is **getting back**. *Detachment*: the
+agent stops attending to a promising frontier because the bonus there is already
+consumed. *Derailment*: even knowing where to go, the exploratory noise that
+finds new states also destroys the long deterministic sequence needed to return
+to a known one.
+
+So separate the two. Archive the states you have reached, choose a promising one,
+**return** to it deterministically, and only then explore. The decomposition
+reads as obvious in retrospect and was not.
+
+<PaperCard refKey="badia2020agent57" />
+
+Agent57 takes the meta-level view: rather than picking one exploration setting,
+run a family of policies spanning exploratory to exploitative — separate
+intrinsic and extrinsic value heads with different discounts — and use a bandit
+to allocate across them. The exploration-exploitation trade-off becomes a
+decision the agent makes rather than a hyperparameter you set.
+
+## Why almost none of this is on a robot
+
+<Steps>
+<Step title="The sample budget is off by orders of magnitude">
+These methods are evaluated where millions of episodes are affordable. A real
+arm gives you a few hundred a day.
+</Step>
+
+<Step title="Exploration on hardware is physically dangerous">
+An exploring policy is a policy doing unpredictable things with a heavy machine.
+The safety envelope needed to allow it usually also prevents the exploration
+that mattered.
+</Step>
+
+<Step title="Demonstrations dissolve the problem">
+A handful of demonstrations puts the policy directly in the region an
+exploration method would have spent millions of steps finding. Given that
+choice, the field took it — which is why manipulation is dominated by imitation
+with RL used for local fine-tuning.
+</Step>
+</Steps>
+
+<KeyIdea>
+The honest summary for a robotics interview: this literature is deep, largely
+solved in simulation, and mostly bypassed in practice. Where it does resurface is
+sim-to-real, where exploration is cheap and safe in the simulator, and in
+residual RL on top of an imitation-pretrained policy, where the search is local
+enough that an entropy bonus suffices.
+</KeyIdea>

@@ -1,28 +1,199 @@
 ---
 concept: exploration
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Exploration-Exploitation Tradeoff,
-    including the key equations.
+  prompt: "Derive the UCB bonus from a concentration inequality. Then explain why bandit results do not transfer directly to MDPs."
   keyPoints:
-    - "The exploration-exploitation dilemma is the fundamental tension in
-      sequential decision making: the agent must exploit current knowledge to
-      maximize immediate reward while exploring uncertain actions to improve
-      future decisions."
-    - "Formally, an optimal exploration strategy minimizes the Bayesian regret:
-      $$\\text{BayesRegret}(T) = \\mathbb{E}\\left[\\sum_{t=1}^{T} V^*(s_t) -
-      Q^*(s_t, a_t)\\right]$$ Key approaches include: $\\epsilon$-greedy (action
-      $a = \\arg\\max Q$ with probability $1-\\epsilon$, random otherwise), UCB
-      ($a = \\arg\\max_a [Q(s,a) + c\\sqrt{\\ln t / N(s,a)}]$), Thompson
-      Sampling (sample $Q \\sim P(Q|\\mathcal{D})$, act greedily), and intrinsic
-      motivation via curiosity or count-based bonuses: $r^{\\text{int}} = \\beta
-      / \\sqrt{N(s)}$ or $r^{\\text{int}} = \\|\\hat{f}(s_{t+1}) - f_\\phi(s_t,
-      a_t)\\|^2$ (prediction error)."
-check: []
-papers: []
+    - "Hoeffding: $\\Pr(|\\hat Q_a - Q_a| \\ge u) \\le 2\\exp(-2N_a u^2)$. Solving for $u$ at confidence $\\delta$ gives a bonus $\\propto \\sqrt{\\log(1/\\delta)/N_a}$, and setting $\\delta \\sim t^{-4}$ gives UCB1's $\\sqrt{2\\log t / N_a}$."
+    - "Optimism in the face of uncertainty: act greedily on $\\hat Q_a + u_a$. Either the action is genuinely good, or you learn it is not — both outcomes are useful, which is what bounds regret."
+    - "Bandits have one state, so exploring an action is a one-step decision. In an MDP the informative state may be $N$ steps away, so the bonus must *propagate* through value backups — 'deep exploration'."
+    - "Count-based bonuses need pseudo-counts in continuous spaces. Prediction-error curiosity conflates epistemic with aleatoric uncertainty; RND avoids this by making the target a deterministic random function."
+check:
+  - id: exp_l2_c1
+    prompt: "In the UCB derivation, where does the $\\sqrt{\\log t}$ come from?"
+    options:
+      - "From the discount factor"
+      - "From choosing the failure probability $\\delta$ to shrink with time — setting $\\delta \\sim t^{-4}$ so the union bound over all rounds still holds, and $\\log(1/\\delta)$ then grows like $\\log t$"
+      - "From the number of arms"
+      - "From the variance of the reward distribution"
+    answer: 1
+    explanation: "Hoeffding gives a bonus of order $\\sqrt{\\log(1/\\delta)/N_a}$ for a single fixed confidence level. The logarithm in time appears because you need the bound to hold at *every* round simultaneously, so $\\delta$ must shrink fast enough for a union bound to converge — and $\\log(1/\\delta)$ then contributes $\\log t$. Being able to say where each piece of $\\sqrt{2\\log t/N_a}$ comes from is what distinguishes deriving the formula from memorising it."
+  - id: exp_l2_c2
+    prompt: "Why is 'optimism in the face of uncertainty' a sound principle rather than wishful thinking?"
+    options:
+      - "Because optimistic estimates are usually correct"
+      - "Because either the optimistic estimate is right and you collect the reward, or it is wrong and you learn that — so every optimistic action either pays off or reduces your uncertainty, and neither outcome is wasted"
+      - "Because the value function is a contraction"
+      - "Because optimism cancels the overestimation bias from the max operator"
+    answer: 1
+    explanation: "The argument is a case analysis, and it is what makes the regret bound work: an action can only remain optimistically ranked while it is under-sampled, and sampling it either confirms the optimism or corrects it. Note the contrast with the *unwanted* optimism in Q-learning and offline RL — there, the inflated values come from noise in the max and cannot be corrected offline, which is why the same word describes a principle in one setting and a bug in another."
+  - id: exp_l2_c3
+    prompt: "Why can't you carry a bandit exploration bonus into an MDP unchanged?"
+    options:
+      - "Because MDP rewards are discounted"
+      - "In a bandit, exploring an action is one decision; in an MDP the informative state may be many steps away, so the bonus must propagate backwards through value backups for the agent to plan a route to it"
+      - "Because MDPs have continuous action spaces"
+      - "Because Hoeffding's inequality requires independent samples"
+    answer: 1
+    explanation: "This is the gap the term 'deep exploration' names. A per-state novelty bonus applied greedily makes the agent prefer novel states it happens to be standing next to; it does not make the agent walk five rooms to reach an unexplored region. What produces that behaviour is putting the bonus into the reward so value backups carry it — the value of a state becomes partly the value of what it leads to — or sampling a coherent value function and following it for a whole episode."
 ---
 
-## Formal definition
+## The bandit case, where it can be solved
 
-The exploration-exploitation dilemma is the fundamental tension in sequential decision making: the agent must exploit current knowledge to maximize immediate reward while exploring uncertain actions to improve future decisions. Formally, an optimal exploration strategy minimizes the Bayesian regret: $$\text{BayesRegret}(T) = \mathbb{E}\left[\sum_{t=1}^{T} V^*(s_t) - Q^*(s_t, a_t)\right]$$ Key approaches include: $\epsilon$-greedy (action $a = \arg\max Q$ with probability $1-\epsilon$, random otherwise), UCB ($a = \arg\max_a [Q(s,a) + c\sqrt{\ln t / N(s,a)}]$), Thompson Sampling (sample $Q \sim P(Q|\mathcal{D})$, act greedily), and intrinsic motivation via curiosity or count-based bonuses: $r^{\text{int}} = \beta / \sqrt{N(s)}$ or $r^{\text{int}} = \|\hat{f}(s_{t+1}) - f_\phi(s_t, a_t)\|^2$ (prediction error).
+Strip out the state entirely: $K$ actions, each with an unknown mean reward
+$Q_a$. Play $T$ rounds, minimise **regret** against always playing the best arm:
+
+$$
+\mathcal{R}_T = T\max_a Q_a - \mathbb{E}\left[\sum_{t=1}^{T} r_t\right]
+$$
+
+This turns "how much should I explore?" from a hyperparameter into a
+quantitative question with an answer.
+
+<Derivation title="UCB from Hoeffding's inequality">
+
+**Step 1 — bound the estimation error.** Let $\hat Q_a$ be the sample mean of
+$N_a$ pulls of arm $a$, with rewards in $[0,1]$. Hoeffding's inequality gives
+
+$$
+\Pr\big(|\hat Q_a - Q_a| \ge u\big) \;\le\; 2\exp(-2N_a u^2)
+$$
+
+**Step 2 — invert it at a chosen confidence.** Set the right-hand side to
+$\delta$ and solve:
+
+$$
+u = \sqrt{\frac{\log(2/\delta)}{2N_a}}
+$$
+
+So with probability $1-\delta$, the true mean is below $\hat Q_a + u$. The
+bonus shrinks like $1/\sqrt{N_a}$ — uncertainty falls as you sample.
+
+**Step 3 — make it hold at every round.** You need the bound simultaneously
+across all rounds, so $\delta$ must shrink with $t$ fast enough for a union
+bound to converge. Taking $\delta \sim t^{-4}$ gives $\log(1/\delta) \propto \log t$
+and the familiar
+
+$$
+a_t = \arg\max_a \left[\hat Q_a + \sqrt{\frac{2\log t}{N_a}}\right]
+$$
+
+**Why this is not wishful thinking.** Act greedily on the upper confidence
+bound. Either the arm really is that good — you collect the reward — or it is
+not, and you learn that, shrinking its bonus. Every optimistic pull either pays
+or informs, which is exactly the case analysis that bounds the regret at
+$O(\log T)$.
+
+**The assumptions doing the work** are bounded rewards (Hoeffding needs them)
+and independence across pulls. Neither survives contact with an MDP.
+
+</Derivation>
+
+## Why MDPs are different
+
+In a bandit, exploring an action is a single decision you can make right now. In
+an MDP, the thing you are uncertain about may be twenty steps away, behind a
+sequence of specific actions.
+
+<Derivation title="Undirected exploration is exponentially slow on a chain">
+
+Consider $N$ states in a chain. At each, exactly one of $K$ actions advances;
+the other $K-1$ return you to $s_0$. The only reward is at $s_N$.
+
+Under a uniform random policy, the probability of choosing correctly at any
+state is $1/K$, and reaching $s_N$ requires $N$ correct choices with no mistake:
+
+$$
+\Pr(\text{reach } s_N \text{ in one attempt}) = \left(\frac{1}{K}\right)^{N}
+$$
+
+so the expected number of attempts is $K^N$. With $K = 4$ and $N = 20$ that is
+about $10^{12}$ episodes.
+
+**The critical observation is the direction of the $\epsilon$ dependence.** With
+$\epsilon$-greedy over a policy that has learned nothing, raising $\epsilon$
+raises the randomness per step and makes an $N$-step correct sequence *less*
+likely. There is no schedule that fixes this — the estimator is the wrong shape,
+not badly tuned.
+
+**What breaks the exponential.** Give unvisited states a bonus and put it in the
+reward. Value backups then assign $s_{N-1}$ part of $s_N$'s bonus, $s_{N-2}$
+part of $s_{N-1}$'s, and so on. The agent now has a gradient pointing down the
+chain and walks it deliberately. This is "deep exploration": the requirement is
+not that exploration be random, but that it *propagate*.
+
+</Derivation>
+
+## Making counts work in continuous spaces
+
+$N(s)$ is well defined for a gridworld and meaningless for camera images, where
+no state is ever visited twice.
+
+<Steps>
+<Step title="Pseudo-counts from a density model">
+Fit a density model $\rho(s)$ over observations and define a pseudo-count from
+how much $\rho$ increases after one more observation of $s$. This recovers the
+$1/\sqrt{N}$ bonus shape and reduces to true counts in the tabular case, which
+is the sense in which it 'unifies' counts with intrinsic motivation.
+</Step>
+
+<Step title="Prediction error, and its trap">
+Reward the agent where a learned forward model $\hat f(s,a) \approx s'$ predicts
+badly. Simple, and it conflates two things:
+$\text{error} = \underbrace{\text{epistemic}}_{\text{shrinks with data}} + \underbrace{\text{aleatoric}}_{\text{never shrinks}}$.
+A genuinely stochastic transition pays out forever — the noisy TV.
+</Step>
+
+<Step title="Random Network Distillation">
+Fix a randomly initialised network $f$ and train a predictor $\hat f_\theta$ to
+match it on visited observations, with intrinsic reward
+$r^{\text{int}}(s) = \|\hat f_\theta(s) - f(s)\|^2$. Since $f$ is a
+*deterministic* function of the observation, there is no aleatoric term at all —
+the error is pure epistemic uncertainty and genuinely goes to zero on states you
+have seen. Novelty detection reduced to a regression problem.
+</Step>
+</Steps>
+
+<KeyIdea>
+RND's trick is worth understanding as a general move. The problem was that
+prediction error measured "unlearnable" as well as "not yet learned". The fix
+was to choose a prediction target that is *guaranteed learnable* — a fixed
+deterministic function — so the only remaining source of error is the one you
+wanted to measure.
+</KeyIdea>
+
+## Posterior sampling
+
+The alternative to a bonus is to be uncertain about the value function itself.
+Maintain an approximate posterior, sample one $Q$ from it, and act greedily on
+that sample for an entire episode.
+
+$$
+Q^{(k)} \sim p(Q \mid \mathcal{D}),
+\qquad
+a_t = \arg\max_a Q^{(k)}(s_t, a) \quad \text{for the whole episode}
+$$
+
+Bootstrapped DQN approximates the posterior with an ensemble of heads trained on
+bootstrapped data, picking one head per episode.
+
+<Warning>
+Note what holding the sample fixed accomplishes. A sampled $Q$ is a coherent
+hypothesis about the world, so acting greedily on it produces a *plan* — a
+sequence of actions that make sense together. Re-sampling every step would
+average the heads and collapse back to something like $\epsilon$-greedy. Both
+directed approaches — bonus-plus-backups and posterior sampling — are answers to
+the same requirement, that exploration extend across time rather than being
+redrawn at each step.
+</Warning>
+
+## Intrinsic reward is not free
+
+Adding $r^{\text{int}}$ changes the MDP you are solving, which has two
+consequences. The bonus is **non-stationary** — it decays as states become
+familiar — so the value function is chasing a target that moves for reasons
+unrelated to policy improvement. And the optimal policy for $r + \beta r^{\text{int}}$
+is not the optimal policy for $r$, so $\beta$ must eventually be annealed or the
+two streams kept separate with different discounts, which is what the
+Agent57-style architectures do.

@@ -1,28 +1,170 @@
 ---
 concept: exploration
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Exploration-Exploitation Tradeoff fail in practice, and how
-    would you present it in an interview?
+  prompt: "Give your interview answer on exploration. What is the sharpest way to state why $\\epsilon$-greedy fails, and what would you actually do on a robot?"
   keyPoints:
-    - "The 'noisy TV problem': curiosity-based methods can get stuck watching
-      inherently unpredictable stimuli (stochastic environment elements) because
-      prediction error is always high."
-    - "Symptoms: agent repeatedly interacts with stochastic objects instead of
-      progressing toward the goal."
-    - "Fix: use RND instead of forward prediction (random features are
-      deterministic, so stochastic elements don't produce persistent bonus), or
-      combine intrinsic + extrinsic rewards with decaying
-      $\\beta_{\\text{int}}$."
-check: []
-papers: []
+    - "Frame the failure as temporal extent, not amount: per-step noise cannot execute a plan, and raising $\\epsilon$ makes an $N$-step correct sequence less likely, not more."
+    - "Directed exploration works because the bonus propagates through value backups, or because a sampled value function is held fixed long enough to be a plan."
+    - "Know the noisy-TV problem and RND's fix — making the prediction target deterministic so the error carries no aleatoric component."
+    - "On hardware, say plainly that the field bypasses this: demonstrations, scripted resets, and local fine-tuning. Knowing the methods and knowing they are rarely deployed is the complete answer."
+interview:
+  answer: >-
+    The exploration problem is that you only get a reward signal for the action
+    you took, and the action you took came from the policy you currently believe
+    in — so a policy that's settled on something mediocre generates data that
+    confirms it's fine, because it never generates data about anything else. The
+    distinction I'd want to draw is between undirected and directed exploration,
+    because it isn't about how much randomness you add. Epsilon-greedy, action
+    noise, and entropy bonuses all re-draw the randomness independently at every
+    step, so they produce a random walk. If the reward is N correct choices away
+    and every wrong choice resets you, the probability of stumbling onto it is
+    one over K to the N — and crucially, raising epsilon makes that worse, not
+    better, because each step becomes more random and you need N in a row. So
+    it's not a badly tuned estimator, it's the wrong shape. What breaks the
+    exponential is exploration that persists across time. Two mechanisms. One is
+    an uncertainty bonus put into the reward, so value backups carry it
+    backwards — states that lead toward unexplored regions become valuable and
+    the agent walks there deliberately. The other is posterior sampling: sample
+    one plausible value function and act greedily on it for a whole episode, the
+    way Bootstrapped DQN does with an ensemble. A sampled value function is a
+    coherent hypothesis, so following it produces a plan rather than a wobble.
+    On intrinsic motivation specifically, the thing worth knowing is the noisy
+    TV. If you reward forward-model prediction error, a genuinely stochastic
+    transition is unpredictable forever, so it pays out forever and the agent
+    parks in front of it. That's conflating epistemic uncertainty with aleatoric
+    noise. Random Network Distillation fixes it by making the prediction target
+    a fixed randomly-initialised network — deterministic by construction, so
+    there's no irreducible error and the bonus really does go to zero on states
+    you've seen. And the practical part: on a real robot, almost none of this is
+    what you'd do. The sample budgets are off by orders of magnitude, an
+    exploring policy is a heavy machine doing unpredictable things, and a
+    handful of demonstrations puts you directly in the region an exploration
+    method would spend millions of steps finding. So in manipulation the field
+    bypasses the problem rather than solving it.
+  followUps:
+    - q: "Where does exploration research still matter for robotics, then?"
+      a: >-
+        Two places. Sim-to-real, because in the simulator exploration is free
+        and safe — you can afford millions of episodes and there's nothing to
+        break — so the full machinery is available there and only the transfer
+        problem is left. And residual or fine-tuning RL on top of an
+        imitation-pretrained policy, where you're starting from something
+        competent and the search is genuinely local, so an entropy bonus is
+        adequate and the deep-exploration machinery would be overkill. The
+        third honest answer is that a lot of what looks like an exploration
+        problem in robotics is really a reward-specification problem — if the
+        reward is so sparse that you need Go-Explore, it's usually worth asking
+        whether a shaped reward or a goal-conditioned formulation with hindsight
+        relabelling would dissolve it.
+    - q: "How would you know an exploration bonus is helping rather than just adding noise?"
+      a: >-
+        Not from the return curve, because on a hard-exploration task that's
+        flat at zero both while you're failing and while you're nearly
+        succeeding — it carries no information for me as the engineer. I'd track
+        coverage instead: a discretised count of distinct states touched, or
+        better, task-specific milestones, how far into the task the agent has
+        ever got. Those move continuously and tell me whether to keep going. And
+        I'd specifically not use the magnitude of the intrinsic reward as the
+        metric, because it can be large simply because the predictor is
+        undertrained, which says nothing about whether the agent is reaching new
+        places.
+    - q: "Doesn't SAC's entropy term solve exploration?"
+      a: >-
+        It solves a real part of it and not the hard part. The entropy term
+        makes the optimal policy genuinely stochastic in a value-dependent way,
+        so it keeps mass on every action that's nearly as good — that's better
+        than epsilon-greedy, because the randomness is shaped rather than
+        uniform, and it's never annealed away so the policy stays robust. But
+        it's still local. It explores the neighbourhood of the current
+        behaviour, and if the reward requires a long specific sequence that the
+        current policy has essentially zero probability of producing, no
+        temperature setting finds it. I'd describe max-entropy exploration as
+        the right default and as categorically insufficient for a
+        combination-lock problem.
+    - q: "What's the argument for optimism in the face of uncertainty?"
+      a: >-
+        It's a case analysis, not wishful thinking. If you act greedily on an
+        upper confidence bound, then either the optimistic estimate was right
+        and you collect the reward, or it was wrong and you've just learned
+        that, which shrinks the bonus. Every optimistic action either pays or
+        informs, and that's exactly what bounds the regret. The bound itself
+        comes straight out of Hoeffding — the confidence width is order square
+        root of log one over delta over N, and the log-t in UCB1 appears because
+        you need the bound to hold at every round simultaneously. The nice
+        contrast is with offline RL, where the same optimism is a bug: there
+        the inflated values come from noise in the max over actions you can't
+        try, so they can't be corrected, and the whole field is about
+        suppressing them.
+  traps:
+    - "Saying $\\epsilon$-greedy fails because $\\epsilon$ is too small or decays too fast. The failure is temporal incoherence, and raising $\\epsilon$ makes a long correct sequence *less* likely."
+    - "Proposing prediction-error curiosity without mentioning the noisy TV. It is the first thing an interviewer will raise, and the epistemic-versus-aleatoric framing is the answer."
+    - "Presenting deep-exploration methods as robotics practice. They are simulator results; on hardware the field uses demonstrations, and saying so is a strength not an admission."
+    - "Treating an entropy bonus as a solution to hard exploration. It is shaped local randomness — the right default, and categorically unable to solve a combination lock."
+check:
+  - id: exp_l5_c1
+    prompt: "A team's sparse-reward manipulation task is not learning. They propose increasing the entropy coefficient and running 10x longer. What is the strongest response?"
+    options:
+      - "Agree — more exploration and more samples is the standard fix"
+      - "Push back on the mechanism: an entropy bonus is undirected and local, so it explores the neighbourhood of current behaviour. If the reward needs a long specific sequence the current policy essentially never produces, more local randomness does not help — collect a few demonstrations, shape the reward, or make it goal-conditioned with hindsight relabelling"
+      - "Suggest switching from PPO to SAC"
+      - "Recommend a larger network"
+    answer: 1
+    explanation: "The question is whether you diagnose or spend. The proposal treats exploration as a quantity when the issue is its shape: local randomness cannot manufacture a multi-step sequence it has never produced. And on a manipulation task the realistic remedies are the ones that dissolve the exploration problem rather than solve it. Option 3 is tempting because SAC's entropy term is better than $\\epsilon$-greedy — but it is still local, so it does not change the answer."
+  - id: exp_l5_c2
+    prompt: "You add a curiosity bonus and the agent starts spending entire episodes staring at a swaying tree in the background. Diagnosis and fix?"
+    options:
+      - "The bonus coefficient is too high; anneal it"
+      - "The noisy TV: prediction error includes aleatoric noise that never shrinks, so an inherently unpredictable part of the scene is an inexhaustible reward source. Switch the target to something deterministic — RND — or compute the error in an inverse-model feature space that only represents controllable factors"
+      - "The forward model is undertrained; train it longer"
+      - "The intrinsic and extrinsic discounts are mismatched"
+    answer: 1
+    explanation: "The behaviour is the textbook symptom and the mechanism is precise: prediction error measures epistemic plus aleatoric uncertainty, and only the first is supposed to be rewarded. Annealing the coefficient reduces the pathology's weight without removing it, and more training on an unpredictable target changes nothing since the error is irreducible. The two real fixes attack different ends — RND makes the target deterministic; ICM's inverse-model features try to exclude uncontrollable factors from the input."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-The 'noisy TV problem': curiosity-based methods can get stuck watching inherently unpredictable stimuli (stochastic environment elements) because prediction error is always high. Symptoms: agent repeatedly interacts with stochastic objects instead of progressing toward the goal. Fix: use RND instead of forward prediction (random features are deterministic, so stochastic elements don't produce persistent bonus), or combine intrinsic + extrinsic rewards with decaying $\beta_{\text{int}}$. Another failure: insufficient exploration in offline RL leads to poor coverage of $\mathcal{D}$, making downstream offline policy learning brittle.
+<Steps>
+<Step title="Return flat at zero, never moves → is it exploration or reward?">
+Before adding machinery, check whether the reward is ever achievable by the
+current policy at all. If a scripted or demonstrated trajectory gets reward and
+the policy never does, it is exploration. If nothing gets reward, it is a reward
+bug.
+</Step>
 
-## Interview-ready answer
+<Step title="Agent fixates on one part of the scene → the noisy TV">
+Prediction-error curiosity has found irreducible stochasticity. Move to a
+deterministic target (RND) or to controllable features (ICM-style inverse
+model). Annealing the coefficient hides it rather than fixing it.
+</Step>
 
-Exploration is the fundamental challenge in RL, especially for robotics where the action space $\mathcal{A} \subseteq \mathbb{R}^n$ is continuous and high-dimensional. Simple methods like $\epsilon$-greedy fail because random actions are almost never useful. The practical hierarchy: (1) entropy regularization (SAC's $\alpha H(\pi)$) provides implicit exploration cheaply; (2) curiosity/intrinsic motivation (RND, ICM) provides directed exploration toward novel states; (3) posterior sampling / Thompson Sampling provides Bayes-optimal exploration but is computationally expensive. For robotics, I rely heavily on SAC's entropy bonus as a baseline and add count-based or curiosity bonuses for hard-exploration tasks. The key insight: exploration and exploitation aren't separate phases — they should be balanced continuously, which is exactly what the maximum entropy framework achieves with $J = \mathbb{E}[\sum r + \alpha H(\pi)]$.
+<Step title="Intrinsic reward large but coverage flat → the bonus is undertrained, not informative">
+A big bonus can simply mean the predictor has not caught up. Track state
+coverage or milestones; the bonus magnitude is not a progress metric.
+</Step>
+
+<Step title="Explores early, then collapses → the bonus decayed and nothing replaced it">
+Expected, and worth planning for. Either anneal $\beta$ deliberately so the
+final policy optimises the true reward, or keep separate value heads so the
+deployed objective is unambiguous.
+</Step>
+
+<Step title="Behaves erratically near hazards on hardware → stop">
+This is where the simulator results stop transferring. Exploration on a real
+robot needs a safety envelope, and the envelope usually removes the exploration
+that mattered. Demonstrations are the answer, and it is not a compromise.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+Two sentences do most of the work here. The first: $\epsilon$-greedy fails
+because per-step noise cannot execute a plan, and raising $\epsilon$ makes an
+$N$-step correct sequence less likely rather than more. The second: on hardware
+the field bypasses this problem with demonstrations, and that is a considered
+engineering choice rather than a gap in anyone's knowledge. Candidates who can
+only recite RND and Go-Explore sound like they have read the papers; candidates
+who add the second sentence sound like they have had to ship something.
+</Warning>
