@@ -77,6 +77,16 @@ export async function sha256Hex(input) {
 
 /** Prompt on stderr with the typed characters suppressed. */
 function promptHidden(question) {
+  // Piped input (CI, `echo … | npm run token`): just read the line.
+  if (!process.stdin.isTTY) {
+    return new Promise((resolve) => {
+      let data = "";
+      process.stdin.setEncoding("utf8");
+      process.stdin.on("data", (chunk) => (data += chunk));
+      process.stdin.on("end", () => resolve(data.split("\n")[0]));
+    });
+  }
+
   let muted = false;
   const output = new Writable({
     write(chunk, encoding, callback) {
