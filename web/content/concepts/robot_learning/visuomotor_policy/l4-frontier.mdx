@@ -1,0 +1,176 @@
+---
+concept: visuomotor_policy
+level: 4
+status: final
+recall:
+  prompt: "Trace the arc of visuomotor policy learning from 2016 to now. What is the current open argument?"
+  keyPoints:
+    - "Levine et al. (2016) established the claim and contributed the spatial softmax; the training had to be propped up by guided policy search because end-to-end optimisation from pixels was not yet tractable."
+    - "QT-Opt (2018) showed the recipe survives scale — 580k real grasps, closed-loop from pixels, generalising to unseen objects — at a data cost almost nobody else could pay."
+    - "DrQ and RAD (2020) deflated a lot of machinery: simple image augmentation recovers most of the sample-efficiency gap from pixels, with no auxiliary losses or reconstruction."
+    - "R3M and MVP (2022) argued for frozen pretrained visual representations; Hansen et al. (2022) showed a properly tuned from-scratch baseline with augmentation is often competitive. The argument is live, and the honest answer is task-dependent."
+papers:
+  - key: levine2016visuomotor
+    title: "End-to-End Training of Deep Visuomotor Policies"
+    authors: "Sergey Levine, Chelsea Finn, Trevor Darrell, Pieter Abbeel"
+    venue: JMLR
+    year: 2016
+    url: https://www.jmlr.org/papers/v17/15-522.html
+    takeaway: "The founding argument that perception and control should be trained jointly, plus the spatial softmax layer that is still in use — propped up by guided policy search, because direct end-to-end optimisation was not yet tractable."
+  - key: finn2016spatialae
+    title: "Deep Spatial Autoencoders for Visuomotor Learning"
+    authors: "Chelsea Finn, Xin Yu Tan, Yan Duan, Trevor Darrell, Sergey Levine, Pieter Abbeel"
+    venue: ICRA
+    year: 2016
+    arxiv: "1509.06113"
+    takeaway: "Learns the spatial feature points without action labels, via a reconstruction objective, showing the keypoint representation is recoverable from images alone rather than needing the control loss."
+  - key: kalashnikov2018qtopt
+    title: "QT-Opt: Scalable Deep Reinforcement Learning for Vision-Based Robotic Manipulation"
+    authors: "Dmitry Kalashnikov, Alex Irpan, Peter Pastor, Julian Ibarz, Alexander Herzog, Eric Jang, Deirdre Quillen, Ethan Holly, Mrinal Kalakrishnan, Vincent Vanhoucke, Sergey Levine"
+    venue: CoRL
+    year: 2018
+    arxiv: "1806.10293"
+    takeaway: "580k real grasp attempts across seven robots produce a closed-loop vision-based policy that generalises to unseen objects and improvises regrasps — proof the approach scales, at a data cost that is itself the headline."
+  - key: kostrikov2021drq
+    title: "Image Augmentation Is All You Need: Regularizing Deep Reinforcement Learning from Pixels"
+    authors: "Ilya Kostrikov, Denis Yarats, Rob Fergus"
+    year: 2021
+    arxiv: "2004.13649"
+    takeaway: "Random shift augmentation alone matches or beats methods built on auxiliary reconstruction and contrastive losses, reframing pixel-based control as a regularisation problem rather than a representation-learning one."
+  - key: nair2022r3m
+    title: "R3M: A Universal Visual Representation for Robot Manipulation"
+    authors: "Suraj Nair, Aravind Rajeswaran, Vikash Kumar, Chelsea Finn, Abhinav Gupta"
+    venue: CoRL
+    year: 2022
+    arxiv: "2203.12601"
+    takeaway: "A frozen encoder pretrained on human video (Ego4D) with time-contrastive and language objectives, offered as a reusable visual backbone that cuts demonstrations needed per task."
+  - key: radosavovic2022mvp
+    title: "Real-World Robot Learning with Masked Visual Pre-training"
+    authors: "Ilija Radosavovic, Tete Xiao, Stephen James, Pieter Abbeel, Jitendra Malik, Trevor Darrell"
+    venue: CoRL
+    year: 2022
+    arxiv: "2210.03109"
+    takeaway: "Masked autoencoding on internet and egocentric video yields a frozen ViT backbone that transfers to real-robot tasks, and — unlike supervised pretraining — keeps improving with model scale."
+  - key: hansen2022scratch
+    title: "On Pre-Training for Visuo-Motor Control: Revisiting a Learning-from-Scratch Baseline"
+    authors: "Nicklas Hansen, Zhecheng Yuan, Yanjie Ze, Tongzhou Mu, Aravind Rajeswaran, Hao Su, Huazhe Xu, Xiaolong Wang"
+    year: 2022
+    arxiv: "2212.05749"
+    takeaway: "A from-scratch encoder with standard augmentation matches or beats frozen pretrained representations on several benchmarks — the necessary corrective to the claim that pretrained visual features are simply better."
+check:
+  - id: vmp_l4_c1
+    prompt: "DrQ showed that random shift augmentation matches methods using auxiliary reconstruction and contrastive objectives. What is the substantive conclusion?"
+    options:
+      - "Representation learning is useless for control"
+      - "Much of what those auxiliary losses were providing was regularisation against overfitting the encoder, not a better representation per se — so the simplest regulariser recovers most of the benefit"
+      - "Pixel-based RL is as sample-efficient as state-based RL"
+      - "Convolutional encoders should be replaced by transformers"
+    answer: 1
+    explanation: "The result is a deflation, not a nihilism. An encoder trained on a few thousand correlated frames overfits hard, and the auxiliary losses were largely holding that back — a job a cheap augmentation does about as well. It does not say representations do not matter; it says you should measure against a properly-regularised baseline before crediting your representation-learning method. That methodological point is the reason the paper is still cited."
+  - id: vmp_l4_c2
+    prompt: "An interviewer asks whether you would use a frozen R3M or DINOv2 encoder or train from scratch. What is the strongest answer?"
+    options:
+      - "Always frozen pretrained — it is strictly more sample-efficient"
+      - "Always from scratch — pretrained features are trained for the wrong task"
+      - "It depends on precision and visual diversity: pretrained features help most with limited data and broad visual variation, and help least on precise contact-rich tasks where the pretraining's invariances discard the fine spatial signal — and Hansen et al. showed the from-scratch baseline is often competitive"
+      - "Use pretrained weights but fine-tune the whole encoder, which is always best"
+    answer: 2
+    explanation: "The literature genuinely disagrees, and an answer that picks a side without conditions signals you have read one paper. The mechanism to name is the invariance mismatch: pretraining objectives reward not caring about small viewpoint and translation changes, while insertion or cable routing needs exactly that sensitivity. Option 4 is not free either — fine-tuning a large encoder on a few thousand frames is a fast route to overfitting, which is why partial fine-tuning and low learning rates on the backbone are common."
+  - id: vmp_l4_c3
+    prompt: "QT-Opt used roughly 580,000 real grasp attempts. What does that number most usefully establish?"
+    options:
+      - "That end-to-end vision-based control scales and generalises, and that the binding constraint on the approach is real-robot data collection rather than the method"
+      - "That reinforcement learning is superior to imitation learning for manipulation"
+      - "That grasping is a solved problem"
+      - "That simulation is unnecessary"
+    answer: 0
+    explanation: "It is simultaneously the strongest existence proof and the clearest statement of the problem. Seven robots running for months is not a recipe anyone else can follow, and the entire subsequent literature — pretrained representations, sim2real, action chunking, cross-embodiment datasets — is a set of attempts to get comparable results without paying that bill."
+---
+
+## The founding claim
+
+<PaperCard refKey="levine2016visuomotor" />
+
+The argument is that separating perception from control is a modelling error:
+train them jointly and the visual features become the ones control actually
+needs. The paper's lasting technical contribution is the spatial softmax, and
+its most revealing detail is what it needed to make training work at all —
+guided policy search, which supplies local trajectory-optimised controllers as
+supervision so the network never has to solve the hard credit-assignment problem
+from pixels directly.
+
+<PaperCard refKey="finn2016spatialae" />
+
+The companion result: those spatial feature points can be learned from a
+reconstruction objective, with no action labels. That mattered because it
+suggested the representation was a property of the images, not something only
+the control loss could find.
+
+## Scale, and what it cost
+
+<PaperCard refKey="kalashnikov2018qtopt" />
+
+Seven robots, months of wall-clock, 580k grasp attempts, and a closed-loop
+policy that generalises to unseen objects and spontaneously regrasps when the
+first attempt slips. It settled whether the approach scales. It also stated the
+real problem clearly: almost nobody can afford that, and everything since has
+been an attempt to get there for less.
+
+## The deflation
+
+<PaperCard refKey="kostrikov2021drq" />
+
+By 2020 pixel-based control had accumulated a stack of auxiliary machinery —
+reconstruction losses, contrastive objectives, world models. DrQ (with RAD
+concurrently) showed that random shifts on the input recover most of the benefit
+on standard benchmarks.
+
+<KeyIdea>
+The right reading is methodological. An encoder trained on a few thousand
+correlated frames overfits severely, and much of what the auxiliary losses
+bought was regularisation rather than representation. The lesson generalises far
+beyond this paper: tune the simple baseline properly before crediting your
+method, because in robot learning the simple baseline is usually undertuned.
+</KeyIdea>
+
+## The live argument
+
+<PaperGrid>
+<PaperCard refKey="nair2022r3m" />
+<PaperCard refKey="radosavovic2022mvp" />
+<PaperCard refKey="hansen2022scratch" />
+</PaperGrid>
+
+The pretrained-representation position is that vision is a solved-enough problem
+to be imported: freeze a backbone trained on human video, learn a small head,
+and cut your demonstrations from thousands to tens. The counter-position, argued
+directly against those results, is that a from-scratch encoder with ordinary
+augmentation is often just as good, and the reported gains reflect a weak
+baseline.
+
+<Steps>
+<Step title="Where pretrained features tend to win">
+Limited data, broad visual variation, semantically-loaded tasks. If the policy
+must handle objects it has never seen, features trained on internet-scale images
+carry information your 200 demonstrations cannot.
+</Step>
+
+<Step title="Where they tend to lose">
+Precise, contact-rich tasks in a fixed scene. Pretraining objectives explicitly
+reward invariance to small translations and viewpoint shifts — and a peg-in-hole
+policy needs the representation to change sharply with a two-millimetre offset.
+The invariance you were given is the sensitivity you needed.
+</Step>
+
+<Step title="What to actually do">
+Run both. The comparison is cheap relative to collecting more demonstrations,
+and which side wins is a property of your task rather than of the year.
+</Step>
+</Steps>
+
+<Warning>
+This is a good interview question precisely because it has no settled answer.
+Candidates who confidently assert one side are revealing which paper they read
+most recently. Naming the invariance-versus-precision mechanism, and saying you
+would measure it, is the answer that holds up.
+</Warning>

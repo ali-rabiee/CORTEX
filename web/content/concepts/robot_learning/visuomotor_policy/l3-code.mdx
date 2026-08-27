@@ -1,0 +1,170 @@
+---
+concept: visuomotor_policy
+level: 3
+status: final
+recall:
+  prompt: "Implement a visuomotor policy in PyTorch: encoder, spatial softmax, head. Which details are load-bearing?"
+  keyPoints:
+    - "Spatial softmax over the last conv feature map, returning $2C$ coordinates — not `nn.AdaptiveAvgPool2d(1)`, which throws away the position the action depends on."
+    - "Replace BatchNorm with GroupNorm in the encoder. Policy batches are small and correlated within an episode, so batch statistics are unreliable, and the train/eval statistics mismatch bites at deployment."
+    - "Apply the *same* random crop to every camera view of a timestep, and a different one per sample. Independent crops per view teach the policy that the views are unregistered."
+    - "One encoder per camera view, not one shared across views — the views see different things and weight sharing forces a compromise. Concatenate proprioception after the encoder, never before."
+check:
+  - id: vmp_l3_c1
+    prompt: "Why replace BatchNorm with GroupNorm in a policy's vision encoder?"
+    options:
+      - "GroupNorm is faster on GPU"
+      - "Policy batches are small and highly correlated — consecutive frames of one episode — so batch statistics are noisy and unrepresentative, and the running-average statistics used at eval time differ from what training saw"
+      - "BatchNorm cannot be used with convolutional layers in policies"
+      - "GroupNorm removes the need for data augmentation"
+    answer: 1
+    explanation: "BatchNorm assumes the batch is a decent sample of the data distribution. A robot-learning batch is often 32 or 64 frames drawn from a handful of episodes, so the frames within it are near-duplicates and the computed mean and variance swing. Worse, inference runs on a batch of one, using running averages that never matched the training-time statistics. GroupNorm normalises within a sample and is batch-size independent, which is why essentially every recent policy codebase uses it."
+  - id: vmp_l3_c2
+    prompt: "You have a wrist camera and an overhead camera. What is the right way to apply random-crop augmentation?"
+    options:
+      - "Independently sample a crop offset for each view, to maximise augmentation diversity"
+      - "Sample one offset per training sample and apply it to both views, so their relative geometry is preserved"
+      - "Crop only the overhead view, since the wrist view is already close-up"
+      - "Do not crop at all when using multiple views"
+    answer: 1
+    explanation: "Careful — 'more augmentation diversity' is the tempting wrong answer. Independent offsets simulate the two cameras shifting relative to each other, which physically never happens on a rigid robot. You would be training invariance to a nuisance that does not exist while making the real cross-view geometry harder to learn. Shared offset per sample, independent across samples."
+  - id: vmp_l3_c3
+    prompt: "Where in the network should proprioception be concatenated?"
+    options:
+      - "As extra input channels on the image, so convolutions can fuse it spatially"
+      - "After the visual encoder, alongside the pooled visual features, just before the action head"
+      - "It should not be used — the image contains the arm"
+      - "As the initial hidden state of the encoder"
+    answer: 1
+    explanation: "Joint angles have no spatial layout, so broadcasting them across an image and convolving is at best a waste and at worst a route to the policy ignoring vision entirely and regressing actions from proprioception alone — which trains beautifully and fails on the robot. Concatenating after pooling keeps the pathways separate until the head. Option 3 is wrong for a different reason: the arm is visible, but recovering joint angles from pixels is far harder than reading the encoders."
+---
+
+## The encoder, and the one layer that matters
+
+<CodeWalk title="Spatial softmax">
+
+```python title="policy.py"
+import torch, torch.nn as nn, torchvision
+
+class SpatialSoftmax(nn.Module):
+    """(B, C, H, W) feature maps -> (B, 2C) expected keypoint coordinates."""
+
+    def __init__(self, height, width, temperature=1.0):
+        super().__init__()
+        self.temperature = temperature
+        ys, xs = torch.meshgrid(
+            torch.linspace(-1, 1, height),
+            torch.linspace(-1, 1, width),
+            indexing="ij",
+        )
+        # Buffers, not parameters: the coordinate grid is fixed geometry.
+        self.register_buffer("xs", xs.reshape(-1))
+        self.register_buffer("ys", ys.reshape(-1))
+
+    def forward(self, feat):
+        B, C, H, W = feat.shape
+        # Softmax over SPACE (the flattened H*W axis), not over channels.
+        attn = torch.softmax(feat.reshape(B, C, H * W) / self.temperature, dim=-1)
+        x = (attn * self.xs).sum(-1)          # (B, C) expected column
+        y = (attn * self.ys).sum(-1)          # (B, C) expected row
+        return torch.cat([x, y], dim=-1)      # (B, 2C)
+```
+
+</CodeWalk>
+
+`dim=-1` is the whole layer. Softmax over the channel axis would give you a
+per-pixel classification of "which feature is this"; softmax over the spatial
+axis gives you a per-feature distribution of "where is it". The second is a
+keypoint detector; the first is not.
+
+## Wiring it together
+
+<CodeWalk title="Per-view encoder, shared head">
+
+```python title="policy.py"
+def make_encoder():
+    net = torchvision.models.resnet18(weights="IMAGENET1K_V1")
+    # Small, correlated policy batches make batch statistics unreliable.
+    net = replace_bn_with_gn(net)
+    return nn.Sequential(*list(net.children())[:-2])   # drop avgpool + fc
+
+
+class VisuomotorPolicy(nn.Module):
+    def __init__(self, n_views, prop_dim, act_dim, chunk=8, feat_hw=(7, 7)):
+        super().__init__()
+        # One encoder PER VIEW: a wrist camera and an overhead camera see
+        # different distributions, and sharing weights forces a compromise.
+        self.encoders = nn.ModuleList([make_encoder() for _ in range(n_views)])
+        self.pool = SpatialSoftmax(*feat_hw)
+
+        vis_dim = n_views * 2 * 512
+        self.act_dim, self.chunk = act_dim, chunk
+        self.head = nn.Sequential(
+            nn.Linear(vis_dim + prop_dim, 512), nn.ReLU(),
+            nn.Linear(512, 512), nn.ReLU(),
+            nn.Linear(512, act_dim * chunk),
+        )
+
+    def forward(self, views, prop):               # views: list of (B, 3, H, W)
+        feats = [self.pool(enc(v)) for enc, v in zip(self.encoders, views)]
+        z = torch.cat(feats + [prop], dim=-1)     # proprioception joins HERE
+        return self.head(z).view(-1, self.chunk, self.act_dim)
+```
+
+</CodeWalk>
+
+Proprioception is concatenated after pooling, not painted onto the image as
+extra channels. Joint angles have no spatial extent, and a policy given an easy
+proprioceptive shortcut will take it — training loss falls, vision is ignored,
+and the robot fails the moment the object moves.
+
+## Augmentation, done correctly
+
+```python title="augment.py"
+def random_crop_views(views, pad=8):
+    """One offset per sample, shared across camera views."""
+    B = views[0].shape[0]
+    dx = torch.randint(0, 2 * pad + 1, (B,))
+    dy = torch.randint(0, 2 * pad + 1, (B,))
+
+    out = []
+    for v in views:
+        v = nn.functional.pad(v, (pad,) * 4, mode="replicate")
+        # Same (dx, dy) for every view: the cameras are rigidly mounted, and
+        # independent offsets would train invariance to a shift that cannot
+        # physically happen.
+        out.append(torch.stack([
+            v[b, :, dy[b]:dy[b] + views[0].shape[2],
+                    dx[b]:dx[b] + views[0].shape[3]] for b in range(B)
+        ]))
+    return out
+```
+
+<Warning>
+Augment the training half only, and split by episode rather than by timestep.
+Both mistakes inflate validation numbers in the same direction, and together
+they produce the classic report: "validation loss 0.003, success rate 15%."
+</Warning>
+
+## What to measure
+
+<Steps>
+<Step title="Rollout success, under a visual change you did not train on">
+Move a lamp, swap the table covering, nudge a camera. A policy that survives
+that has learned the task; one that does not has learned the room. This is the
+only evaluation that predicts deployment.
+</Step>
+
+<Step title="Where the keypoints land">
+Spatial softmax outputs are image coordinates, so overlay them on the frame.
+Keypoints tracking the object and the gripper mean the encoder found the task;
+keypoints pinned to a table corner mean it found a shortcut. This is the one
+piece of interpretability an end-to-end policy hands you for free — use it.
+</Step>
+
+<Step title="Blank the image and re-run">
+Feed zeros or a shuffled frame and measure how much success drops. Barely at all
+means the policy is running on proprioception and the vision pathway is
+decorative.
+</Step>
+</Steps>

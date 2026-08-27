@@ -1,23 +1,155 @@
 ---
 concept: visuomotor_policy
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Visuomotor Policies fail in practice, and how would you present
-    it in an interview?
+  prompt: "Give your interview answer on visuomotor policies. What is the trade you are making, and how do you diagnose the failure that dominates in practice?"
   keyPoints:
-    - "Visual overfitting: policy memorizes specific visual features (table
-      texture, lighting) rather than task-relevant structure."
-    - The encoder $f_\phi$ fits spurious correlations in the training visuals.
-    - "Symptoms: works in training environment, fails with any visual change."
-check: []
-papers: []
+    - "Frame it as replacing hand-designed interfaces with a learned representation — the gain is that the task loss picks what to keep, the cost is data appetite and loss of inspectability."
+    - "Visual overfitting is the dominant failure: the encoder keys on lighting, texture, or background that correlate with the action in your data. It shows as a cliff after a visual change, not a gradual decline."
+    - "Diagnose by ablation, not intuition: blank the image to see if the policy is running on proprioception, overlay the spatial-softmax keypoints to see what it is looking at, and evaluate under a deliberate visual perturbation."
+    - "Have a position on frozen versus fine-tuned encoders, with the invariance-versus-precision mechanism and the fact that the literature disagrees."
+interview:
+  answer: >-
+    A visuomotor policy is one network from pixels to motor commands, replacing
+    the classical detect, estimate pose, plan grasp, execute pipeline. The
+    argument for it isn't that neural detectors beat classical ones — it's
+    about the interfaces. Every stage boundary in that pipeline is a
+    hand-chosen summary, and whatever the summary doesn't carry is
+    unrecoverable downstream. A six-DoF pose is a great interface for picking
+    up a rigid box and a useless one for a towel or a cable, and no improvement
+    to your pose estimator fixes that, because the failure is in the
+    representation, not the estimate. Training end-to-end means the control
+    loss decides what the visual features should be. Concretely, the standard
+    build is a conv or ViT encoder per camera view, a spatial softmax rather
+    than global average pooling so you keep position — the layer returns the
+    expected image coordinates of each feature channel, which is a
+    differentiable keypoint detector — then proprioception concatenated after
+    pooling, then a head that predicts a chunk of future actions. Trained as
+    behaviour cloning. What you give up is real: data efficiency, and the
+    ability to ask which stage was wrong when it fails. And the failure that
+    actually dominates is visual overfitting. Nothing in the loss says use the
+    object and ignore the tablecloth; it says predict the action, and if the
+    tablecloth predicts the action in your dataset the encoder will use it. So
+    in practice most of the engineering is defensive — heavy crop and colour
+    augmentation, group norm instead of batch norm, splitting validation by
+    episode, and evaluating by deliberately changing something visual and
+    rolling out, because held-out action error is measured in the same room and
+    can't see the failure that will get you.
+  followUps:
+    - q: "Frozen pretrained encoder, or train from scratch?"
+      a: >-
+        It depends on the task, and I'd say so rather than pick a side —
+        R3M and MVP argue one way and Hansen et al. showed a properly tuned
+        from-scratch baseline is often competitive. The mechanism I'd reason
+        from is that pretraining objectives reward invariance to small
+        viewpoint and translation changes, and precise contact-rich tasks need
+        exactly the opposite: the representation has to change sharply with a
+        two-millimetre offset. So pretrained features help most with limited
+        data and lots of visual and object diversity, and least on precise
+        tasks in a fixed scene. It's cheap to run both compared to collecting
+        more demos, so I'd measure rather than argue.
+    - q: "How do you know whether your policy is actually using vision?"
+      a: >-
+        Ablate the input. Feed a blank or shuffled image at rollout time and
+        see how far success drops — if it barely moves, the policy is running
+        on proprioception and the vision pathway is decoration, which happens
+        more often than people expect when the demonstrations have consistent
+        starting configurations. The second thing I'd do is visualise the
+        spatial-softmax keypoints on the frame, since they're literal image
+        coordinates. If they track the object and the gripper, the encoder
+        found the task; if they're pinned to a table corner, it found a
+        shortcut. That's the one bit of interpretability an end-to-end policy
+        gives you for free.
+    - q: "You have 50 demos and it doesn't work. What do you do, in order?"
+      a: >-
+        Augmentation first, because it's free and it's the highest-leverage
+        thing at that data scale — random crops shared across camera views,
+        colour jitter, and check I'm not augmenting the validation split.
+        Then action chunking, which cuts decision points and costs nothing.
+        Then a pretrained frozen encoder, which is exactly the regime where it
+        should help. Then I'd check whether the failure is really a vision
+        problem at all — if the demos are multi-modal, no encoder fixes mode
+        averaging in the head, and I'd want a diffusion or discretised action
+        head instead. What I would not do first is make the backbone bigger.
+    - q: "Where would a modular pipeline still be the right choice?"
+      a: >-
+        When the task genuinely decomposes and you need to certify it. If
+        you're picking known rigid parts from a bin in a factory, pose
+        estimation is an adequate interface, the modules can be tested and
+        validated independently, and when something fails you can point at
+        which stage. That inspectability is a real engineering asset and
+        safety cases are much easier to write. I'd reach for end-to-end when
+        the interface is the thing I can't specify — deformables, contact-rich
+        assembly, anything where I can't write down what perception should
+        hand to control.
+  traps:
+    - "Justifying end-to-end by saying neural networks are better at perception. The argument is about the interfaces between stages, not about detector accuracy — and a strong interviewer will push on that distinction."
+    - "Reporting held-out action-prediction error as evidence the policy works. It is measured on the same room and lighting, so it is blind to the dominant failure mode."
+    - "Taking a hard side on pretrained versus from-scratch encoders. The literature disagrees; asserting one side signals you have read one paper rather than the argument."
+    - "Forgetting that a single frame is not a state. Velocity, contact, and anything occluded are invisible in one image, and a policy with no observation history will fail on tasks that depend on them."
+check:
+  - id: vmp_l5_c1
+    prompt: "Your policy succeeds 85% in the lab and 10% in a visually identical cell in another building. Which diagnostic separates visual overfitting from a calibration or dynamics problem fastest?"
+    options:
+      - "Retrain with a larger vision backbone and compare"
+      - "Replay demonstration observations from the new cell through the policy offline and compare predicted actions to what a human would do there — and separately check whether success recovers when you restore the original lighting"
+      - "Increase the control frequency"
+      - "Collect 50 more demonstrations in the new cell"
+    answer: 1
+    explanation: "You want a test that isolates the perception pathway from the physical one without collecting new training data. Offline replay removes the closed loop entirely: if predictions are already wrong on the new cell's images, it is perception. And if restoring the original lighting restores success, that is close to proof — a calibration or dynamics difference would not care about a lamp. Option 4 might eventually fix the symptom while teaching you nothing about the cause."
+  - id: vmp_l5_c2
+    prompt: "A candidate says visuomotor policies are better because 'the network learns features specific to the task instead of generic ones.' What is the sharpest correction?"
+    options:
+      - "It is correct as stated"
+      - "Task-specific features are the mechanism, but the reason it wins is that no human has to commit in advance to what the interface between perception and control should carry — and that same specificity is exactly why the encoder overfits to the training scene"
+      - "Networks cannot learn task-specific features without explicit supervision"
+      - "Generic features are always better because they generalise"
+    answer: 1
+    explanation: "The statement is not wrong, it is one-sided, and interviewers listen for whether you know the cost of your own argument. Specificity to the task is the same property as specificity to the training room; the loss cannot distinguish 'features of the task' from 'features that predicted the action in this dataset'. Being able to state the benefit and its inseparable cost in one breath is the difference between having read about this and having debugged it."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Visual overfitting: policy memorizes specific visual features (table texture, lighting) rather than task-relevant structure. The encoder $f_\phi$ fits spurious correlations in the training visuals. Symptoms: works in training environment, fails with any visual change. Fix: aggressive data augmentation (random crops, color jitter, background randomization), use pre-trained frozen vision encoders (R3M, CLIP, DINOv2) so $f_\phi$ is already robust.
+<Steps>
+<Step title="Cliff after a visual change → visual overfitting">
+Success drops sharply and immediately when lighting, background, or camera pose
+changes, and is stable otherwise. Confirm by restoring the original condition
+and watching success return. This is the default hypothesis; make the evidence
+argue you out of it.
+</Step>
 
-## Interview-ready answer
+<Step title="Works only from the demonstrated start pose → the vision pathway is dead">
+Blank the image and re-run. If success barely moves, the policy is regressing
+actions from proprioception and never learned to look. Common when
+demonstrations all begin from similar configurations.
+</Step>
 
-Visuomotor policies $\pi_\theta(a | o_{\text{img}})$ are the standard approach for learning manipulation from images. The key architectural choices: use a pre-trained vision encoder $f_\phi$ (DINOv2 or R3M) rather than training from scratch, add spatial features via spatial softmax (not just global pooling), and apply heavy data augmentation. For sample efficiency, pre-trained encoders are a game-changer — they reduce the demo requirement from thousands to tens. The main risk is visual overfitting, which is addressed by augmentation and domain randomization. In practice, I prefer frozen pre-trained encoders with a lightweight policy head $g_\psi$ for most manipulation tasks.
+<Step title="Reaches confidently to the wrong place, repeatably → representation loss">
+Overlay the spatial-softmax keypoints. Two identical objects in the scene will
+put a keypoint between them, at nothing. So will any channel with a bimodal
+activation map.
+</Step>
+
+<Step title="Fails only where demonstrations disagree → not a vision problem">
+Mode averaging in the action head. The encoder is fine; the head is emitting the
+mean of two valid strategies. No encoder change fixes this — the fix is a
+multi-modal action representation.
+</Step>
+
+<Step title="Jitter or lag → neither">
+Jitter is a per-timestep policy re-deciding every tick; chunk the actions. Lag
+is looking at the world too rarely; execute fewer actions per re-plan.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The move that separates strong answers here is naming the cost of your own
+position without being asked. End-to-end learning buys a representation shaped
+by the task and pays for it in data, inspectability, and a strong tendency to
+memorise the room. A candidate who only sells the benefit sounds like they have
+read the 2016 paper. A candidate who volunteers the bill sounds like they have
+deployed one.
+</Warning>

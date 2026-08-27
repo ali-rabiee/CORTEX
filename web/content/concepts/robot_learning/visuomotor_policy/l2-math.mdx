@@ -1,23 +1,162 @@
 ---
 concept: visuomotor_policy
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Visuomotor Policies, including the key
-    equations.
+  prompt: "Define a visuomotor policy formally. Derive the spatial softmax and name the assumption it makes about the feature maps."
   keyPoints:
-    - "End-to-end policies $\\pi_\\theta: \\mathcal{O}_{\\text{image}}
-      \\rightarrow \\mathcal{A}$ that map raw visual observations (RGB/RGB-D
-      images) directly to motor commands without hand-designed perception
-      pipelines."
-    - "Typically: CNN/ViT encoder $f_\\phi: \\mathbb{R}^{H \\times W \\times C}
-      \\rightarrow \\mathbb{R}^d$ → spatial features → policy head (MLP or
-      transformer) $g_\\psi: \\mathbb{R}^d \\rightarrow \\mathcal{A}$ →
-      actions."
-check: []
-papers: []
+    - "$\\pi_\\theta = g_\\psi \\circ f_\\phi$ with $f_\\phi: \\mathbb{R}^{H\\times W\\times 3} \\to \\mathbb{R}^d$ and $g_\\psi: \\mathbb{R}^d \\to \\mathcal{A}$. 'End-to-end' means precisely that $\\partial \\mathcal{L}/\\partial \\phi \\neq 0$ — the control loss shapes the visual features."
+    - "Spatial softmax: normalise each channel's activation map over pixels, return its expectation $(x_c, y_c) = \\sum_{ij} s_{cij}(x_{ij}, y_{ij})$. It is a temperature-controlled soft argmax, and it recovers the hard argmax as the temperature goes to zero."
+    - "The assumption is that each channel's map is unimodal. Two equally-strong activations put the keypoint between them, at a location where nothing is — mode averaging, one layer lower in the network."
+    - "A single RGB frame is not a Markov state: velocity, occluded contents, and contact state are unobservable. It is a POMDP, and the standard patch is a short observation history."
+check:
+  - id: vmp_l2_c1
+    prompt: "A spatial-softmax channel fires equally on two identical screws on the table. What coordinate does that channel output?"
+    options:
+      - "The coordinate of whichever screw has the marginally higher activation"
+      - "The midpoint between the two screws, where there is no screw at all"
+      - "Two coordinates, one per activation peak"
+      - "An undefined value, because the softmax has no unique maximum"
+    answer: 1
+    explanation: "The layer returns an *expectation* over the normalised activation map, and the expectation of a symmetric bimodal distribution is the point between its modes. This is structurally the same pathology as MSE mode averaging, just moved from the action head into the visual encoder — and it is worse there, because a diffusion action head cannot recover information the encoder already destroyed. Lowering the temperature sharpens toward one peak but breaks the tie arbitrarily and makes the gradient vanish."
+  - id: vmp_l2_c2
+    prompt: "You freeze a pretrained encoder and train only a small action head. What is the sharpest reason this can underperform training the encoder end-to-end?"
+    options:
+      - "Frozen encoders always have too few parameters"
+      - "Pretraining objectives reward invariance to nuisances such as small viewpoint and translation changes, but manipulation needs precise *equivariance* to exactly those — so the pretraining may have discarded the millimetre-level signal the controller needs"
+      - "Frozen weights cannot be used with batch normalisation"
+      - "Gradients cannot flow through a frozen module, so the head cannot be trained"
+    answer: 1
+    explanation: "Classification and contrastive pretraining are explicitly built to make the representation *not* change when the object moves a little — that invariance is the goal. Insertion tasks need the representation to change smoothly and precisely with a two-millimetre shift. The mismatch is between what the pretraining task wanted and what control wants, not a matter of capacity, which is why Hansen et al.'s from-scratch baseline is competitive on precise tasks even where pretrained features win on coarse ones."
+  - id: vmp_l2_c3
+    prompt: "Why is a single RGB frame usually an insufficient state for a manipulation policy, in the formal sense?"
+    options:
+      - "Because RGB lacks depth, and depth is always required for manipulation"
+      - "Because the action often depends on quantities not determined by one frame — velocity, whether the gripper has already made contact, what is inside an occluded container — so the process is a POMDP rather than an MDP"
+      - "Because convolutional encoders cannot process a single image"
+      - "Because the reward is not visible in the image"
+    answer: 1
+    explanation: "Markov means the optimal action is a function of the current observation alone. One frame fixes positions but not their derivatives, and it says nothing about state hidden behind an occlusion or about whether contact has been established. The cheap fix is a short observation history — two frames is enough for velocity and is what Diffusion Policy uses — and the expensive one is a recurrent or attention-based memory. Depth helps with a different problem, scale ambiguity."
 ---
 
-## Formal definition
+## The object being defined
 
-End-to-end policies $\pi_\theta: \mathcal{O}_{\text{image}} \rightarrow \mathcal{A}$ that map raw visual observations (RGB/RGB-D images) directly to motor commands without hand-designed perception pipelines. Typically: CNN/ViT encoder $f_\phi: \mathbb{R}^{H \times W \times C} \rightarrow \mathbb{R}^d$ → spatial features → policy head (MLP or transformer) $g_\psi: \mathbb{R}^d \rightarrow \mathcal{A}$ → actions.
+A visuomotor policy factors into an encoder and a head,
+
+$$
+\pi_\theta(a \mid o) = g_\psi\big(f_\phi(I), \; q\big),
+\qquad
+f_\phi: \mathbb{R}^{H\times W\times 3} \to \mathbb{R}^{d},
+\quad
+g_\psi: \mathbb{R}^{d}\times\mathbb{R}^{n_q} \to \mathcal{A}
+$$
+
+with $I$ the image (or several), $q$ proprioception, and $\theta = (\phi, \psi)$.
+Every architecture in this literature is a choice of $f_\phi$, $g_\psi$, and
+which of them receives gradient.
+
+<KeyIdea>
+"End-to-end" is not a vibe, it is a statement about a derivative:
+$\partial\mathcal{L}/\partial\phi \neq 0$. The control loss reaches back into
+the visual features and reshapes them. Freeze $\phi$ and you no longer have an
+end-to-end system — you have a fixed feature extractor with a learned
+controller, which is a different object with different failure modes.
+</KeyIdea>
+
+## Spatial softmax
+
+The pooling choice is where most of the architectural signal lives. Let
+$f_{cij}$ be the pre-pooling activation of channel $c$ at pixel $(i,j)$, and let
+$(x_{ij}, y_{ij})$ be that pixel's normalised image coordinates.
+
+<Derivation title="From a feature map to a differentiable keypoint">
+
+**Step 1 — normalise each channel over space, not over channels.**
+
+$$
+s_{cij} = \frac{\exp(f_{cij}/\alpha)}{\sum_{i'j'} \exp(f_{ci'j'}/\alpha)}
+$$
+
+Each channel now carries a probability distribution over pixel locations:
+*where* is this feature.
+
+**Step 2 — take the expectation.**
+
+$$
+(x_c, y_c) = \sum_{ij} s_{cij}\,(x_{ij},\, y_{ij})
+$$
+
+A $C$-channel map becomes $2C$ numbers, and every one of them is a coordinate.
+
+**Step 3 — check the limit.** As $\alpha \to 0$ the softmax concentrates on the
+maximal activation and $(x_c,y_c) \to \arg\max_{ij} f_{cij}$. So this is a soft
+argmax with a temperature: a keypoint detector you can backpropagate through.
+
+**The assumption doing the work is unimodality.** The expectation is a faithful
+summary of the map only when the map has one peak. Two equally strong peaks —
+two identical objects, or an object and its reflection — return the midpoint, a
+location with nothing at it. No downstream head can undo that, because the
+information left the network at this layer.
+
+</Derivation>
+
+Contrast with global average pooling, $\bar f_c = \frac{1}{HW}\sum_{ij} f_{cij}$,
+which answers "is this feature present?" and deliberately discards where. That
+translation invariance is the entire point in classification and is a liability
+in control, where the action is largely a function of position.
+
+## What augmentation is actually asserting
+
+Random cropping is usually filed under regularisation, but it states a prior.
+Training on shifted crops with unchanged action labels demands
+
+$$
+g_\psi\big(f_\phi(\mathrm{shift}_\delta(I))\big) \approx g_\psi\big(f_\phi(I)\big)
+\qquad \text{for small } \|\delta\|
+$$
+
+— the action must not depend on a few-pixel translation of the frame. For a
+fixed camera whose mounting is repeatable only to within a few pixels, that is
+exactly right, and it forbids the encoder from keying on absolute pixel
+positions of background clutter.
+
+<Warning>
+The prior is a statement about *small* $\delta$, and it is false for large ones:
+if the camera moves by 30 pixels, the correct action genuinely changes. Crop
+augmentation that is too aggressive teaches an invariance the task does not
+have, and precision suffers. Colour jitter is safer because illumination really
+is a nuisance variable, and there is no scale at which it stops being one.
+</Warning>
+
+## The observation is not the state
+
+Formally the control problem is a POMDP, not an MDP: the optimal action depends
+on latent variables $s$ that a single frame does not determine.
+
+<Steps>
+<Step title="Velocity">
+One frame fixes positions and says nothing about their derivatives. Two frames
+recover velocity by finite difference, which is why a two-frame history is the
+common default rather than a real memory.
+</Step>
+
+<Step title="Contact and force">
+Whether the fingers have closed on the object is frequently invisible at camera
+resolution, and it changes the correct action completely. Proprioception,
+gripper width, and force-torque readings are cheap and exact — concatenate them.
+</Step>
+
+<Step title="Anything occluded">
+The contents of a drawer, or an object behind the arm. No amount of frame
+stacking fixes this; it requires memory over the episode, which is one of the
+arguments for transformer policies over frame-stacked conv nets.
+</Step>
+</Steps>
+
+<KeyIdea>
+Two failure sources worth keeping apart, because they are fixed differently.
+**Representation loss** — spatial softmax averaging two peaks, pooling
+discarding position, a pretrained encoder invariant to what you needed — is an
+encoder problem. **Partial observability** is an input problem, fixed by giving
+the policy more to look at, not by a better encoder.
+</KeyIdea>

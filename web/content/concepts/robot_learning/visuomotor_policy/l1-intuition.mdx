@@ -1,24 +1,135 @@
 ---
 concept: visuomotor_policy
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Visuomotor Policies in plain language: what is it, and why does
-    it matter?"
+  prompt: "Explain what a visuomotor policy is and what it replaces. What do you gain, and what do you give up?"
   keyPoints:
-    - Instead of building separate perception (detect object) → planning
-      (compute grasp) → control (execute motion) modules, you train one neural
-      network that sees the camera image and outputs joint velocities.
-    - Like teaching someone to catch a ball by practice rather than by
-      explaining physics equations.
-check: []
-papers: []
+    - "One network from pixels to motor commands, replacing the detect → estimate pose → plan grasp → execute pipeline."
+    - "The gain is that no human decides what the intermediate representation should be. The task loss decides, so nothing task-relevant gets summarised away at a hand-designed interface."
+    - "The loss is inspectability: when a modular system fails you can ask which stage was wrong; when an end-to-end policy fails you have one number and no interface to probe."
+    - "The failure that dominates in practice is visual overfitting — the encoder latches onto the tablecloth, the lighting, or the operator's hand rather than the task-relevant structure."
+media:
+  - kind: article
+    title: "End-to-End Training of Deep Visuomotor Policies"
+    url: https://sites.google.com/site/visuomotorpolicy/
+    source: "Levine, Finn, Darrell, Abbeel · UC Berkeley"
+    note: "Project page for the paper that made the case. The videos of a PR2 hanging a coat hanger and screwing a cap onto a bottle are the point — those are contact-rich tasks whose modular decomposition nobody had written down."
+  - kind: article
+    title: "R3M: A Universal Visual Representation for Robot Manipulation"
+    url: https://sites.google.com/view/robot-r3m/
+    source: "Nair, Rajeswaran, Kumar, Finn, Gupta"
+    note: "The pretrained-encoder position, with the demo-efficiency numbers that made it popular. Read it alongside Hansen et al.'s from-scratch rebuttal in Level 4 — the question is not settled."
+  - kind: lecture
+    title: "CS 285 Lecture 2: Imitation Learning, Part 1"
+    url: https://www.youtube.com/watch?v=tbLaFtYpWWU
+    source: "UC Berkeley CS285 · Sergey Levine"
+    minutes: 17
+    note: "The training procedure behind almost every visuomotor policy is behaviour cloning. If that is not already solid, start here."
+check:
+  - id: vmp_l1_c1
+    prompt: "What is the strongest argument for end-to-end visuomotor learning over a detect → pose → grasp → control pipeline?"
+    options:
+      - "Neural networks are more accurate at object detection than classical methods"
+      - "Each interface in the pipeline is a hand-chosen summary, and information the summary omits cannot be recovered downstream — an end-to-end loss lets the task decide what to keep"
+      - "End-to-end policies need less training data"
+      - "Modular pipelines cannot run in real time"
+    answer: 1
+    explanation: "The argument is about information, not accuracy. A 6-D pose is a fine summary for picking up a rigid box and a terrible one for a cloth, a cable, or a task where contact forces matter — and no improvement to the pose estimator recovers what the pose *representation* cannot express. End-to-end learning is strictly worse on data efficiency and on debuggability; the reason to accept those costs is that you no longer have to guess the interface."
+  - id: vmp_l1_c2
+    prompt: "Your policy achieves 90% success in the lab. You move the robot to an identical cell in another room and success drops to 10%. What is the most likely cause?"
+    options:
+      - "The action normalisation statistics are stale"
+      - "The vision encoder latched onto features that correlate with the task in your data but are not causal — lighting, table texture, background — and those changed"
+      - "The control frequency of the new cell is different"
+      - "The network is underfitting"
+    answer: 1
+    explanation: "This is visual overfitting, and it is the defining failure of visuomotor policies. Nothing in the loss says 'use the object and ignore the tablecloth'; it says 'predict the action', and if the tablecloth predicts the action in your dataset the encoder will happily use it. The tells are that the drop is immediate rather than progressive, and that it correlates with a visual change rather than with task difficulty."
+  - id: vmp_l1_c3
+    prompt: "Why does a spatial softmax over the final conv feature map tend to beat global average pooling for manipulation?"
+    options:
+      - "It has fewer parameters, so it overfits less"
+      - "It outputs the expected image coordinates of each feature channel, preserving *where* things are — and manipulation actions are mostly a function of position"
+      - "It is differentiable, unlike global pooling"
+      - "It normalises the features, improving optimisation"
+    answer: 1
+    explanation: "Global average pooling answers 'is this feature present anywhere?' and deliberately discards location. For classification that invariance is the goal; for reaching toward a mug it destroys the one thing you needed. Spatial softmax normalises each channel's activation map into a distribution over pixels and returns its expected $(x, y)$ — a differentiable keypoint detector. That is why it survived from 2015 into policies still being built today."
 ---
 
-## Intuition
+## What it replaces
 
-Instead of building separate perception (detect object) → planning (compute grasp) → control (execute motion) modules, you train one neural network that sees the camera image and outputs joint velocities. Like teaching someone to catch a ball by practice rather than by explaining physics equations.
+The classical way to make a robot pick something up is a relay race. A detector
+finds the object. A pose estimator turns that into a 6-D transform. A grasp
+planner turns the pose into a gripper pose. A motion planner turns that into a
+trajectory. A controller tracks it.
 
-## In practice
+A visuomotor policy is one network that takes the camera image and emits the
+motor command. The relay race is replaced by a single differentiable function
+trained on demonstrations.
 
-ResNet-18 encoder with spatial softmax $\text{softmax}(f_{ij}) \rightarrow (x_c, y_c)$ → 64-dim feature → MLP → 7-DOF joint velocities $\dot{q} \in \mathbb{R}^7$ for pick-and-place. Trained on 200 teleoperated demonstrations with random crops for augmentation. Key: spatial softmax preserves spatial structure (outputting expected 2D coordinates) better than global average pooling for manipulation tasks.
+<Intuition>
+Nobody catches a ball by estimating its mass, solving a ballistic trajectory,
+and computing an intercept. You look, you move, and the looking and the moving
+were learned together — so tightly that you cannot separate them and report the
+ball's position in metres.
+
+That coupling is not sloppiness. It is what lets you catch a ball that is
+spinning oddly, in a wind, against a background you have never seen.
+</Intuition>
+
+## Why the interfaces are the problem
+
+<Figure src="/figures/visuomotor-pipeline-vs-end-to-end.svg"
+        alt="Two rows. The top row shows a modular pipeline passing a bounding box, then a 6-D pose, then a grasp between four stages. The bottom row shows an image encoder passing a thick learned feature vector directly to an action head."
+        caption="The modular pipeline is easy to debug precisely because a human chose what each stage may pass on. That same choice is what throws away everything the chooser did not anticipate." />
+
+A 6-D pose is a superb interface for picking up a rigid box. It is a hopeless
+one for folding a towel, routing a cable, or wiping a surface — objects with no
+canonical pose, tasks where contact matters more than position. Improving the
+pose estimator does not help, because the failure is in the *representation*,
+not the estimate. End-to-end learning does not solve this so much as refuse to
+commit to it in advance.
+
+<KeyIdea>
+The trade is real in both directions. You gain a representation shaped by the
+task instead of by a human's guess about the task. You lose the ability to ask
+"which stage was wrong?" — the thing that made modular systems debuggable — and
+you take on a large appetite for data.
+</KeyIdea>
+
+## How one is actually built
+
+<Steps>
+<Step title="Encode the image, keeping spatial structure">
+A conv net or ViT over each camera view. The detail that matters is the pooling:
+a **spatial softmax** turns each feature channel's activation map into a
+probability distribution over pixels and returns its expected $(x,y)$. You get
+differentiable keypoints instead of the location-free vector that global average
+pooling produces.
+</Step>
+
+<Step title="Concatenate proprioception">
+Joint angles and gripper state, alongside the visual features. Cheap, exact, and
+the policy will lean on it more than you expect.
+</Step>
+
+<Step title="Map to actions with a small head">
+An MLP or transformer producing end-effector deltas, joint velocities, or — in
+anything modern — a chunk of future actions rather than one.
+</Step>
+
+<Step title="Train it as behaviour cloning, and augment hard">
+Random crops and colour jitter are not optional garnish here. They are the main
+defence against the encoder solving your task by reading the tablecloth.
+</Step>
+</Steps>
+
+<Warning>
+Held-out action-prediction error tells you almost nothing about whether this
+will work. It is measured on images from the same room, the same lighting, and
+the same cameras, so it cannot see the failure mode that will actually get you.
+Evaluate by changing something visual and rolling out — new lighting, a moved
+camera, a different table — and count successes.
+</Warning>
+
+<WatchThis />
