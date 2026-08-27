@@ -1,23 +1,208 @@
 ---
 concept: sim2real_transfer
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Sim-to-Real Transfer, including the key
-    equations.
+  prompt: "Bound the sim-to-real performance gap in terms of the dynamics mismatch. Then formalise domain randomisation and say what it does to the problem class."
   keyPoints:
-    - Training policies $\pi_\theta(a|s)$ in simulation and deploying them on
-      real robots.
-    - The reality gap — differences in physics, rendering, dynamics, and sensor
-      noise between sim and real — causes policies to fail when transferred.
-    - Formally, we train in an MDP $\mathcal{M}_{\text{sim}} = (\mathcal{S},
-      \mathcal{A}, T_{\text{sim}}, R, \gamma)$ but deploy in
-      $\mathcal{M}_{\text{real}} = (\mathcal{S}, \mathcal{A}, T_{\text{real}},
-      R, \gamma)$ where $T_{\text{sim}} \neq T_{\text{real}}$.
-check: []
-papers: []
+    - "Simulation lemma: if $\\|P_{\\text{sim}}(\\cdot\\mid s,a) - P_{\\text{real}}(\\cdot\\mid s,a)\\|_1 \\le \\epsilon_P$ everywhere, the return gap is $O\\big(\\gamma\\epsilon_P R_{\\max}/(1-\\gamma)^2\\big)$ — quadratic in the horizon."
+    - "That $1/(1-\\gamma)^2$ is the whole problem: a per-step dynamics error of $10^{-3}$ at $\\gamma = 0.99$ permits a return error of order $10\\,R_{\\max}$."
+    - "Domain randomisation replaces one MDP with a family: $\\max_\\theta \\mathbb{E}_{\\xi\\sim p(\\xi)}[J_{\\mathcal{M}_\\xi}(\\pi_\\theta)]$. If $\\xi$ is not observed, the family is a POMDP, and the optimal policy either hedges or infers $\\xi$ from history."
+    - "That fork is the whole design space: a memoryless policy must be robust; a policy with observation history can identify and adapt, which is strictly stronger."
+check:
+  - id: s2r_l2_c1
+    prompt: "Why is the sim-to-real return gap quadratic in the effective horizon rather than linear?"
+    options:
+      - "Because the reward is discounted twice"
+      - "One factor of $1/(1-\\gamma)$ comes from summing per-step differences over the horizon; the second comes from each perturbed transition changing the *state distribution* for all remaining steps, so the value error itself is already $O(R_{\\max}/(1-\\gamma))$"
+      - "Because the dynamics error compounds multiplicatively"
+      - "Because the simulator's reward function also differs"
+    answer: 1
+    explanation: "The structure is the same as behaviour cloning's $O(\\epsilon T^2)$: one factor for the horizon, one for the fact that a divergence at any step corrupts everything downstream. Concretely, at each step the mismatch redirects probability mass of size $\\epsilon_P$ to a different next state, and the value difference between two states can be as large as $R_{\\max}/(1-\\gamma)$. Summing that over $1/(1-\\gamma)$ steps gives the square. The practical reading: long-horizon tasks are disproportionately sensitive to modelling error, which is why locomotion needs far tighter dynamics than a short pick-and-place."
+  - id: s2r_l2_c2
+    prompt: "In domain randomisation, the physics parameters $\\xi$ are resampled per episode and not given to the policy. What does that make the problem?"
+    options:
+      - "A harder MDP with a larger state space"
+      - "A POMDP: $\\xi$ is a hidden state variable that affects transitions, so the optimal policy must either hedge across the whole distribution or infer $\\xi$ from the history of observations and actions"
+      - "A multi-task problem with $\\xi$ as the task index"
+      - "A bandit, since $\\xi$ is drawn once per episode"
+    answer: 1
+    explanation: "Recognising it as a POMDP is what makes the architecture choices obvious rather than arbitrary. A memoryless policy $\\pi(a\\mid s)$ cannot distinguish a heavy robot from a light one, so its best option is a compromise that works for both — genuine robustness, and genuinely conservative. A policy with observation history can *identify* $\\xi$ from how the robot has been responding and then act as a specialist. That is why frame stacking or recurrence is not an implementation detail in domain randomisation, and why RMA's explicit two-phase construction works."
+  - id: s2r_l2_c3
+    prompt: "System identification fits $\\xi$ to minimise the discrepancy between simulated and real trajectories. What does it structurally fail to fix?"
+    options:
+      - "Parameters that vary between episodes"
+      - "Physics the simulator does not represent at all — no value of an existing parameter produces the behaviour of an effect the model omits, so the residual after fitting is irreducible"
+      - "Measurement noise in the real trajectories"
+      - "Nonlinear dynamics"
+    answer: 1
+    explanation: "It is a projection onto the model class, so the best it can do is the closest member of that class. If your simulator has no notion of gearbox backlash, no combination of masses and frictions produces backlash, and the fitted parameters will instead be distorted to partly absorb it — which can make other predictions worse. The tell is a system-ID fit whose residual plateaus well above sensor noise, and the fix is to enlarge the model (an actuator network learned from real data) rather than to keep optimising within it."
 ---
 
-## Formal definition
+## Two MDPs that share everything but $P$
 
-Training policies $\pi_\theta(a|s)$ in simulation and deploying them on real robots. The reality gap — differences in physics, rendering, dynamics, and sensor noise between sim and real — causes policies to fail when transferred. Formally, we train in an MDP $\mathcal{M}_{\text{sim}} = (\mathcal{S}, \mathcal{A}, T_{\text{sim}}, R, \gamma)$ but deploy in $\mathcal{M}_{\text{real}} = (\mathcal{S}, \mathcal{A}, T_{\text{real}}, R, \gamma)$ where $T_{\text{sim}} \neq T_{\text{real}}$. Bridged via domain randomization, system identification, or fine-tuning.
+$$
+\mathcal{M}_{\text{sim}} = (\mathcal{S},\mathcal{A},P_{\text{sim}},R,\gamma),
+\qquad
+\mathcal{M}_{\text{real}} = (\mathcal{S},\mathcal{A},P_{\text{real}},R,\gamma)
+$$
+
+You optimise $J_{\text{sim}}(\pi)$ and are graded on $J_{\text{real}}(\pi)$. How
+much can they differ?
+
+<Derivation title="The simulation lemma: why the gap is quadratic in the horizon">
+
+Assume the dynamics differ by at most $\epsilon_P$ in total variation at every
+state-action pair, and the rewards by at most $\epsilon_R$:
+
+$$
+\big\|P_{\text{sim}}(\cdot\mid s,a) - P_{\text{real}}(\cdot\mid s,a)\big\|_1 \le \epsilon_P,
+\qquad
+\big|R_{\text{sim}} - R_{\text{real}}\big| \le \epsilon_R
+$$
+
+**Step 1 — write the value difference recursively.** For a fixed policy $\pi$,
+
+$$
+V_{\text{sim}}^\pi(s) - V_{\text{real}}^\pi(s)
+= \underbrace{\big(R_{\text{sim}} - R_{\text{real}}\big)}_{\le\, \epsilon_R}
++ \gamma\Big(\mathbb{E}_{P_{\text{sim}}}\big[V^\pi_{\text{sim}}(s')\big]
+- \mathbb{E}_{P_{\text{real}}}\big[V^\pi_{\text{real}}(s')\big]\Big)
+$$
+
+**Step 2 — split the transition term.** Add and subtract
+$\mathbb{E}_{P_{\text{real}}}[V^\pi_{\text{sim}}(s')]$:
+
+$$
+= \epsilon_R
++ \gamma\underbrace{\Big(\mathbb{E}_{P_{\text{sim}}} - \mathbb{E}_{P_{\text{real}}}\Big)\big[V^\pi_{\text{sim}}(s')\big]}_{\text{different dynamics, same value function}}
++ \gamma\underbrace{\mathbb{E}_{P_{\text{real}}}\big[V^\pi_{\text{sim}}(s') - V^\pi_{\text{real}}(s')\big]}_{\text{recursion}}
+$$
+
+**Step 3 — bound the first term.** Two expectations of the same bounded function
+under distributions $\epsilon_P$ apart in $L_1$ differ by at most
+$\epsilon_P \cdot \|V\|_\infty$, and $\|V^\pi_{\text{sim}}\|_\infty \le R_{\max}/(1-\gamma)$.
+So that term is at most $\gamma\,\epsilon_P R_{\max}/(1-\gamma)$.
+
+**Step 4 — unroll the recursion.** The remaining term is $\gamma$ times the same
+quantity at the next state, so the whole thing is a geometric series with ratio
+$\gamma$, contributing another factor $1/(1-\gamma)$:
+
+$$
+\boxed{\;\big|J_{\text{sim}}(\pi) - J_{\text{real}}(\pi)\big|
+\;\le\; \frac{\epsilon_R}{1-\gamma}
+\;+\; \frac{\gamma\,\epsilon_P\,R_{\max}}{(1-\gamma)^2}\;}
+$$
+
+**Where each factor comes from.** One $1/(1-\gamma)$ is the horizon — you accrue
+error at every step. The second is that a divergence at *any* step lands you in a
+different state, and two states can differ in value by as much as
+$R_{\max}/(1-\gamma)$. It is structurally the same argument as behaviour
+cloning's $O(\epsilon T^2)$.
+
+</Derivation>
+
+<Warning>
+Put numbers in it. At $\gamma = 0.99$ the factor $1/(1-\gamma)^2$ is $10^4$, so a
+per-step dynamics error of $10^{-3}$ permits a return error of order
+$10\,R_{\max}$ — the entire achievable return. The bound is worst-case and real
+transfer is far better than it, but the *scaling* is real and it explains an
+observation everyone makes: long-horizon dynamic tasks like locomotion need much
+tighter dynamics than short quasi-static ones like pick-and-place.
+</Warning>
+
+## Domain randomisation, formally
+
+Parameterise the simulator by $\xi \in \Xi$ — masses, frictions, latencies,
+actuator gains — and optimise the expected return over a distribution:
+
+$$
+\max_\theta\; \mathbb{E}_{\xi \sim p(\xi)}\big[J_{\mathcal{M}_\xi}(\pi_\theta)\big]
+$$
+
+If $p$ has support containing the true $\xi_{\text{real}}$, then real deployment
+is one more draw from the training distribution — the sim-to-real problem has
+been converted into a generalisation problem, which is one we know how to
+reason about.
+
+The robust alternative optimises the worst case instead:
+
+$$
+\max_\theta\; \min_{\xi \in \Xi}\; J_{\mathcal{M}_\xi}(\pi_\theta)
+$$
+
+which gives guarantees and is usually far too conservative, since it is
+dominated by the least favourable physics you allowed.
+
+<Derivation title="Randomisation makes it a POMDP, and that is the design fork">
+
+$\xi$ affects transitions and is not in the observation. Formally the state is
+$(s, \xi)$ and the agent sees only $s$ — the definition of partial observability.
+
+**Consequence 1 — a memoryless policy must hedge.** $\pi(a\mid s)$ cannot
+distinguish a heavy robot from a light one at the same configuration, so the
+best it can do is a compromise that is adequate for both. This is genuine
+robustness, and it is genuinely conservative: performance is bounded by what a
+single strategy can achieve across the whole family.
+
+**Consequence 2 — history is identifying.** How the robot responded to recent
+actions is informative about $\xi$: the same torque produces different
+accelerations at different masses. A policy $\pi(a \mid s_{t-k:t}, a_{t-k:t-1})$
+can therefore infer $\xi$ and behave as a specialist for it.
+
+This is *implicit system identification*, and it is strictly stronger than
+robustness. It also explains the RMA architecture directly: train a teacher with
+privileged access to the true $\xi$, compress $\xi$ into a latent, then train a
+student to predict that latent from recent history alone. The student adapts
+online because it is estimating the hidden variable rather than averaging over
+it.
+
+**The assumption doing the work is identifiability** — the history has to
+actually contain information about $\xi$. A parameter that only matters in
+situations the robot has not yet encountered cannot be inferred before it
+matters.
+
+</Derivation>
+
+<KeyIdea>
+Frame stacking or recurrence is not an implementation detail in domain
+randomisation. It changes what the optimal policy *is*: memoryless gives you
+robustness, history gives you adaptation. If someone reports that randomisation
+made their policy sluggish and conservative, the first question is whether the
+policy could observe enough history to identify the environment.
+</KeyIdea>
+
+## System identification and its ceiling
+
+Fit parameters to real trajectories:
+
+$$
+\hat\xi = \arg\min_{\xi\in\Xi}\;
+\sum_t \big\|s^{\text{real}}_{t+1} - f_{\text{sim}}(s^{\text{real}}_t, a^{\text{real}}_t;\, \xi)\big\|^2
+$$
+
+This is a projection onto the model class, so it returns the closest member of
+that class and no better.
+
+<Steps>
+<Step title="What it fixes">
+Quantities that genuinely are parameters: link masses, inertias, friction
+coefficients, motor constants. Cheap and worth doing first for anything you can
+measure directly.
+</Step>
+
+<Step title="What it cannot fix">
+Effects with no parameter. If the simulator has no model of gearbox backlash,
+no assignment of masses and frictions produces backlash — and the optimiser will
+distort the parameters it *does* have to partly absorb the residual, which can
+make other predictions worse. The tell is a fit whose residual plateaus well
+above sensor noise.
+</Step>
+
+<Step title="What to do then">
+Enlarge the model class using real data. An actuator network — a small network
+mapping commanded torque and joint history to realised torque, fitted on real
+measurements and inserted into the simulator — is the canonical example, and it
+is what made the ANYmal locomotion results transfer.
+</Step>
+</Steps>

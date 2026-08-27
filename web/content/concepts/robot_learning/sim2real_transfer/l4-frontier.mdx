@@ -1,0 +1,194 @@
+---
+concept: sim2real_transfer
+level: 4
+status: final
+recall:
+  prompt: "Trace the sim-to-real literature. What did each result establish, and what is the through-line from randomisation to adaptation?"
+  keyPoints:
+    - "Tobin et al. (2017) established visual randomisation: make reality one more variation among many, and a detector trained purely on non-photorealistic renders transfers."
+    - "Peng et al. (2018) carried the idea to dynamics and showed a recurrent policy performs implicit system identification — the seed of everything adaptive that followed."
+    - "Hwangbo et al. (2019) took the other route: learn the missing physics. An actuator network fitted on real data added dynamics the simulator did not have, which no parameter tuning could."
+    - "RMA (2021) made adaptation explicit and cheap with a teacher-student split, and DeXtreme (2023) showed the randomisation route now runs on commodity GPU simulation rather than a datacentre."
+papers:
+  - key: tobin2017dr
+    title: "Domain Randomization for Transferring Deep Neural Networks from Simulation to the Real World"
+    authors: "Josh Tobin, Rachel Fong, Alex Ray, Jonas Schneider, Wojciech Zaremba, Pieter Abbeel"
+    venue: IROS
+    year: 2017
+    arxiv: "1703.06907"
+    takeaway: "Randomise textures, lighting, camera pose and clutter enough and a detector trained on deliberately unrealistic renders transfers to real images with no real training data at all."
+  - key: peng2018dynamics
+    title: "Sim-to-Real Transfer of Robotic Control with Dynamics Randomization"
+    authors: "Xue Bin Peng, Marcin Andrychowicz, Wojciech Zaremba, Pieter Abbeel"
+    venue: ICRA
+    year: 2018
+    arxiv: "1710.06537"
+    takeaway: "Extends randomisation from appearance to physics, and shows a recurrent policy implicitly identifies the dynamics from history rather than merely averaging over them."
+  - key: openai2018dactyl
+    title: "Learning Dexterous In-Hand Manipulation"
+    authors: "OpenAI: Marcin Andrychowicz, Bowen Baker, Maciek Chociej, et al."
+    venue: IJRR
+    year: 2020
+    arxiv: "1808.00177"
+    takeaway: "In-hand block reorientation on a real Shadow Hand, trained entirely in simulation with aggressive randomisation and an LSTM policy. Also the clearest statement of the cost: the compute was extraordinary."
+  - key: hwangbo2019anymal
+    title: "Learning agile and dynamic motor skills for legged robots"
+    authors: "Jemin Hwangbo, Joonho Lee, Alexey Dosovitskiy, Dario Bellicoso, Vassilios Tsounis, Vladlen Koltun, Marco Hutter"
+    venue: "Science Robotics"
+    year: 2019
+    arxiv: "1901.08652"
+    takeaway: "Fits an actuator network on real measurements and inserts it into the simulator, adding physics that parameter tuning could not produce — the strongest case for enlarging the model rather than widening the randomisation."
+  - key: lee2020terrain
+    title: "Learning Quadrupedal Locomotion over Challenging Terrain"
+    authors: "Joonho Lee, Jemin Hwangbo, Lorenz Wellhausen, Vladlen Koltun, Marco Hutter"
+    venue: "Science Robotics"
+    year: 2020
+    arxiv: "2010.11251"
+    takeaway: "Privileged-teacher training followed by student distillation from proprioception alone, producing blind locomotion over terrain the robot cannot see — the template for teacher-student sim-to-real."
+  - key: kumar2021rma
+    title: "RMA: Rapid Motor Adaptation for Legged Robots"
+    authors: "Ashish Kumar, Zipeng Fu, Deepak Pathak, Jitendra Malik"
+    venue: RSS
+    year: 2021
+    arxiv: "2107.04034"
+    takeaway: "Compresses the privileged environment parameters into a latent and trains an adaptation module to predict it from recent history, so the robot re-identifies the world within a fraction of a second of stepping onto oil or foam."
+  - key: handa2023dextreme
+    title: "DeXtreme: Transfer of Agile In-hand Manipulation from Simulation to Reality"
+    authors: "Ankur Handa, Arthur Allshire, Viktor Makoviychuk, Aleksei Petrenko, Ritvik Singh, et al."
+    venue: ICRA
+    year: 2023
+    arxiv: "2210.13702"
+    takeaway: "Reproduces Dactyl-class in-hand manipulation on commodity GPU simulation, turning a datacentre-scale result into one a single well-equipped lab can run."
+check:
+  - id: s2r_l4_c1
+    prompt: "Tobin et al. trained on deliberately unrealistic renders — garish textures, random lighting. Why is that better than pursuing photorealism?"
+    options:
+      - "Photorealistic rendering is too slow to train on"
+      - "Photorealism aims at one point in appearance space and can still miss; randomisation makes appearance a nuisance variable the network must ignore, so reality becomes one more sample from a distribution it already generalises over"
+      - "Unrealistic textures are easier for a CNN to segment"
+      - "Real cameras have artefacts that photorealistic renderers reproduce badly"
+    answer: 1
+    explanation: "The reframing is what made this influential. Chasing photorealism is trying to hit a target you cannot verify you have hit; randomising forces the network to key on the invariant structure — geometry, relative position — because appearance is unreliable in training. It converts an unbounded modelling problem into an ordinary generalisation problem. It is also why the visual gap is much easier than the dynamics gap: you can flood an input with variation in a way you cannot flood physics."
+  - id: s2r_l4_c2
+    prompt: "Hwangbo et al. fit an actuator network on real data rather than widening the randomisation ranges. When is that the right call?"
+    options:
+      - "Always — learned models are strictly better than analytic ones"
+      - "When system identification's residual plateaus well above sensor noise, meaning the mismatch is structural: the model class lacks the effect entirely, so no parameter setting reproduces it and randomising other parameters only makes the policy conservative about the wrong things"
+      - "Only when real data is abundant"
+      - "When the robot has series-elastic actuators specifically"
+    answer: 1
+    explanation: "The diagnostic is the residual. If fitting parameters leaves error at the level of sensor noise, the model is adequate and randomisation handles the remaining uncertainty. If it plateaus far above, you are projecting onto a model class that cannot represent reality, and widening ranges on the parameters you *do* have buys robustness to variation that is not the variation hurting you. Enlarging the model class with data is then strictly the better move."
+  - id: s2r_l4_c3
+    prompt: "What is the through-line from Peng et al. (2018) to RMA (2021)?"
+    options:
+      - "Both increase the number of randomised parameters"
+      - "Both exploit that history identifies the environment — Peng et al. showed a recurrent policy does it implicitly, RMA makes it explicit with a privileged teacher and a supervised adaptation module, which is far cheaper to train"
+      - "Both replace RL with supervised learning"
+      - "Both eliminate the need for a simulator"
+    answer: 1
+    explanation: "The idea is constant and only the training scheme changes. Making the latent an explicit supervised target is what makes it practical: a recurrent policy has to discover the environment representation through the policy gradient, which is slow and unreliable, while the student in a teacher-student setup regresses onto a target the teacher already found. That is why the two-phase pattern spread across locomotion and then into manipulation."
+---
+
+## Randomise the appearance
+
+<PaperCard refKey="tobin2017dr" />
+
+The result that reframed the problem: train an object detector on renders with
+random textures, random lighting, random camera poses, and random distractors —
+deliberately *not* photorealistic — and it transfers to real images with no real
+training data.
+
+<KeyIdea>
+Chasing photorealism aims at a single point in appearance space that you cannot
+verify you have reached. Randomising makes appearance a nuisance variable the
+network is forced to ignore, so it keys on geometry and relative position
+instead, and reality becomes one more sample from a distribution it already
+handles. An unbounded modelling problem becomes an ordinary generalisation
+problem.
+</KeyIdea>
+
+## Randomise the physics, and notice what the policy does with it
+
+<PaperGrid>
+<PaperCard refKey="peng2018dynamics" />
+<PaperCard refKey="openai2018dactyl" />
+</PaperGrid>
+
+Peng et al. carried the idea from pixels to dynamics — masses, frictions, motor
+gains — and observed something that turned out to matter more than the transfer
+itself: a *recurrent* policy does implicit system identification. It is not
+averaging over the randomisation; it is inferring which environment it is in
+from how the robot has been responding, then acting accordingly.
+
+Dactyl is the maximal version of the recipe. In-hand reorientation of a block on
+a real Shadow Hand, trained entirely in simulation, with an LSTM policy and
+aggressive randomisation of physics, appearance, and observation noise. It also
+stated the cost honestly: the compute involved put the result out of reach for
+almost everyone.
+
+## Learn the physics you are missing
+
+<PaperCard refKey="hwangbo2019anymal" />
+
+The other route. Rather than widening the randomisation until reality is
+covered, measure what the simulator gets wrong and add it. An actuator network —
+a small model from commanded torque and recent joint history to realised torque,
+fitted on real robot data and inserted into the simulator — supplies dynamics
+that no assignment of masses and frictions could have produced.
+
+<Warning>
+The diagnostic for choosing between these routes is the system-ID residual. If
+fitting parameters brings the trajectory error down to sensor noise, the model
+class is adequate and randomisation handles what remains. If the residual
+plateaus well above it, the mismatch is *structural* — the effect has no
+parameter — and widening ranges on the parameters you do have buys robustness to
+variation that is not what is hurting you.
+</Warning>
+
+## Teacher-student, and adaptation as the goal
+
+<PaperGrid>
+<PaperCard refKey="lee2020terrain" />
+<PaperCard refKey="kumar2021rma" />
+</PaperGrid>
+
+Both build on the same observation and make it cheap. In simulation you have
+privileged information — the true friction, the exact terrain geometry, the real
+contact state — that the robot will never have. So train a teacher that uses it,
+which is an easy learning problem, then train a student to reproduce the
+teacher's behaviour from what the robot can actually sense.
+
+Lee et al. distil to proprioception alone, giving blind locomotion over terrain
+the robot cannot see. RMA makes the target explicit: compress the privileged
+environment parameters into a latent, then train an adaptation module to predict
+that latent from recent history. The robot re-identifies the world within a
+fraction of a second, which is why it recovers within a step of walking onto oil.
+
+<KeyIdea>
+The pattern generalises well beyond locomotion. When a hard problem has a
+privileged solution available only at training time, learn the privileged
+solution first and then distil it into something deployable. The student's job
+is a supervised regression onto a target the teacher already found, which is
+enormously easier than discovering the same representation through a policy
+gradient.
+</KeyIdea>
+
+## Where it is now
+
+<PaperCard refKey="handa2023dextreme" />
+
+DeXtreme is the accessibility milestone: Dactyl-class in-hand manipulation
+reproduced on commodity GPU-accelerated simulation. The significance is not a
+new idea but a changed cost structure — massively parallel GPU physics turned a
+datacentre-scale result into one a single well-equipped lab can run, which is
+what moved sim-to-real from a demonstration into a default.
+
+<Warning>
+Keep the two domains apart when discussing results. Locomotion transfers well:
+the dynamics are smooth, contact is intermittent, and proprioception is rich and
+accurate. Contact-rich manipulation transfers much worse, because the physics
+that matters — deformation, stiction, precise contact geometry — is exactly what
+simulators model worst. That asymmetry, and not a difference in method, explains
+why the field's manipulation results lean on imitation while its locomotion
+results lean on sim-to-real RL.
+</Warning>

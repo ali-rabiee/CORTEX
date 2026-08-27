@@ -1,26 +1,161 @@
 ---
 concept: sim2real_transfer
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Sim-to-Real Transfer in plain language: what is it, and why
-    does it matter?"
+  prompt: "Explain the sim-to-real problem in plain language. Why does an RL policy fail on hardware even when the simulator is quite good, and what are the three families of fix?"
   keyPoints:
-    - Like training a pilot only on a flight simulator, then putting them in a
-      real cockpit.
-    - The simulator doesn't perfectly model turbulence, weather, or instrument
-      lag.
-    - Domain randomization is like training in hundreds of slightly wrong
-      simulators — the pilot learns to handle anything because no single sim was
-      'right.'
-check: []
-papers: []
+    - "Simulation is free, fast, massively parallel, safe, resettable, and gives you full state. Every one of those is why you would train there."
+    - "The failure is not that the simulator is inaccurate in general — it is that an RL policy actively *searches* for and exploits whatever the simulator gets wrong, because exploiting it earns reward."
+    - "Three families: make the simulator match reality (system identification), make the policy not care (domain randomisation, robustness), or adapt using real data (fine-tuning, residual policies, learned adaptation)."
+    - "The usual culprits are unmodelled dynamics — actuator response, latency, friction, contact — far more often than rendering. Visual gap is easier to close than dynamics gap."
+media:
+  - kind: video
+    title: "Learning Dexterity"
+    url: https://www.youtube.com/watch?v=jwSbzNHGflM
+    source: "OpenAI"
+    minutes: 4
+    note: "The Dactyl result: a hand trained entirely in simulation with heavy randomisation, manipulating a real block. Watch for the behaviours the policy learned that nobody designed — regrasping, finger gaiting — and note the training cost, which is the honest other half of the story."
+  - kind: article
+    title: "RMA: Rapid Motor Adaptation for Legged Robots"
+    url: https://ashish-kmr.github.io/rma-legged-robots/
+    source: "Kumar, Fu, Pathak, Malik"
+    note: "The clearest demonstration of the third family: rather than being robust to all environments, infer which one you are in from recent history and adapt online. The videos of the robot on oil, foam, and rubble are the argument."
+  - kind: article
+    title: "Domain Randomization for Transferring Deep Neural Networks from Simulation to the Real World"
+    url: https://arxiv.org/abs/1703.06907
+    source: "Tobin, Fong, Ray, Schneider, Zaremba, Abbeel"
+    note: "The paper that started the visual-randomisation line, and short enough to read in a sitting. The framing — make reality look like just another random variation — is the one everyone still uses."
+check:
+  - id: s2r_l1_c1
+    prompt: "Why is an RL policy trained in simulation especially prone to sim-to-real failure, compared with a hand-designed controller tuned in the same simulator?"
+    options:
+      - "Neural networks generalise worse than analytic controllers"
+      - "RL optimises against the simulator, so it will find and exploit the simulator's inaccuracies — an exploit that earns reward in sim and does nothing on hardware"
+      - "RL policies always require more data than they have"
+      - "Analytic controllers do not use the simulator's dynamics"
+    answer: 1
+    explanation: "This is the framing worth carrying: your optimiser is an adversary against your physics engine. If a slightly wrong contact model lets a policy gain energy from a collision, or if an unbounded torque produces motion no real actuator could, RL will find it — because reward is the only thing it cares about. A hand-designed controller does not search, so it never discovers those exploits. The corollary is that a *better* optimiser makes sim-to-real harder, not easier."
+  - id: s2r_l1_c2
+    prompt: "Which gap is usually harder to close, and why?"
+    options:
+      - "The visual gap, since rendering is far from photorealistic"
+      - "The dynamics gap, because the mismatch is in what the simulator does not model at all — actuator response, latency, friction, deformable contact — and randomising a parameter cannot cover an effect that has no parameter"
+      - "They are equally hard"
+      - "Neither; the reward function is the main gap"
+    answer: 1
+    explanation: "Visual gaps yield to randomisation and to pretrained encoders because pixels are an *input* and you can flood the policy with variation. Dynamics gaps are structural: if the simulator has no model of series-elastic actuator dynamics or of a cable's stiffness, no setting of its existing parameters produces that behaviour. That is why the strongest results either learn the missing physics from real data — an actuator network — or make the policy infer and adapt to it online."
+  - id: s2r_l1_c3
+    prompt: "A policy trained with heavy domain randomisation transfers, but is noticeably worse in the lab than a policy trained on well-identified parameters. Is that a failure?"
+    options:
+      - "Yes — a transferring policy should match the specialised one"
+      - "No, it is the expected trade: randomisation buys coverage by giving up peak performance, since one policy must now work across a whole family of dynamics rather than being tuned to one"
+      - "Yes, it indicates the randomisation ranges were wrong"
+      - "No, because randomised policies are always better on hardware"
+    answer: 1
+    explanation: "Making the policy robust to a range of physics means it cannot specialise to any single point in that range, so the peak comes down. That is the deal, and it is why the ranges should be as wide as necessary and no wider — over-randomising costs performance and can make the task unlearnable, since a policy that must work for every friction coefficient may find no strategy that works for all of them. Calibrate what you can measure; randomise what you cannot."
 ---
 
-## Intuition
+## Why train in simulation at all
 
-Like training a pilot only on a flight simulator, then putting them in a real cockpit. The simulator doesn't perfectly model turbulence, weather, or instrument lag. Domain randomization is like training in hundreds of slightly wrong simulators — the pilot learns to handle anything because no single sim was 'right.'
+Every property that makes simulation attractive is about cost. It is free, it
+runs faster than real time, thousands of copies run in parallel, nothing breaks,
+episodes reset instantly, and you have exact access to state that no sensor
+gives you. A locomotion policy that would take a decade of wall-clock on
+hardware trains overnight in Isaac.
 
-## In practice
+Then you deploy it and the robot falls over.
 
-Training a robot hand to rotate a Rubik's cube (OpenAI, 2019). Policy trained in Isaac Gym with massive domain randomization: friction $\mu \in [0.5\mu_0, 1.5\mu_0]$, mass $m \in [0.7m_0, 1.3m_0]$, joint damping $d \in [0.6d_0, 1.4d_0]$, visual texture randomization. $10^{11}$ sim steps, transferred zero-shot to real robot with ~70% success.
+<Intuition>
+Training a pilot entirely on a simulator and putting them in a real cockpit. The
+simulator taught them the layout, the procedures, the sequence — genuinely
+useful. But it taught them that the controls respond instantly, that turbulence
+is a specific parametric wobble, and that the engine never has the particular
+lag this airframe has.
+
+Worse: if you graded them purely on simulator score for long enough, they would
+have discovered that a certain sharp input produces an unphysical performance
+bonus, and learned to rely on it.
+</Intuition>
+
+## The part that makes RL special
+
+A hand-tuned controller developed in simulation transfers imperfectly. An RL
+policy trained in the same simulator can transfer catastrophically, and the
+reason is worth stating precisely.
+
+<KeyIdea>
+Your optimiser is an adversary against your physics engine. RL searches the
+space of behaviours for whatever maximises reward, and any inaccuracy the
+simulator has is a free source of reward. Penetrating contacts, energy gained
+from collisions, torques no real actuator could supply, exploitation of a
+frictionless corner case — the policy will find them, because finding things is
+what it does. A *better* optimiser makes sim-to-real harder.
+</KeyIdea>
+
+## Where the gap actually lives
+
+<Figure src="/figures/sim2real-gap.svg"
+        alt="A parameter axis with the simulator at one point and reality at another. A tall narrow performance curve peaks at the simulator and is near zero at reality. An arrow shows system identification moving the simulator toward reality, and a broad lower curve shows domain randomisation covering both."
+        caption="Three responses to one situation. System identification moves the simulator; randomisation widens what the policy tolerates. Neither can help with physics the simulator does not represent at all." />
+
+<Steps>
+<Step title="Actuator dynamics — the most common culprit">
+Simulators typically command torque instantly. Real motors have finite bandwidth,
+gearbox friction, backlash, thermal limits, and current controllers with their
+own dynamics. A policy that relies on sharp torque reversals is relying on an
+actuator that does not exist.
+</Step>
+
+<Step title="Latency">
+Observation to computation to command is tens of milliseconds on real hardware
+and zero in most simulators. For anything dynamic this alone can be the whole
+gap, and it is trivially cheap to model — add a delay buffer.
+</Step>
+
+<Step title="Contact and friction">
+Rigid-body contact is a hard modelling problem, and the coefficients are neither
+constant nor known. Anything involving grasping, sliding, or impact is exposed
+here.
+</Step>
+
+<Step title="Visual appearance">
+Rendering versus a real camera: lighting, noise, motion blur, materials. Real,
+and the *easiest* of these to fix, because pixels are an input you can flood
+with variation.
+</Step>
+</Steps>
+
+## Three families of answer
+
+<Steps>
+<Step title="Make the simulator match reality — system identification">
+Fit the simulator's parameters to real trajectories. Effective for things that
+*are* parameters — masses, inertias, friction coefficients. Powerless against
+effects the model does not contain, which is the usual case.
+</Step>
+
+<Step title="Make the policy not care — domain randomisation">
+Sample physics parameters afresh each episode and train across the distribution.
+If reality is somewhere inside that distribution, the policy has already seen
+something like it. The cost is peak performance: one policy must now work for a
+whole family.
+</Step>
+
+<Step title="Adapt using real data — fine-tuning and online adaptation">
+Collect a modest amount of real interaction and either fine-tune, learn a
+residual on top of the sim policy, or — most elegantly — train the policy to
+*infer* which environment it is in from recent history and adjust. That last one
+is RMA, and it is why a robot can walk onto oil and recover within a step.
+</Step>
+</Steps>
+
+<Warning>
+"Calibrate what you can measure, randomise what you cannot" is the working
+heuristic, and the second half has a limit. Over-randomising does not just cost
+performance — it can make the task unlearnable, because a policy required to
+work across every friction coefficient may find that no single strategy works
+for all of them. Wide enough to contain reality, and no wider.
+</Warning>
+
+<WatchThis />

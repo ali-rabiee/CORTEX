@@ -1,0 +1,211 @@
+---
+concept: sim2real_transfer
+level: 3
+status: final
+recall:
+  prompt: "Implement domain randomisation for a robot task. What do you randomise, what do you calibrate, and what makes the policy adaptive rather than merely robust?"
+  keyPoints:
+    - "Resample physics parameters at episode reset, not per step — $\\xi$ is a property of the world, and resampling within an episode makes it unidentifiable and the dynamics non-Markov."
+    - "Model latency explicitly with an action delay buffer. It is often the largest single gap and it costs five lines."
+    - "Randomise multiplicatively around calibrated nominals, so the range means 'plus or minus 30% of what we measured' rather than an absolute band you have to retune per robot."
+    - "Feed a stack of recent observations and actions. Without history the policy can only hedge across the randomisation; with it, the policy can infer the environment and adapt."
+check:
+  - id: s2r_l3_c1
+    prompt: "Why resample the physics parameters at episode reset rather than at every timestep?"
+    options:
+      - "Resampling per step would be too slow"
+      - "$\\xi$ is a property of the world that persists within an episode; resampling per step makes it unidentifiable from history and turns the dynamics into noise the policy can only average over"
+      - "Per-step resampling breaks the reward function"
+      - "It makes no difference as long as the distribution is the same"
+    answer: 1
+    explanation: "The distribution of $\\xi$ is identical either way, and the resulting policies are completely different. Per-episode sampling gives a well-defined hidden variable that recent history is informative about, so a policy with memory can identify and adapt to it. Per-step sampling makes it white noise — there is nothing to infer, so the best any policy can do is be robust to the average. Getting this wrong silently converts your adaptive setup into a robust one."
+  - id: s2r_l3_c2
+    prompt: "You randomise friction over $[0.1, 2.0]$ and mass over $\\pm 80\\%$, and the policy stops learning the task at all. What is happening?"
+    options:
+      - "The learning rate is too low for the harder problem"
+      - "Over-randomisation: the policy must find a single strategy that works across every sampled environment, and if no such strategy exists the objective has no good solution — the ranges have to contain reality, not the space of conceivable robots"
+      - "The reward function needs rescaling"
+      - "Friction should never be randomised"
+    answer: 1
+    explanation: "Domain randomisation asks for one policy that works everywhere in the support, so widening the support monotonically reduces the achievable optimum and can push it below the threshold of doing the task. The discipline is 'calibrate what you can measure, randomise what you cannot, and no wider than plausible'. If you genuinely need extreme ranges, that is an argument for an adaptive policy — history-conditioned or explicitly two-phase — rather than for a more robust memoryless one."
+  - id: s2r_l3_c3
+    prompt: "Your randomised policy transfers but moves stiffly and conservatively, sacrificing speed. What is the most likely structural cause?"
+    options:
+      - "The reward function penalises speed"
+      - "The policy is memoryless, so it cannot identify which environment it is in and must hedge across the whole randomisation range — adding an observation and action history lets it infer the dynamics and act as a specialist"
+      - "The simulator timestep is too large"
+      - "The randomisation ranges are too narrow"
+    answer: 1
+    explanation: "Stiff and conservative is the signature of hedging, and hedging is what a memoryless policy is forced into by partial observability over $\\xi$. The fix is architectural rather than a matter of ranges: give the policy enough recent history that the environment is identifiable, and the optimal behaviour changes from 'a compromise adequate for all $\\xi$' to 'estimate $\\xi$, then act well for it'. This is exactly the gap that the teacher-student adaptation approaches were built to close."
+---
+
+## Randomising a simulator
+
+<CodeWalk title="Per-episode physics randomisation">
+
+```python title="randomize.py"
+import numpy as np
+
+# Nominals come from measurement or system ID; the ranges are multiplicative
+# so "plus or minus 30%" transfers across robots without retuning.
+NOMINAL = {"mass": 3.2, "friction": 0.8, "damping": 0.05, "motor_kp": 40.0}
+RANGES  = {"mass": 0.25, "friction": 0.40, "damping": 0.50, "motor_kp": 0.20}
+
+
+def sample_params(rng):
+    return {k: NOMINAL[k] * rng.uniform(1 - RANGES[k], 1 + RANGES[k])
+            for k in NOMINAL}
+
+
+class RandomizedEnv:
+    def reset(self):
+        # ONCE PER EPISODE. xi is a property of the world that persists;
+        # resampling per step would make it white noise the policy can only
+        # average over, rather than a hidden variable it can infer.
+        self.xi = sample_params(self.rng)
+        self.sim.set_params(self.xi)
+
+        # Latency is often the single largest gap, and it costs five lines.
+        self.delay = self.rng.integers(0, 4)          # steps
+        self.action_queue = [np.zeros(self.act_dim)] * (self.delay + 1)
+        return self._obs()
+
+    def step(self, action):
+        self.action_queue.append(action)
+        applied = self.action_queue.pop(0)             # the delayed command
+        obs, r, done, info = self.sim.step(applied)
+
+        # Sensor noise and bias: bias is per-episode, noise is per-step.
+        obs = obs + self.obs_bias + self.rng.normal(0, self.obs_noise_std, obs.shape)
+        return obs, r, done, info
+```
+
+</CodeWalk>
+
+Two decisions carry most of the transfer. The per-episode sampling is what makes
+$\xi$ an inferable hidden variable rather than noise. And the delay buffer is
+the cheapest large win available — most simulators command torque instantly and
+most robots do not.
+
+<Warning>
+Note the split in the noise model: **bias is per-episode, noise is per-step**.
+A miscalibrated encoder offset persists for the whole run and the policy should
+learn to tolerate or estimate it; thermal noise does not persist. Modelling both
+as per-step noise trains the policy to average away something it should be
+compensating for.
+</Warning>
+
+## Making the policy adaptive rather than merely robust
+
+<CodeWalk title="History conditioning: implicit system identification">
+
+```python title="policy.py"
+import torch, torch.nn as nn
+
+class AdaptivePolicy(nn.Module):
+    """Without history this can only hedge across the randomisation range.
+    With it, the response to recent actions identifies the dynamics.
+    """
+
+    def __init__(self, obs_dim, act_dim, hist=20, latent=8, hidden=256):
+        super().__init__()
+        # 1-D conv over the (obs, action) history: how the robot has been
+        # responding IS the measurement of xi.
+        self.encoder = nn.Sequential(
+            nn.Conv1d(obs_dim + act_dim, 64, kernel_size=5, stride=2), nn.ReLU(),
+            nn.Conv1d(64, 64, kernel_size=3, stride=2), nn.ReLU(),
+            nn.Flatten(), nn.LazyLinear(latent),
+        )
+        self.head = nn.Sequential(
+            nn.Linear(obs_dim + latent, hidden), nn.ELU(),
+            nn.Linear(hidden, hidden), nn.ELU(),
+            nn.Linear(hidden, act_dim),
+        )
+
+    def forward(self, obs, history):        # history: (B, obs+act, hist)
+        z = self.encoder(history)           # the estimate of xi
+        return self.head(torch.cat([obs, z], dim=-1))
+```
+
+</CodeWalk>
+
+The two-phase version makes the target explicit. Train a **teacher** with
+privileged access to the true $\xi$, which is cheap in simulation. Then train a
+**student** encoder to predict the teacher's latent from history alone, so the
+student has a supervised target instead of having to discover the representation
+through the policy gradient.
+
+```python title="two_phase.py"
+# Phase 1: teacher sees the truth. Trivially easy in sim, impossible on hardware.
+mu_teacher = teacher_encoder(true_xi)            # (B, latent)
+action = teacher_head(torch.cat([obs, mu_teacher], -1))
+
+# Phase 2: student must recover the same latent from history alone.
+mu_student = student_encoder(history)
+adaptation_loss = nn.functional.mse_loss(mu_student, mu_teacher.detach())
+# The policy head is reused unchanged — only the source of the latent changes.
+```
+
+## Closing the dynamics gap with real data
+
+<Steps>
+<Step title="Calibrate what you can measure">
+Link masses from the CAD model, motor constants from the datasheet, control
+latency from a step-response test on the real robot. Every parameter you pin
+down is one you do not have to be robust to.
+</Step>
+
+<Step title="Fit an actuator model when the residual plateaus">
+If system ID leaves a residual well above sensor noise, the model class is too
+small. Train a small network from commanded torque and recent joint history to
+*realised* torque, on real measurements, and insert it into the simulator. This
+is what made the ANYmal locomotion results transfer, and it is the standard move
+when parameters alone are not enough.
+</Step>
+
+<Step title="Then randomise what remains">
+Whatever you could neither measure nor model. Multiplicative ranges around the
+calibrated nominals, wide enough to plausibly contain reality.
+</Step>
+</Steps>
+
+```python title="actuator_net.py"
+class ActuatorNet(nn.Module):
+    """(position error, velocity) history -> realised torque.
+
+    Fitted on real robot data, then used INSIDE the simulator in place of the
+    ideal torque source. This adds physics the simulator did not have, which
+    no amount of parameter tuning could have produced.
+    """
+    def __init__(self, hist=3, hidden=32):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(2 * hist, hidden), nn.Softsign(),
+            nn.Linear(hidden, hidden), nn.Softsign(),
+            nn.Linear(hidden, 1),
+        )
+
+    def forward(self, pos_err_hist, vel_hist):
+        return self.net(torch.cat([pos_err_hist, vel_hist], dim=-1))
+```
+
+## Evaluating transfer before you deploy
+
+<Steps>
+<Step title="Hold out a randomisation range">
+Train on one range, evaluate on a wider one. Performance falling off a cliff
+just outside the training support means the policy interpolated rather than
+generalised, and reality had better be inside.
+</Step>
+
+<Step title="Test on a deliberately wrong simulator">
+Change the integrator, the timestep, or the contact solver. A policy that only
+works with one solver has learned that solver.
+</Step>
+
+<Step title="Replay real trajectories through the simulator">
+Take a logged real rollout, feed the same actions to the sim, and compare states.
+Where the divergence starts tells you which part of the dynamics is missing —
+and it is a measurement of $\epsilon_P$ rather than a guess.
+</Step>
+</Steps>

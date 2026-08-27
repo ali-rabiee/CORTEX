@@ -1,28 +1,176 @@
 ---
 concept: sim2real_transfer
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Sim-to-Real Transfer fail in practice, and how would you
-    present it in an interview?
+  prompt: "Give your interview answer on sim-to-real. What is the sharpest framing of why it is hard, and how do you decide between the three families of fix?"
   keyPoints:
-    - "Reality gap too large: sim dynamics $T_{\\text{sim}}(s'|s,a)$ don't
-      capture real contact modes (e.g., soft deformable objects, liquids,
-      articulated mechanisms)."
-    - "Symptoms: policy works perfectly in sim but fails immediately on real
-      robot."
-    - "Fix: improve sim fidelity for critical dynamics, use residual RL
-      ($\\pi_{\\text{real}}(a|s) = \\pi_{\\text{sim}}(a|s) +
-      \\Delta\\pi_{\\text{residual}}(a|s)$), or switch to real-world
-      fine-tuning."
-check: []
-papers: []
+    - "Lead with the adversarial framing: RL optimises against the simulator, so it finds and exploits whatever the simulator gets wrong. A better optimiser makes transfer harder."
+    - "The decision rule between families is the system-ID residual: down at sensor noise means randomise the rest; plateaued far above means the model class is missing physics and you should enlarge it with real data."
+    - "Randomisation without history buys robustness (conservative); randomisation with history buys adaptation. That is a POMDP argument, not a tuning detail."
+    - "Be explicit that locomotion transfers well and contact-rich manipulation does not, and say why — that asymmetry explains the field's split between sim-to-real RL and imitation."
+interview:
+  answer: >-
+    Sim-to-real is the problem that you train where it's cheap and deploy where
+    it matters, and the two have different physics. The framing I'd lead with is
+    that this is much worse for RL than for a hand-designed controller, because
+    RL optimises against the simulator. Any inaccuracy the simulator has is a
+    free source of reward, and the policy will find it — penetrating contacts,
+    energy gained from a collision, torque profiles no real actuator can
+    produce. Your optimiser is an adversary against your physics engine, and a
+    better optimiser makes transfer harder rather than easier. On the size of
+    the problem, the simulation lemma is worth knowing: if the dynamics differ
+    by epsilon in total variation at every state-action pair, the return gap is
+    bounded by something like gamma epsilon R-max over one minus gamma squared.
+    One factor of the horizon for accruing error each step, and a second because
+    a divergence at any step lands you in a different state, and two states can
+    differ in value by the whole return range. At gamma 0.99 that's a factor of
+    ten thousand, which explains why long-horizon dynamic tasks like locomotion
+    need much tighter dynamics than a short pick-and-place. There are three
+    families of fix. Make the simulator match reality — system identification,
+    which works for things that genuinely are parameters. Make the policy not
+    care — domain randomisation, sampling physics per episode and training
+    across the distribution, which converts sim-to-real into a generalisation
+    problem provided reality is inside your support. Or adapt with real data —
+    fine-tuning, residual policies, or training the policy to infer the
+    environment from recent history. My decision rule between the first two is
+    the system-ID residual: if fitting parameters brings trajectory error down
+    to sensor noise, the model is adequate and I randomise the rest. If the
+    residual plateaus well above sensor noise, the mismatch is structural —
+    there's physics with no parameter — and widening ranges on the parameters I
+    do have is buying robustness to the wrong variation. That's when I'd fit
+    something like an actuator network on real data and put it in the simulator.
+    And one thing I'd want to be precise about: whether the policy sees
+    observation history changes what randomisation gives you. Memoryless, the
+    physics parameters are an unobserved hidden variable, so it's a POMDP and
+    the best policy hedges — that's robustness, and it's conservative. With
+    history, the policy can identify the environment from how the robot has been
+    responding and act as a specialist. That's the difference between a
+    randomised policy that moves stiffly and RMA recovering within a step of
+    walking onto oil.
+  followUps:
+    - q: "How wide should the randomisation ranges be?"
+      a: >-
+        Wide enough to contain reality and no wider, and the reason for the
+        second half is that it's not a free knob. Domain randomisation asks for
+        a single policy that works across the whole support, so widening
+        monotonically lowers the achievable optimum — and past some point no
+        strategy works for every sampled environment and the task stops being
+        learnable. I'd calibrate everything I can measure first, since every
+        pinned-down parameter is one I don't have to be robust to, then
+        randomise multiplicatively around those nominals so the ranges mean
+        plus-or-minus a percentage rather than an absolute band I retune per
+        robot. If I genuinely need extreme ranges, I'd read that as an argument
+        for an adaptive policy rather than a more robust one.
+    - q: "You've deployed and it fails. How do you find out why?"
+      a: >-
+        Replay before anything else. Take a logged real rollout, feed exactly
+        the same action sequence to the simulator from the same initial state,
+        and compare the state trajectories. Where they start diverging tells me
+        which part of the dynamics is missing, and it's a measurement of the gap
+        rather than a guess. If divergence starts immediately on any commanded
+        motion, I'd suspect latency or actuator dynamics, which are the two most
+        common and the two cheapest to fix. If it only appears at contact, it's
+        the contact model. The other cheap test is to evaluate the policy in
+        simulation just outside its training randomisation range — if it falls
+        off a cliff there, it interpolated rather than generalised, and reality
+        had better be inside.
+    - q: "Why does locomotion transfer so much better than manipulation?"
+      a: >-
+        Because the physics that matters is the physics simulators are good at.
+        Legged locomotion is mostly rigid-body dynamics with intermittent
+        contact, proprioception is rich and accurate, and the contacts that
+        matter are foot-ground impacts you can model reasonably. Contact-rich
+        manipulation depends on exactly what simulators model worst —
+        deformation, stiction, precise contact geometry, friction that varies
+        with surface condition — and a millimetre of geometric error changes
+        whether a grasp succeeds. That asymmetry, not a difference in
+        algorithms, is why the field's locomotion results lean on sim-to-real RL
+        and its manipulation results lean on imitation from real demonstrations.
+        I'd say that explicitly rather than implying one recipe covers robotics.
+    - q: "Would you ever skip simulation entirely?"
+      a: >-
+        For contact-rich manipulation with a human available to demonstrate,
+        often yes — that's essentially what the imitation pipeline is, and if I
+        can get fifty demonstrations in an afternoon that's cheaper than
+        building a simulator whose contact model I wouldn't trust anyway. Where
+        I wouldn't skip it is anything dynamic or dangerous, anything needing
+        behaviour a human can't demonstrate, or anything where I need to exceed
+        demonstrator performance. The middle path that's become common is to use
+        both: pretrain in sim where exploration is free and safe, then fine-tune
+        on a small amount of real interaction where the search is local.
+  traps:
+    - "Describing the problem as 'the simulator isn't accurate enough'. The sharp version is that RL actively searches for the inaccuracies, so accuracy in the average case is not what protects you."
+    - "Treating domain randomisation as strictly better than system identification. They address different failures, and the system-ID residual is what tells you which one you have."
+    - "Ignoring whether the policy has observation history. It determines whether randomisation buys robustness or adaptation, and it is a POMDP argument rather than an architecture preference."
+    - "Generalising locomotion results to manipulation. The transfer difficulty is completely different, and the reason — which physics the simulator models well — is worth stating."
+check:
+  - id: s2r_l5_c1
+    prompt: "System identification on your quadruped brings trajectory prediction error down to roughly the encoder noise floor. The policy still fails on hardware. What is the most likely remaining cause, and what do you do?"
+    options:
+      - "The model class is too small; fit an actuator network"
+      - "The dynamics model is adequate, so the failure is more likely in what system ID did not cover — latency, observation noise, or the policy having exploited a simulator artefact — and the response is randomisation plus a replay comparison to locate the divergence"
+      - "The reward function is misspecified"
+      - "The policy needs more training in simulation"
+    answer: 1
+    explanation: "The residual being at the noise floor is strong evidence that the parametric dynamics are fine, which rules out the enlarge-the-model answer that would otherwise be right. That points at things a trajectory fit does not exercise: the delay between observation and command, sensor noise the fit averaged out, or a policy behaviour that only appears at deployment because it exploits something the identification trajectories never provoked. Replay is what distinguishes these, because it localises the divergence in time."
+  - id: s2r_l5_c2
+    prompt: "A colleague proposes fixing poor transfer by doubling every randomisation range. What is the concern?"
+    options:
+      - "Training will be slower"
+      - "Randomisation asks for one policy that works across the whole support, so widening it lowers the achievable optimum and can make the task unlearnable — and if reality was already inside the original support, wider ranges address variation that was never the problem"
+      - "The simulator may become numerically unstable"
+      - "There is no concern; wider is always safer"
+    answer: 1
+    explanation: "Widening is not free and it is not targeted. The achievable performance is set by what a single strategy can do across every sampled environment, so more support means a lower ceiling, and past a point no strategy suffices. And if the transfer failure came from an effect with no parameter — latency, an unmodelled actuator — then no range on the existing parameters covers it, and you have paid performance for nothing. Diagnose which parameter the gap is in before widening any of them."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Reality gap too large: sim dynamics $T_{\text{sim}}(s'|s,a)$ don't capture real contact modes (e.g., soft deformable objects, liquids, articulated mechanisms). Symptoms: policy works perfectly in sim but fails immediately on real robot. Fix: improve sim fidelity for critical dynamics, use residual RL ($\pi_{\text{real}}(a|s) = \pi_{\text{sim}}(a|s) + \Delta\pi_{\text{residual}}(a|s)$), or switch to real-world fine-tuning.
+<Steps>
+<Step title="Fails immediately on any commanded motion → latency or actuator dynamics">
+The two cheapest gaps to close and the two most commonly left open. Measure the
+real step response, add a delay buffer, and fit an actuator model if the
+residual is large.
+</Step>
 
-## Interview-ready answer
+<Step title="Fails only at contact → the contact model">
+Grasping, sliding, impact. Expected, and the hardest to fix — this is the reason
+manipulation leans on real demonstrations rather than sim-to-real.
+</Step>
 
-Sim2real is the dominant paradigm for robot learning because real-world data is expensive and risky. The core challenge is the reality gap: $T_{\text{sim}} \neq T_{\text{real}}$. Domain randomization is the most practical solution: randomize physics params, visual appearance, and dynamics during training so the policy becomes robust to sim-real mismatch. Key implementation: randomize the parameters that matter most for your task (contact dynamics for manipulation, terrain for locomotion). Complementary approaches: system identification to narrow the randomization range, and residual policies $\pi = \pi_{\text{sim}} + \Delta\pi$ for real-world fine-tuning.
+<Step title="Behaviour looks physically implausible in sim → the policy found an exploit">
+Energy appearing from collisions, torque profiles no motor could produce,
+penetrating contacts. Watch the simulation rollouts before deploying; an
+exploit is usually visible to the eye.
+</Step>
+
+<Step title="Transfers, but stiff and conservative → memoryless policy hedging">
+Partial observability over the randomised parameters. Add observation and action
+history, or train a teacher-student adaptation module. This is an architecture
+fix, not a range fix.
+</Step>
+
+<Step title="Stops learning the task in sim → over-randomised">
+The support has grown past what a single strategy can cover. Narrow it, calibrate
+more, or move to an adaptive policy.
+</Step>
+
+<Step title="Anything unexplained → replay real actions through the simulator">
+The single most useful diagnostic. Same initial state, same action sequence,
+compare trajectories, and read off where and when the divergence begins.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+Two things distinguish a strong answer. The first is the adversarial framing —
+RL searches for the simulator's errors, so accuracy on average is not what
+protects you, and improving your optimiser makes the problem worse. The second
+is having a *decision rule* rather than a list of techniques: the system-ID
+residual tells you whether your model class is adequate, and therefore whether
+to randomise or to go and learn the missing physics. Candidates who can name
+domain randomisation are common; candidates who can say when it is the wrong
+tool are not.
+</Warning>
