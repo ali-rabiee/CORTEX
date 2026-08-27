@@ -1,0 +1,30 @@
+---
+concept: open_vocabulary_detection
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Open-Vocabulary Detection, including the
+    key equations.
+  keyPoints:
+    - Detecting and localizing objects from arbitrary text descriptions without
+      retraining, by leveraging vision-language alignment.
+    - "Key methods: (1) OWL-ViT — image-conditioned detection with CLIP-style
+      contrastive pretraining, query embeddings $\\mathbf{q}_c =
+      f_{\\text{text}}(\\text{class}_c)$ matched against per-region visual
+      features via $\\text{score}(r, c) = \\frac{\\mathbf{v}_r \\cdot
+      \\mathbf{q}_c}{\\|\\mathbf{v}_r\\| \\|\\mathbf{q}_c\\|}$; (2) Grounding
+      DINO — combines DINO self-supervised features with grounded pre-training
+      for text-conditioned detection, using cross-modality fusion between image
+      features and text token features; (3) CLIP-based approaches — encode image
+      regions and text prompts into a shared embedding space, detect by
+      thresholding cosine similarity."
+    - "Enables zero-shot detection: specify novel categories at inference time
+      via natural language (e.g., 'red Allen wrench' or 'the scratched
+      bearing')."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Detecting and localizing objects from arbitrary text descriptions without retraining, by leveraging vision-language alignment. Key methods: (1) OWL-ViT — image-conditioned detection with CLIP-style contrastive pretraining, query embeddings $\mathbf{q}_c = f_{\text{text}}(\text{class}_c)$ matched against per-region visual features via $\text{score}(r, c) = \frac{\mathbf{v}_r \cdot \mathbf{q}_c}{\|\mathbf{v}_r\| \|\mathbf{q}_c\|}$; (2) Grounding DINO — combines DINO self-supervised features with grounded pre-training for text-conditioned detection, using cross-modality fusion between image features and text token features; (3) CLIP-based approaches — encode image regions and text prompts into a shared embedding space, detect by thresholding cosine similarity. Enables zero-shot detection: specify novel categories at inference time via natural language (e.g., 'red Allen wrench' or 'the scratched bearing').

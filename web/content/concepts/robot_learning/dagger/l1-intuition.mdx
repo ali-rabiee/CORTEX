@@ -1,0 +1,26 @@
+---
+concept: dagger
+level: 1
+status: seed
+recall:
+  prompt: "Explain DAgger (Dataset Aggregation) in plain language: what is it, and
+    why does it matter?"
+  keyPoints:
+    - A student driver first watches an instructor, then drives themselves while
+      the instructor sits in the passenger seat calling out what they would do
+      at each moment.
+    - After each drive, the student studies both the original demonstrations and
+      the instructor's corrections from the student's own mistakes.
+    - Over rounds, the student sees corrections for exactly the situations they
+      tend to get into.
+check: []
+papers: []
+---
+
+## Intuition
+
+A student driver first watches an instructor, then drives themselves while the instructor sits in the passenger seat calling out what they would do at each moment. After each drive, the student studies both the original demonstrations and the instructor's corrections from the student's own mistakes. Over rounds, the student sees corrections for exactly the situations they tend to get into.
+
+## In practice
+
+Robot learning a peg insertion task: BC on 50 demos gives 45% success. DAgger round 1: run the BC policy, expert labels corrections at 30 failure states → retrain on 80 total examples → 65% success. Round 2: 20 more corrections → 85% success. Round 3: 10 corrections → 93% success. Key practical detail: use a mixing policy $\pi_i = \beta_i \pi^* + (1-\beta_i) \hat{\pi}_i$ with $\beta_i \rightarrow 0$ to ensure initial data collection is safe.

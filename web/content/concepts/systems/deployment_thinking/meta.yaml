@@ -1,0 +1,13 @@
+id: deployment_thinking
+title: Deployment Thinking for Robot Systems
+domain: systems
+summary: A research demo runs on an A100 with a human ready to hit the e-stop.
+tags:
+  - systems
+difficulty: 3
+importance: 5
+related_concept_ids:
+  - experiment_tracking
+  - evaluation_methodology
+  - latency_optimization
+  - safety_monitoring

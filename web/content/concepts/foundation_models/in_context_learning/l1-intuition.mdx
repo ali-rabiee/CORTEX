@@ -1,0 +1,26 @@
+---
+concept: in_context_learning
+level: 1
+status: seed
+recall:
+  prompt: "Explain In-Context Learning and Few-Shot Prompting for Robotics in
+    plain language: what is it, and why does it matter?"
+  keyPoints:
+    - Instead of retraining the entire model for each new task, you show it a
+      few examples and it figures out the pattern.
+    - Like showing a new employee three examples of how to fill out a form —
+      they generalize to the fourth without reading the manual.
+    - For robots, this means you can teach new behaviors by demonstrating a
+      handful of times and describing them in the prompt, rather than collecting
+      thousands of demonstrations and fine-tuning.
+check: []
+papers: []
+---
+
+## Intuition
+
+Instead of retraining the entire model for each new task, you show it a few examples and it figures out the pattern. Like showing a new employee three examples of how to fill out a form — they generalize to the fourth without reading the manual. For robots, this means you can teach new behaviors by demonstrating a handful of times and describing them in the prompt, rather than collecting thousands of demonstrations and fine-tuning.
+
+## In practice
+
+Code as Policies (Liang et al.): The LLM is prompted with 3-5 examples mapping natural language commands to Python robot API calls. Example prompt includes: 'pick up the red block' $\rightarrow$ `obj = detect('red block'); pick(obj)`, 'move the cup 10cm left' $\rightarrow$ `obj = detect('cup'); move(obj, dx=-0.1)`. At test time, novel instruction 'put the green bottle behind the box' $\rightarrow$ LLM generates: `bottle = detect('green bottle'); box = detect('box'); place(bottle, box.pos + [0, -0.15, 0])`. No fine-tuning needed — pure in-context learning.

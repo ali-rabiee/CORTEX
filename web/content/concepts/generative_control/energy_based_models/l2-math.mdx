@@ -1,0 +1,29 @@
+---
+concept: energy_based_models
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Energy-Based Models for Robot Control,
+    including the key equations.
+  keyPoints:
+    - "Energy-based models (EBMs) define a policy implicitly through an energy
+      function $E_\\theta(\\mathbf{a}, \\mathbf{o}): \\mathcal{A} \\times
+      \\mathcal{O} \\rightarrow \\mathbb{R}$ where low energy corresponds to
+      good actions."
+    - "The policy distribution is: $$p_\\theta(\\mathbf{a} | \\mathbf{o}) =
+      \\frac{\\exp(-E_\\theta(\\mathbf{a},
+      \\mathbf{o}))}{Z_\\theta(\\mathbf{o})}, \\quad Z_\\theta(\\mathbf{o}) =
+      \\int \\exp(-E_\\theta(\\mathbf{a}, \\mathbf{o}))\\, d\\mathbf{a}$$ Action
+      inference requires sampling from this distribution, typically via Langevin
+      dynamics: $\\mathbf{a}_{k+1} = \\mathbf{a}_k - \\frac{\\lambda}{2}
+      \\nabla_\\mathbf{a} E_\\theta(\\mathbf{a}_k, \\mathbf{o}) +
+      \\sqrt{\\lambda}\\, \\boldsymbol{\\epsilon}_k$."
+    - Training uses contrastive divergence or noise contrastive estimation (NCE)
+      to avoid computing the intractable partition function $Z_\theta$.
+check: []
+papers: []
+---
+
+## Formal definition
+
+Energy-based models (EBMs) define a policy implicitly through an energy function $E_\theta(\mathbf{a}, \mathbf{o}): \mathcal{A} \times \mathcal{O} \rightarrow \mathbb{R}$ where low energy corresponds to good actions. The policy distribution is: $$p_\theta(\mathbf{a} | \mathbf{o}) = \frac{\exp(-E_\theta(\mathbf{a}, \mathbf{o}))}{Z_\theta(\mathbf{o})}, \quad Z_\theta(\mathbf{o}) = \int \exp(-E_\theta(\mathbf{a}, \mathbf{o}))\, d\mathbf{a}$$ Action inference requires sampling from this distribution, typically via Langevin dynamics: $\mathbf{a}_{k+1} = \mathbf{a}_k - \frac{\lambda}{2} \nabla_\mathbf{a} E_\theta(\mathbf{a}_k, \mathbf{o}) + \sqrt{\lambda}\, \boldsymbol{\epsilon}_k$. Training uses contrastive divergence or noise contrastive estimation (NCE) to avoid computing the intractable partition function $Z_\theta$.

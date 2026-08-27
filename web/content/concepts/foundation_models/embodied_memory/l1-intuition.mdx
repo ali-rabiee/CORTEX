@@ -1,0 +1,29 @@
+---
+concept: embodied_memory
+level: 1
+status: seed
+recall:
+  prompt: "Explain Memory and State Tracking in Embodied Agents in plain language:
+    what is it, and why does it matter?"
+  keyPoints:
+    - A robot exploring a building opens a drawer in the kitchen and sees
+      batteries inside, then 30 minutes later is asked to 'bring me some
+      batteries.' Without memory, it would have to search the entire building
+      again.
+    - Episodic memory stores 'I saw batteries in the kitchen drawer at 10:05am'
+      and retrieves it when relevant.
+    - Working memory is like your conscious attention (limited capacity, current
+      moment), episodic memory is like your autobiographical recall (large
+      capacity, past experiences), and semantic memory is your world knowledge
+      ('drawers usually contain utensils or small items').
+check: []
+papers: []
+---
+
+## Intuition
+
+A robot exploring a building opens a drawer in the kitchen and sees batteries inside, then 30 minutes later is asked to 'bring me some batteries.' Without memory, it would have to search the entire building again. Episodic memory stores 'I saw batteries in the kitchen drawer at 10:05am' and retrieves it when relevant. Working memory is like your conscious attention (limited capacity, current moment), episodic memory is like your autobiographical recall (large capacity, past experiences), and semantic memory is your world knowledge ('drawers usually contain utensils or small items').
+
+## In practice
+
+VOYAGER (Wang et al., 2023): an LLM-powered agent in Minecraft that builds a skill library (semantic memory) of learned programs. Each successfully executed skill is stored with a description and code. When facing a new task, the agent retrieves relevant skills via embedding similarity and composes them. For real robots: ConceptGraphs builds a 3D scene graph from exploration (semantic memory), SayPlan uses a scene graph for long-horizon task planning, and retrieval-augmented manipulation policies retrieve similar demonstration episodes to condition the current action prediction.

@@ -1,0 +1,16 @@
+id: td3
+title: Twin Delayed DDPG (TD3)
+domain: rl
+summary: DDPG was the first continuous-action DQN-style algorithm but suffered
+  from severe overestimation and brittle training.
+tags:
+  - rl
+  - robot_learning
+difficulty: 3
+importance: 3
+related_concept_ids:
+  - sac
+  - dqn
+  - off_policy_learning
+  - replay_buffer
+  - value_functions

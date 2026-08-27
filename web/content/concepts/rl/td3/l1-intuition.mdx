@@ -1,0 +1,28 @@
+---
+concept: td3
+level: 1
+status: seed
+recall:
+  prompt: "Explain Twin Delayed DDPG (TD3) in plain language: what is it, and why
+    does it matter?"
+  keyPoints:
+    - DDPG was the first continuous-action DQN-style algorithm but suffered from
+      severe overestimation and brittle training.
+    - "TD3 fixes this with three simple ideas: (1) take the minimum of two
+      critics — like getting a second opinion to avoid being overconfident; (2)
+      don't update the actor until the critics agree — let the critics settle
+      before making policy decisions; (3) add noise to the target action — this
+      smooths out sharp Q-peaks that the policy might exploit."
+    - Together, these create a much more conservative and stable learning
+      process.
+check: []
+papers: []
+---
+
+## Intuition
+
+DDPG was the first continuous-action DQN-style algorithm but suffered from severe overestimation and brittle training. TD3 fixes this with three simple ideas: (1) take the minimum of two critics — like getting a second opinion to avoid being overconfident; (2) don't update the actor until the critics agree — let the critics settle before making policy decisions; (3) add noise to the target action — this smooths out sharp Q-peaks that the policy might exploit. Together, these create a much more conservative and stable learning process. SAC later improved on TD3 by adding entropy regularization for automatic exploration.
+
+## In practice
+
+TD3 for a simulated Franka Panda reaching task: deterministic policy $\pi_\phi: \mathbb{R}^{14} \to \mathbb{R}^7$ (proprioception to joint velocity targets). Two critics $Q_{\theta_1}, Q_{\theta_2}$: each takes $(s, a)$ and outputs scalar value. Exploration: add Gaussian noise $a = \pi_\phi(s) + \epsilon, \; \epsilon \sim \mathcal{N}(0, 0.1)$ during data collection. Target smoothing: $\sigma = 0.2$, clip $c = 0.5$. Delayed updates: $d = 2$ (critic updates twice per actor update). Hyperparameters: $|\mathcal{B}| = 10^6$, $B = 256$, $\tau = 0.005$, actor/critic LR $= 3 \times 10^{-4}$. TD3 matches SAC performance on many MuJoCo tasks but without the entropy tuning complexity.

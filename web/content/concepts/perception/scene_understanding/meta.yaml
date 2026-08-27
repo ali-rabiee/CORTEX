@@ -1,0 +1,13 @@
+id: scene_understanding
+title: Scene Understanding for Robotics
+domain: perception
+summary: Scene understanding is about seeing the forest, not just the trees.
+tags:
+  - perception
+  - systems
+difficulty: 3
+importance: 3
+related_concept_ids:
+  - semantic_segmentation
+  - object_segmentation
+  - point_cloud_processing

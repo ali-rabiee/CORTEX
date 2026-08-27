@@ -1,0 +1,55 @@
+worlds:
+  - id: world_1
+    title: Foundations of Intelligence
+    description: "Master the building blocks of RL: MDPs, value functions,
+      optimization, and the math that connects them all."
+    icon: foundation
+    order_index: 0
+    prerequisite_world_ids: []
+    required_completion_percent: 0.6
+  - id: world_2
+    title: Policy Learning
+    description: From policy gradients to PPO and SAC — learn how agents optimize
+      their behavior through experience.
+    icon: psychology
+    order_index: 1
+    prerequisite_world_ids:
+      - world_1
+    required_completion_percent: 0.6
+  - id: world_3
+    title: Robot Learning
+    description: Bridge the sim-to-real gap. Imitation learning, manipulation, and
+      deploying policies on real hardware.
+    icon: precision_manufacturing
+    order_index: 2
+    prerequisite_world_ids:
+      - world_2
+    required_completion_percent: 0.6
+  - id: world_4
+    title: Perception for Robotics
+    description: From pixels to actions. Visual foundations, detection, 3D
+      understanding, and visuomotor policies.
+    icon: visibility
+    order_index: 3
+    prerequisite_world_ids:
+      - world_2
+    required_completion_percent: 0.6
+  - id: world_5
+    title: Embodied Intelligence
+    description: Foundation models meet robotics. LLMs, VLMs, VLAs, diffusion
+      policies, and embodied reasoning.
+    icon: smart_toy
+    order_index: 4
+    prerequisite_world_ids:
+      - world_3
+      - world_4
+    required_completion_percent: 0.6
+  - id: world_6
+    title: Systems and Mastery
+    description: Experiment design, debugging, deployment, and interview
+      preparation. The capstone of your training.
+    icon: military_tech
+    order_index: 5
+    prerequisite_world_ids:
+      - world_5
+    required_completion_percent: 0.6

@@ -1,0 +1,25 @@
+---
+concept: dqn
+level: 5
+status: seed
+recall:
+  prompt: How does Deep Q-Network (DQN) fail in practice, and how would you
+    present it in an interview?
+  keyPoints:
+    - "Q-value overestimation: the $\\max$ operator in the target $r + \\gamma
+      \\max_{a'} Q(s', a')$ systematically overestimates because
+      $\\mathbb{E}[\\max] \\geq \\max \\mathbb{E}$."
+    - Over millions of updates, this compounds — Q-values grow to $10^3$-$10^4$
+      while true values are $\sim 10^2$.
+    - The policy then selects actions based on hallucinated high values.
+check: []
+papers: []
+---
+
+## Failure modes
+
+Q-value overestimation: the $\max$ operator in the target $r + \gamma \max_{a'} Q(s', a')$ systematically overestimates because $\mathbb{E}[\max] \geq \max \mathbb{E}$. Over millions of updates, this compounds — Q-values grow to $10^3$-$10^4$ while true values are $\sim 10^2$. The policy then selects actions based on hallucinated high values. Symptoms: Q-values monotonically increasing, divergence from true returns, eventual collapse. Fix: Double DQN ($y = r + \gamma Q_{\bar{\theta}}(s', \arg\max_{a'} Q_\theta(s',a'))$) reduces overestimation. Also: DQN fails in continuous action spaces — $\max_{a'} Q(s', a')$ requires enumeration over $\mathcal{A}$. For continuous control, use SAC or TD3 instead.
+
+## Interview-ready answer
+
+DQN was the seminal paper (Mnih et al., 2013/2015) that demonstrated deep RL at scale. The two key innovations — experience replay and target networks — solved the instability of combining neural function approximation with Q-learning. The core training loop: sample $(s,a,r,s')$ from replay buffer, compute target $y = r + \gamma \max_{a'} Q_{\bar{\theta}}(s',a')$, minimize $(Q_\theta(s,a) - y)^2$. Important extensions: Double DQN (fixes overestimation), Dueling DQN (separates $V$ and $A$ streams), PER (prioritized sampling), and Rainbow (combines all improvements). For robotics, DQN's principles (replay, target nets, double-Q) are embedded in SAC and TD3, but DQN itself is limited to discrete actions. The overestimation problem and the deadly triad are still active research topics that every off-policy method must address.

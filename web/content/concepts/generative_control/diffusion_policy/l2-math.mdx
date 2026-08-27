@@ -1,0 +1,24 @@
+---
+concept: diffusion_policy
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Diffusion Policy, including the key equations.
+  keyPoints:
+    - Uses denoising diffusion probabilistic models (DDPMs) to generate robot
+      action sequences.
+    - "The forward process adds Gaussian noise over $T$ steps: $q(\\mathbf{a}^t
+      | \\mathbf{a}^{t-1}) = \\mathcal{N}(\\mathbf{a}^t;
+      \\sqrt{1-\\beta_t}\\,\\mathbf{a}^{t-1}, \\beta_t \\mathbf{I})$."
+    - "The learned reverse process iteratively denoises:
+      $p_\\theta(\\mathbf{a}^{t-1} | \\mathbf{a}^t, \\mathbf{o}) =
+      \\mathcal{N}(\\mathbf{a}^{t-1}; \\mu_\\theta(\\mathbf{a}^t, t,
+      \\mathbf{o}), \\sigma_t^2 \\mathbf{I})$, conditioned on observations
+      $\\mathbf{o}$."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Uses denoising diffusion probabilistic models (DDPMs) to generate robot action sequences. The forward process adds Gaussian noise over $T$ steps: $q(\mathbf{a}^t | \mathbf{a}^{t-1}) = \mathcal{N}(\mathbf{a}^t; \sqrt{1-\beta_t}\,\mathbf{a}^{t-1}, \beta_t \mathbf{I})$. The learned reverse process iteratively denoises: $p_\theta(\mathbf{a}^{t-1} | \mathbf{a}^t, \mathbf{o}) = \mathcal{N}(\mathbf{a}^{t-1}; \mu_\theta(\mathbf{a}^t, t, \mathbf{o}), \sigma_t^2 \mathbf{I})$, conditioned on observations $\mathbf{o}$. Training minimizes: $$\mathcal{L} = \mathbb{E}_{t, \mathbf{a}^0, \boldsymbol{\epsilon}} \left[ \| \boldsymbol{\epsilon} - \boldsymbol{\epsilon}_\theta(\mathbf{a}^t, t, \mathbf{o}) \|^2 \right]$$ Naturally handles multimodal action distributions — can represent multiple valid ways to accomplish a task.

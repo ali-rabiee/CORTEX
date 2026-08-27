@@ -1,0 +1,24 @@
+---
+concept: action_generation
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Action Generation with Generative Models,
+    including the key equations.
+  keyPoints:
+    - Using generative models (diffusion, flow matching, VAEs) to produce robot
+      action sequences conditioned on observations.
+    - "The model generates an action chunk $\\mathbf{a}_{t:t+H} = (a_t, a_{t+1},
+      \\ldots, a_{t+H-1})$ of horizon $H$ steps conditioned on observation
+      history $\\mathbf{o}_{t-K:t}$: $p_\\theta(\\mathbf{a}_{t:t+H} |
+      \\mathbf{o}_{t-K:t})$."
+    - "Denoising process: start from Gaussian noise $\\mathbf{a}^T \\sim
+      \\mathcal{N}(0, I)$ and iteratively denoise: $\\mathbf{a}^{s-1} =
+      \\text{denoise}_\\theta(\\mathbf{a}^s, s, \\mathbf{o})$."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Using generative models (diffusion, flow matching, VAEs) to produce robot action sequences conditioned on observations. The model generates an action chunk $\mathbf{a}_{t:t+H} = (a_t, a_{t+1}, \ldots, a_{t+H-1})$ of horizon $H$ steps conditioned on observation history $\mathbf{o}_{t-K:t}$: $p_\theta(\mathbf{a}_{t:t+H} | \mathbf{o}_{t-K:t})$. Denoising process: start from Gaussian noise $\mathbf{a}^T \sim \mathcal{N}(0, I)$ and iteratively denoise: $\mathbf{a}^{s-1} = \text{denoise}_\theta(\mathbf{a}^s, s, \mathbf{o})$. Observation conditioning methods: (1) concatenation — append $\phi(\mathbf{o})$ to noisy actions as input, (2) cross-attention — noisy action tokens attend to observation tokens, (3) FiLM conditioning — modulate denoising network features via $\gamma(\mathbf{o}) \odot h + \beta(\mathbf{o})$. Temporal consistency enforced through: action chunking (predict $H$ steps, execute $H_e < H$, replan), temporal U-Net architecture that processes the action sequence as a 1D signal, and receding-horizon execution with overlap blending.

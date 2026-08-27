@@ -1,0 +1,14 @@
+id: policy_gradients
+title: Policy Gradient Methods
+domain: rl
+summary: Instead of figuring out the value of every state (value-based), policy
+  gradients directly tune the knobs $\theta$ that control behavior.
+tags:
+  - rl
+difficulty: 2
+importance: 5
+related_concept_ids:
+  - ppo_clipping
+  - sac
+  - advantage_estimation
+  - value_functions

@@ -1,0 +1,14 @@
+id: long_horizon_generation
+title: Long-Horizon Generation and Hierarchical Policies
+domain: generative_control
+summary: Making a sandwich involves dozens of individual motions over several minutes.
+tags:
+  - generative_control
+  - robot_learning
+difficulty: 3
+importance: 3
+related_concept_ids:
+  - diffusion_policy
+  - action_generation
+  - diffusion_models_basics
+  - flow_matching

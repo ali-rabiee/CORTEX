@@ -1,0 +1,27 @@
+---
+concept: transformer_attention
+level: 5
+status: seed
+recall:
+  prompt: How does Transformer and Attention Mechanisms for Embodied AI fail in
+    practice, and how would you present it in an interview?
+  keyPoints:
+    - "Quadratic attention bottleneck: with long observation histories (e.g.,
+      100 frames of 256 tokens each = 25,600 tokens), standard self-attention
+      requires $O(n^2) \\approx 6.5 \\times 10^8$ operations per layer, causing
+      inference to exceed real-time budgets."
+    - "KV cache memory blow-up: caching all past tokens exhausts GPU memory for
+      long-horizon tasks."
+    - "Positional encoding failures: models trained with fixed-length positional
+      encodings degrade when deployed with longer sequences."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Quadratic attention bottleneck: with long observation histories (e.g., 100 frames of 256 tokens each = 25,600 tokens), standard self-attention requires $O(n^2) \approx 6.5 \times 10^8$ operations per layer, causing inference to exceed real-time budgets. KV cache memory blow-up: caching all past tokens exhausts GPU memory for long-horizon tasks. Positional encoding failures: models trained with fixed-length positional encodings degrade when deployed with longer sequences. Symptoms: latency spikes during long manipulation sequences, degraded performance on tasks longer than training distribution. Fix: use sliding window attention to bound context length, implement KV cache eviction (drop oldest or least-attended entries), use RoPE or ALiBi for length extrapolation, apply FlashAttention for memory-efficient computation.
+
+## Interview-ready answer
+
+Transformers are the backbone of every modern foundation model used in robotics. The key mechanisms: (1) self-attention captures relationships within a modality (spatial relations between image patches, temporal dependencies between action tokens), (2) cross-attention fuses information across modalities (grounding language in vision), (3) KV caching enables efficient autoregressive generation for real-time control. For robotics-specific considerations: we need efficient attention because robots operate under strict latency budgets — FlashAttention and sliding window attention are essential. Positional encoding choice matters for generalization: RoPE handles variable-length sequences better than learned embeddings. The practical bottleneck is usually memory, not compute — KV cache management is critical for long-horizon tasks.

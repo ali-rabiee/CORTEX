@@ -1,0 +1,24 @@
+---
+concept: vlm_models
+level: 5
+status: seed
+recall:
+  prompt: How does Vision-Language Models (VLMs) fail in practice, and how would
+    you present it in an interview?
+  keyPoints:
+    - "Spatial reasoning failures: VLMs can identify objects but struggle with
+      precise spatial relationships ('is the cup to the left or right of the
+      bowl?')."
+    - "Hallucination: confidently describe objects that aren't there."
+    - "Symptoms: robot reaches for nonexistent objects or wrong locations."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Spatial reasoning failures: VLMs can identify objects but struggle with precise spatial relationships ('is the cup to the left or right of the bowl?'). Hallucination: confidently describe objects that aren't there. Symptoms: robot reaches for nonexistent objects or wrong locations. Fix: validate VLM outputs with detection/segmentation, use VLMs for high-level planning only (not precise spatial commands).
+
+## Interview-ready answer
+
+VLMs bring common-sense reasoning and language understanding to robot perception. The practical pattern: use VLMs for high-level scene understanding and task planning, then hand off to specialized modules for precise spatial reasoning and control. Key insight: VLMs are excellent at semantic understanding ('this is a cluttered kitchen with dishes to clean') but poor at precise spatial reasoning ('the mug handle is 2cm to the left'). In production, I combine VLM-based task planning with classical perception (pose estimation, point clouds) for execution.

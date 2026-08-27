@@ -1,0 +1,14 @@
+id: overfitting_underfitting
+title: Overfitting and Underfitting — Bias-Variance Tradeoff and Model Capacity
+domain: ml_fundamentals
+summary: Underfitting is like trying to describe a city with one sentence — too
+  simple to capture reality.
+tags:
+  - ml_fundamentals
+difficulty: 2
+importance: 5
+related_concept_ids:
+  - dropout_regularization
+  - cross_entropy_loss
+  - batch_normalization
+  - gradient_descent_variants

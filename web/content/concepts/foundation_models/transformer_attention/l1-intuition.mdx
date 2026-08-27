@@ -1,0 +1,29 @@
+---
+concept: transformer_attention
+level: 1
+status: seed
+recall:
+  prompt: "Explain Transformer and Attention Mechanisms for Embodied AI in plain
+    language: what is it, and why does it matter?"
+  keyPoints:
+    - Self-attention lets every token in a sequence 'look at' every other token
+      to decide what's relevant.
+    - For a robot processing a sequence of image patches and language tokens,
+      attention learns which visual region matters for each word in the
+      instruction.
+    - "Cross-attention is how the robot's visual stream asks questions of the
+      language stream: 'given I see these objects, which one does the
+      instruction refer to?' KV cache is like keeping notes from previous steps
+      so you don't re-read the entire history each time you generate the next
+      action token."
+check: []
+papers: []
+---
+
+## Intuition
+
+Self-attention lets every token in a sequence 'look at' every other token to decide what's relevant. For a robot processing a sequence of image patches and language tokens, attention learns which visual region matters for each word in the instruction. Cross-attention is how the robot's visual stream asks questions of the language stream: 'given I see these objects, which one does the instruction refer to?' KV cache is like keeping notes from previous steps so you don't re-read the entire history each time you generate the next action token.
+
+## In practice
+
+In RT-2, a ViT encodes a camera image into 256 visual tokens, which are concatenated with tokenized language instructions and fed through a PaLM-E transformer backbone. Self-attention within image tokens captures spatial relationships; cross-attention between image and language tokens grounds words to visual regions. For real-time deployment, KV caching reduces per-step inference from ~200ms to ~50ms by reusing cached keys/values from previous observation tokens. FlashAttention-2 further halves GPU memory usage, enabling larger context windows on edge devices like Jetson Orin.

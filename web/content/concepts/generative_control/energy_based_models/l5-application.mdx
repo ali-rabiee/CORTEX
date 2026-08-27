@@ -1,0 +1,24 @@
+---
+concept: energy_based_models
+level: 5
+status: seed
+recall:
+  prompt: How does Energy-Based Models for Robot Control fail in practice, and how
+    would you present it in an interview?
+  keyPoints:
+    - "Sampling is expensive: Langevin dynamics requires many gradient steps
+      through the energy network to find low-energy actions."
+    - For high-dimensional action spaces, MCMC mixing is slow.
+    - "Symptoms: inference latency too high for real-time control, or sampler
+      gets stuck in local minima (wrong mode)."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Sampling is expensive: Langevin dynamics requires many gradient steps through the energy network to find low-energy actions. For high-dimensional action spaces, MCMC mixing is slow. Symptoms: inference latency too high for real-time control, or sampler gets stuck in local minima (wrong mode). Fix: use derivative-free optimization (CEM + energy ranking), amortize sampling with a learned proposal network $q_\phi(\mathbf{a}|\mathbf{o})$ trained to approximate $p_\theta$, or use EBMs only for scoring/reranking actions proposed by a faster generator.
+
+## Interview-ready answer
+
+EBMs offer a fundamentally different approach to robot control: instead of learning a direct mapping $o \rightarrow a$, learn a scoring function $E_\theta(a, o)$ over the action space. The advantages: (1) natural multi-modality — multiple low-energy valleys, (2) compositionality — combine energy functions for different objectives by addition, (3) flexible conditioning — easy to add constraints as additional energy terms. The main challenge is inference speed: sampling from $p(a|o) \propto \exp(-E_\theta(a,o))$ requires iterative optimization. In practice, I use EBMs in a reranking setup: fast generator proposes $N$ candidates, EBM scores them. This gets the best of both worlds — speed from the generator, quality from the energy model. Implicit BC showed this works well for precision tasks like insertion.

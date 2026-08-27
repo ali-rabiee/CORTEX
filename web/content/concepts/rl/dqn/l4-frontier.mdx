@@ -1,0 +1,101 @@
+---
+concept: dqn
+level: 4
+status: final
+recall:
+  prompt: "Summarize the DQN lineage: the Rainbow consolidation, the robotics-scale descendants (QT-Opt, Q-Transformer), and what value-based RL looks like in the foundation-model era."
+  keyPoints:
+    - "2013-2018: DQN -> Double/Dueling/PER/Distributional consolidated in Rainbow; ablations showed PER + multi-step + distributional matter most"
+    - "QT-Opt (2018) scaled Q-learning to real-robot grasping (580k grasps, CEM over continuous actions); Q-Transformer (2023) tokenized actions per-dimension for offline Q-learning at scale"
+    - "Value-based ideas persist inside modern systems as critics and verifiers even where policies are imitation-pretrained"
+check:
+  - id: dqn_l4_c1
+    prompt: "QT-Opt handled continuous robot actions with a Q-network by..."
+    options:
+      - "discretizing each joint into 256 bins"
+      - "running CEM (cross-entropy method) optimization over actions against the learned Q at both action-selection and target-computation time — no actor network at all"
+      - "training 7 separate Q-networks per DoF"
+      - "using a tanh-Gaussian actor like SAC"
+    answer: 1
+    explanation: "QT-Opt is pure Q-learning: amax is replaced by a sampling-based optimizer (CEM) over the continuous action space. Trained on 580k real grasps, it hit 96% on unseen objects and demonstrated emergent regrasping — Q-learning's first convincing real-robot scale-up."
+  - id: dqn_l4_c2
+    prompt: "Q-Transformer's per-dimension action tokenization exists because..."
+    options:
+      - "transformers cannot output vectors"
+      - "naively discretizing a D-dim action space is exponential (N^D bins); treating each action dimension as a sequential token reduces it to D autoregressive N-way maxes, making the Bellman max tractable for offline Q-learning with transformers"
+      - "it improves camera throughput"
+      - "continuous actions violate the Markov property"
+    answer: 1
+    explanation: "The autoregressive decomposition lets each dimension's max be computed greedily given previous dimensions, sidestepping the curse of dimensionality in the argmax — the key trick that let Q-learning ride the transformer/offline-data wave alongside BC-based RT-1/RT-2."
+papers:
+  - key: mnih2013dqn
+    title: "Playing Atari with Deep Reinforcement Learning"
+    authors: "Mnih, Kavukcuoglu, Silver, et al."
+    venue: "NeurIPS DL Workshop"
+    year: 2013
+    arxiv: "1312.5602"
+    takeaway: "The origin: CNN + replay + target network learns Atari from pixels. Established the deep value-learning template and its two standard stabilizers."
+  - key: hessel2017rainbow
+    title: "Rainbow: Combining Improvements in Deep Reinforcement Learning"
+    authors: "Hessel, Modayil, van Hasselt, et al."
+    venue: "AAAI"
+    year: 2018
+    arxiv: "1710.02298"
+    takeaway: "Stacks Double, Dueling, PER, multi-step, distributional (C51) and noisy nets; ablations rank multi-step, PER and distributional as the load-bearing pieces. The closing chapter of the Atari DQN era."
+  - key: kalashnikov2018qtopt
+    title: "QT-Opt: Scalable Deep Reinforcement Learning for Vision-Based Robotic Manipulation"
+    authors: "Kalashnikov, Irpan, Pastor, et al. (Google)"
+    venue: "CoRL"
+    year: 2018
+    arxiv: "1806.10293"
+    takeaway: "Q-learning + CEM argmax on 580k real grasps → 96% unseen-object grasping with emergent retrying. Proof that off-policy value learning scales to physical robots and reused data."
+  - key: chebotar2023qtransformer
+    title: "Q-Transformer: Scalable Offline Reinforcement Learning via Autoregressive Q-Functions"
+    authors: "Chebotar, Vuong, Hausman, et al. (Google DeepMind)"
+    venue: "CoRL"
+    year: 2023
+    arxiv: "2309.10150"
+    takeaway: "Per-dimension action tokens + conservative regularization let transformer Q-functions train on mixed real-robot datasets, outperforming RT-1-style BC where data is suboptimal — Bellman stitching at foundation scale."
+  - key: schwarzer2023bbf
+    title: "Bigger, Better, Faster: Human-level Atari with Human-level Efficiency (BBF)"
+    authors: "Schwarzer, Obando-Ceron, Courville, et al."
+    venue: "ICML"
+    year: 2023
+    arxiv: "2305.19452"
+    takeaway: "A value-based agent reaching human-level Atari-100k via scaled networks, high replay ratios with periodic resets, and n-step/γ schedules — state of the art for sample-efficient model-free value learning."
+---
+
+## One algorithm, three eras
+
+**Consolidation (2013–2018).** Six independent fixes to DQN's biases and
+variance merged into Rainbow; its ablation table is still the cheat-sheet
+for which value-learning tricks matter.
+
+**Robot scale (2018–2023).** QT-Opt swapped the argmax for CEM and bought
+grasping from half a million real attempts; Q-Transformer tokenized actions
+so offline Q-learning could ride transformers and mixed-quality datasets.
+The through-line: value learning's superpower is *reusing any data*.
+
+**Efficiency frontier (2023–).** BBF showed value-based agents can be both
+sample-efficient and strong with scaled networks + reset schedules —
+keeping model-free value learning competitive with world models on small
+budgets.
+
+<PaperGrid>
+  <PaperCard refKey="mnih2013dqn" />
+  <PaperCard refKey="hessel2017rainbow" />
+  <PaperCard refKey="kalashnikov2018qtopt" />
+  <PaperCard refKey="chebotar2023qtransformer" />
+  <PaperCard refKey="schwarzer2023bbf" />
+</PaperGrid>
+
+<KeyIdea>
+
+Interview-ready synthesis: "DQN's descendants split by what they did with
+the argmax: Rainbow refined it, QT-Opt replaced it with a sampler,
+Q-Transformer factorized it autoregressively. The reason the lineage stays
+relevant in the imitation-dominated robot stack is unchanged since 2013 —
+off-policy value learning is the only family that improves from *any* logged
+experience, including failures."
+
+</KeyIdea>

@@ -1,0 +1,15 @@
+id: tool_use_api
+title: Tool Use and API Calling for Robotic Systems
+domain: foundation_models
+summary: Tool use gives an LLM 'hands' — instead of just describing what to do,
+  it can actually trigger actions in the real world through a controlled API.
+tags:
+  - foundation_models
+  - systems
+difficulty: 2
+importance: 3
+related_concept_ids:
+  - task_planning
+  - language_grounding
+  - in_context_learning
+  - llm_capabilities

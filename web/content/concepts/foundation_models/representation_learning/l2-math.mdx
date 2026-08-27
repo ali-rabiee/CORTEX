@@ -1,0 +1,23 @@
+---
+concept: representation_learning
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Visual Representation Learning for
+    Robotics, including the key equations.
+  keyPoints:
+    - Learning visual features $\phi(I) \in \mathbb{R}^d$ that are useful for
+      downstream robot tasks, typically through pre-training on large datasets.
+    - "Methods: contrastive learning (minimize $\\mathcal{L} = -\\log
+      \\frac{\\exp(\\text{sim}(z_i, z_j)/\\tau)}{\\sum_k \\exp(\\text{sim}(z_i,
+      z_k)/\\tau)}$ for positive pairs $(i,j)$), masked autoencoders
+      (reconstruct masked patches), self-supervised video prediction."
+    - "Key: representations should capture task-relevant structure while being
+      invariant to irrelevant visual variation (lighting, background)."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Learning visual features $\phi(I) \in \mathbb{R}^d$ that are useful for downstream robot tasks, typically through pre-training on large datasets. Methods: contrastive learning (minimize $\mathcal{L} = -\log \frac{\exp(\text{sim}(z_i, z_j)/\tau)}{\sum_k \exp(\text{sim}(z_i, z_k)/\tau)}$ for positive pairs $(i,j)$), masked autoencoders (reconstruct masked patches), self-supervised video prediction. Key: representations should capture task-relevant structure while being invariant to irrelevant visual variation (lighting, background).

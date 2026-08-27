@@ -1,0 +1,25 @@
+---
+concept: consistency_models
+level: 1
+status: seed
+recall:
+  prompt: "Explain Consistency Models for Single-Step Action Generation in plain
+    language: what is it, and why does it matter?"
+  keyPoints:
+    - Diffusion models are like taking 100 small steps from noise to a clean
+      action — accurate but slow.
+    - A consistency model learns to take a single giant leap from any noise
+      level directly to the final answer.
+    - Like training a student who, instead of solving every intermediate step of
+      a math problem, learns to jump straight to the answer.
+check: []
+papers: []
+---
+
+## Intuition
+
+Diffusion models are like taking 100 small steps from noise to a clean action — accurate but slow. A consistency model learns to take a single giant leap from any noise level directly to the final answer. Like training a student who, instead of solving every intermediate step of a math problem, learns to jump straight to the answer. The trade-off: slightly less precise, but 10-100x faster.
+
+## In practice
+
+Consistency Policy (Prasad et al.): distill a pre-trained diffusion policy into a consistency model for real-time robot control. Original diffusion policy: 10 DDIM steps at 50ms = 500ms per action chunk. Consistency model: 1-2 steps at 50ms = 50-100ms. On Push-T and robotic manipulation benchmarks: achieves $> 95\%$ of the diffusion policy's success rate with $5\text{-}10\times$ faster inference. Enables 20Hz+ closed-loop control on hardware with a single forward pass.

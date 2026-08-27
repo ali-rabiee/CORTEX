@@ -1,0 +1,15 @@
+id: language_grounding
+title: Language Grounding in Robotics
+domain: foundation_models
+summary: When a human says 'pick up the heavy one,' the robot needs to connect
+  'heavy' (language) to a physical property it can estimate, identify which
+  object is heaviest, and plan a grasp.
+tags:
+  - foundation_models
+  - robot_learning
+difficulty: 3
+importance: 4
+related_concept_ids:
+  - vla_models
+  - vlm_models
+  - task_planning

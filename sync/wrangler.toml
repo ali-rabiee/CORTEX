@@ -1,0 +1,15 @@
+name = "cortex-sync"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+
+# Which browser origins may call this Worker. "*" is safe here — every endpoint
+# requires the bearer token derived from your passphrase — but you can pin it to
+# your Pages origin, e.g. "https://ali-rabiee.github.io".
+[vars]
+ALLOWED_ORIGIN = "*"
+
+# `npm run setup` fills in database_id after creating the database.
+[[d1_databases]]
+binding = "DB"
+database_name = "cortex-sync"
+database_id = "REPLACE_WITH_DATABASE_ID"

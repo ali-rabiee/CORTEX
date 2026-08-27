@@ -1,0 +1,31 @@
+---
+concept: image_representations
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Image Representations for Robotics,
+    including the key equations.
+  keyPoints:
+    - Representations extracted from visual observations for downstream robotics
+      tasks.
+    - "Hierarchy of abstraction: (1) Raw pixels $I \\in \\mathbb{R}^{H \\times W
+      \\times 3}$ — full information but high-dimensional and lacks invariances;
+      (2) Feature maps from pretrained CNNs — intermediate activations
+      $\\phi_l(I) \\in \\mathbb{R}^{h \\times w \\times c}$ at layer $l$
+      capturing increasingly abstract features (edges $\\rightarrow$ textures
+      $\\rightarrow$ parts $\\rightarrow$ objects); (3) Keypoints $\\{(u_k,
+      v_k)\\}_{k=1}^{K}$ — sparse spatial anchors detected via learned detectors
+      or classical methods (SIFT, ORB); (4) Dense embeddings from foundation
+      models: DINO features for semantic correspondence, CLIP embeddings
+      $\\mathbf{z} = f_{\\text{CLIP}}(I) \\in \\mathbb{R}^{d}$ for
+      vision-language alignment; (5) Spatial action maps $\\pi(a|I) \\in
+      \\mathbb{R}^{H \\times W}$ — pixel-level policy outputs."
+    - Choice of representation determines sample efficiency, generalization, and
+      sim-to-real transfer.
+check: []
+papers: []
+---
+
+## Formal definition
+
+Representations extracted from visual observations for downstream robotics tasks. Hierarchy of abstraction: (1) Raw pixels $I \in \mathbb{R}^{H \times W \times 3}$ — full information but high-dimensional and lacks invariances; (2) Feature maps from pretrained CNNs — intermediate activations $\phi_l(I) \in \mathbb{R}^{h \times w \times c}$ at layer $l$ capturing increasingly abstract features (edges $\rightarrow$ textures $\rightarrow$ parts $\rightarrow$ objects); (3) Keypoints $\{(u_k, v_k)\}_{k=1}^{K}$ — sparse spatial anchors detected via learned detectors or classical methods (SIFT, ORB); (4) Dense embeddings from foundation models: DINO features for semantic correspondence, CLIP embeddings $\mathbf{z} = f_{\text{CLIP}}(I) \in \mathbb{R}^{d}$ for vision-language alignment; (5) Spatial action maps $\pi(a|I) \in \mathbb{R}^{H \times W}$ — pixel-level policy outputs. Choice of representation determines sample efficiency, generalization, and sim-to-real transfer.

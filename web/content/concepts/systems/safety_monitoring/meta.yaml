@@ -1,0 +1,13 @@
+id: safety_monitoring
+title: Runtime Safety Monitoring for Robot Systems
+domain: systems
+summary: "A self-driving car has multiple safety systems: lane departure
+  warning, automatic braking, airbags."
+tags:
+  - systems
+difficulty: 3
+importance: 5
+related_concept_ids:
+  - deployment_thinking
+  - latency_optimization
+  - evaluation_methodology

@@ -1,0 +1,25 @@
+---
+concept: embodied_memory
+level: 5
+status: seed
+recall:
+  prompt: How does Memory and State Tracking in Embodied Agents fail in practice,
+    and how would you present it in an interview?
+  keyPoints:
+    - "Context window overflow: long-horizon tasks generate more observation
+      tokens than the model can process."
+    - Naive truncation loses critical early information ('the key was on the
+      shelf 200 steps ago').
+    - "Retrieval noise: embedding similarity retrieves superficially similar but
+      irrelevant memories (same visual appearance, different task context)."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Context window overflow: long-horizon tasks generate more observation tokens than the model can process. Naive truncation loses critical early information ('the key was on the shelf 200 steps ago'). Retrieval noise: embedding similarity retrieves superficially similar but irrelevant memories (same visual appearance, different task context). Stale memory: stored information becomes outdated (object was moved since last observation) but the agent acts on old memory. Catastrophic forgetting in updated scene graphs: new observations overwrite correct historical information. Symptoms: robot 'forgets' object locations, retrieves wrong past experiences, or acts on outdated information. Fix: hierarchical summarization (compress old context into summaries), temporal decay on memory relevance scores, re-verification of retrieved memories against current perception, explicit memory update triggers tied to observed state changes.
+
+## Interview-ready answer
+
+Memory is the critical missing piece for long-horizon embodied agents. Current VLAs operate mostly in a reactive mode — they see the current observation and act, with limited history from the context window. For real deployment, robots need: (1) working memory (context window) for immediate task execution, (2) episodic memory for recalling past experiences ('I saw the tool in the garage'), (3) semantic memory for world knowledge (scene graphs, object databases). The practical approach I advocate: use RAG-style retrieval over a persistent memory store, indexed by observation embeddings. When the robot encounters a situation, it retrieves the $k$ most relevant past experiences and injects them into the context. This extends effective memory far beyond the context window. The key challenge: memory staleness — the world changes, so stored memories need verification against current perception before acting on them.

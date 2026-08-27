@@ -1,0 +1,24 @@
+---
+concept: scene_understanding
+level: 5
+status: seed
+recall:
+  prompt: How does Scene Understanding for Robotics fail in practice, and how
+    would you present it in an interview?
+  keyPoints:
+    - "Semantic SLAM drift: loop closure failures cause duplicated objects in
+      the map — the robot thinks there are two tables when there's one."
+    - "Scene graph inconsistency: transient observations (a person walking
+      through) get permanently added to the graph."
+    - Dynamic objects violate the static-world assumption of most SLAM systems.
+check: []
+papers: []
+---
+
+## Failure modes
+
+Semantic SLAM drift: loop closure failures cause duplicated objects in the map — the robot thinks there are two tables when there's one. Scene graph inconsistency: transient observations (a person walking through) get permanently added to the graph. Dynamic objects violate the static-world assumption of most SLAM systems. Symptoms: growing map memory, contradictory spatial relationships, navigation to non-existent objects. Fix: dynamic object filtering (mask out objects with high temporal variance), periodic map pruning with re-observation requirements, probabilistic scene graph with confidence decay for unobserved objects.
+
+## Interview-ready answer
+
+Scene understanding bridges perception and high-level task planning. The key representation is the 3D scene graph: objects as nodes with poses and attributes, edges encoding spatial/functional relationships. For building one in practice, I combine semantic SLAM (ORB-SLAM3 + panoptic segmentation) with 3D instance fusion. The critical challenges: (1) handling dynamic scenes — filter moving objects, maintain separate static/dynamic maps; (2) long-term consistency — loop closures must propagate to the scene graph; (3) scalability — large environments need hierarchical representations (room $\rightarrow$ furniture $\rightarrow$ objects). Recent work like ConceptGraphs uses foundation models (CLIP, LLM) to build open-vocabulary scene graphs, enabling natural language queries. For manipulation, the scene graph enables task-relevant reasoning: 'clear the table' $\rightarrow$ identify all objects with 'on(object, table)' relation $\rightarrow$ plan removal sequence.

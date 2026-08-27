@@ -1,0 +1,24 @@
+---
+concept: rewards_returns
+level: 5
+status: seed
+recall:
+  prompt: How does Rewards and Returns fail in practice, and how would you present
+    it in an interview?
+  keyPoints:
+    - "Reward misspecification: the agent optimizes the reward you gave, not the
+      reward you meant."
+    - "Classic example: reward for forward velocity causes a robot to fall
+      forward (high instantaneous velocity)."
+    - Sparse reward + high-dimensional action space = no learning signal.
+check: []
+papers: []
+---
+
+## Failure modes
+
+Reward misspecification: the agent optimizes the reward you gave, not the reward you meant. Classic example: reward for forward velocity causes a robot to fall forward (high instantaneous velocity). Sparse reward + high-dimensional action space = no learning signal. Also: $\gamma$ too low truncates lookahead — agent ignores future consequences; $\gamma$ too close to 1 causes high variance in return estimates and can destabilize value function training (returns $G_t$ have variance proportional to $\frac{1}{(1-\gamma)^2}$). Fix: careful reward engineering with potential-based shaping, reward normalization, and always evaluate on the true task metric (not the shaped reward).
+
+## Interview-ready answer
+
+The reward function is arguably the most critical design choice in applied RL. The return $G_t = \sum \gamma^k r_{t+k}$ defines the optimization objective. In robotics, I design rewards in layers: (1) sparse task completion bonus ($r_{\text{success}} = +10$), (2) potential-based shaping for guidance ($\gamma \Phi(s') - \Phi(s)$ with $\Phi = -\|x - x_{\text{goal}}\|$), (3) regularization penalties (action magnitude $-\|a\|^2$, jerk $-\|a_t - a_{t-1}\|^2$). The discount $\gamma$ controls the planning horizon $\frac{1}{1-\gamma}$ and must match the task timescale. Always evaluate final performance on the sparse task metric, never on the shaped reward. Reward normalization (running mean/std or fixed scaling) is essential for stable training across different reward scales.

@@ -1,0 +1,25 @@
+---
+concept: multimodal_distributions
+level: 1
+status: seed
+recall:
+  prompt: "Explain Multi-Modal Action Distributions in plain language: what is it,
+    and why does it matter?"
+  keyPoints:
+    - Asked to go around a table, you can go left or right — both are correct.
+    - A single Gaussian averages these into 'go straight through the table.'
+      Multi-modal methods represent both options and commit to one during
+      execution.
+    - This is why diffusion policies work so well for manipulation — real tasks
+      have many valid solutions.
+check: []
+papers: []
+---
+
+## Intuition
+
+Asked to go around a table, you can go left or right — both are correct. A single Gaussian averages these into 'go straight through the table.' Multi-modal methods represent both options and commit to one during execution. This is why diffusion policies work so well for manipulation — real tasks have many valid solutions.
+
+## In practice
+
+Block stacking: the gripper can approach from any direction. BC with MSE loss $\mathcal{L} = \|a - \hat{a}\|^2$ averages all approach angles $\rightarrow$ hovers above block without committing. Diffusion policy samples one valid approach direction each time $\rightarrow$ clean, committed trajectories with varying approach angles across rollouts.

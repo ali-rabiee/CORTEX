@@ -1,0 +1,24 @@
+---
+concept: depth_estimation
+level: 1
+status: seed
+recall:
+  prompt: "Explain Depth Estimation for Robotics in plain language: what is it,
+    and why does it matter?"
+  keyPoints:
+    - A robot needs to know how far away things are to interact with them.
+    - Stereo vision works like human eyes — two slightly offset views let you
+      triangulate distance.
+    - Structured light cheats by projecting a known pattern and seeing how it
+      warps on surfaces.
+check: []
+papers: []
+---
+
+## Intuition
+
+A robot needs to know how far away things are to interact with them. Stereo vision works like human eyes — two slightly offset views let you triangulate distance. Structured light cheats by projecting a known pattern and seeing how it warps on surfaces. Monocular depth is the hardest: estimating 3D from a single 2D image, relying on learned cues like perspective, occlusion, and texture gradients — the same cues humans use when closing one eye.
+
+## In practice
+
+Depth pipeline for tabletop manipulation: Intel RealSense D435 (structured light, $1280 \times 720$ at 30 fps, range $0.3$-$3\,\text{m}$) for primary depth. For transparent objects where structured light fails, run Depth Anything V2 on the RGB image to get monocular depth, then fuse: $d_{\text{fused}}(u,v) = w \cdot d_{\text{sensor}}(u,v) + (1-w) \cdot \alpha \cdot d_{\text{mono}}(u,v) + \beta$, where $\alpha, \beta$ are scale/shift alignment parameters and $w$ is a confidence weight from the sensor validity mask.

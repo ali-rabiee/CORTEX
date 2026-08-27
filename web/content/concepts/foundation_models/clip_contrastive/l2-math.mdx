@@ -1,0 +1,27 @@
+---
+concept: clip_contrastive
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of CLIP and Contrastive Learning for
+    Vision-Language Alignment, including the key equations.
+  keyPoints:
+    - CLIP (Contrastive Language-Image Pre-training) learns a joint embedding
+      space for images and text by training on 400M image-text pairs from the
+      internet.
+    - "Architecture: image encoder $f_I$ (ViT or ResNet) and text encoder $f_T$
+      (transformer) produce embeddings $z_I = f_I(I) / \\|f_I(I)\\|$ and $z_T =
+      f_T(T) / \\|f_T(T)\\|$."
+    - "Trained with symmetric InfoNCE (contrastive) loss over a batch of $N$
+      pairs: $$\\mathcal{L} = -\\frac{1}{2N} \\sum_{i=1}^{N} \\left[ \\log
+      \\frac{\\exp(z_{I_i}^\\top z_{T_i} / \\tau)}{\\sum_{j=1}^{N}
+      \\exp(z_{I_i}^\\top z_{T_j} / \\tau)} + \\log \\frac{\\exp(z_{T_i}^\\top
+      z_{I_i} / \\tau)}{\\sum_{j=1}^{N} \\exp(z_{T_i}^\\top z_{I_j} / \\tau)}
+      \\right]$$ where $\\tau$ is a learned temperature."
+check: []
+papers: []
+---
+
+## Formal definition
+
+CLIP (Contrastive Language-Image Pre-training) learns a joint embedding space for images and text by training on 400M image-text pairs from the internet. Architecture: image encoder $f_I$ (ViT or ResNet) and text encoder $f_T$ (transformer) produce embeddings $z_I = f_I(I) / \|f_I(I)\|$ and $z_T = f_T(T) / \|f_T(T)\|$. Trained with symmetric InfoNCE (contrastive) loss over a batch of $N$ pairs: $$\mathcal{L} = -\frac{1}{2N} \sum_{i=1}^{N} \left[ \log \frac{\exp(z_{I_i}^\top z_{T_i} / \tau)}{\sum_{j=1}^{N} \exp(z_{I_i}^\top z_{T_j} / \tau)} + \log \frac{\exp(z_{T_i}^\top z_{I_i} / \tau)}{\sum_{j=1}^{N} \exp(z_{T_i}^\top z_{I_j} / \tau)} \right]$$ where $\tau$ is a learned temperature. Enables zero-shot classification: compute similarity between image embedding and embeddings of class-name text prompts, select highest similarity.

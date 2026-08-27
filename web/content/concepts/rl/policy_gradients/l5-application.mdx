@@ -1,0 +1,23 @@
+---
+concept: policy_gradients
+level: 5
+status: seed
+recall:
+  prompt: How does Policy Gradient Methods fail in practice, and how would you
+    present it in an interview?
+  keyPoints:
+    - High variance gradients causing unstable training.
+    - The variance of the estimator $\nabla \log \pi \cdot \hat{A}$ can be
+      enormous.
+    - "Symptoms: erratic reward curves, no convergence even with enough data."
+check: []
+papers: []
+---
+
+## Failure modes
+
+High variance gradients causing unstable training. The variance of the estimator $\nabla \log \pi \cdot \hat{A}$ can be enormous. Symptoms: erratic reward curves, no convergence even with enough data. Fix: use advantage estimation (GAE with $\lambda = 0.95$), increase batch size $N$, add baseline $V_\phi(s)$. Also: for continuous actions, unconstrained $\sigma$ can collapse to zero (similar to PPO entropy collapse).
+
+## Interview-ready answer
+
+Policy gradients are the foundation of modern RL for continuous control. The key equation is the policy gradient theorem: $\nabla J = \mathbb{E}[\nabla \log \pi_\theta \cdot \hat{A}]$. In practice, we use GAE with $\lambda = 0.95$ for advantage estimation and normalize advantages per batch: $\hat{A} \leftarrow (\hat{A} - \mu) / \sigma$. The main challenge is high variance — addressed by baselines $V_\phi(s)$, larger batches, and methods like PPO/TRPO that constrain update size. Policy gradients naturally handle continuous action spaces $\mathcal{A} \subseteq \mathbb{R}^n$, unlike DQN which requires discretization.

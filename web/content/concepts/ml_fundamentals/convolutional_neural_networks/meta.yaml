@@ -1,0 +1,15 @@
+id: convolutional_neural_networks
+title: Convolutional Neural Networks — Translation Equivariance and Hierarchical
+  Features
+domain: ml_fundamentals
+summary: A CNN is like a hierarchy of pattern detectors.
+tags:
+  - ml_fundamentals
+  - perception
+difficulty: 2
+importance: 5
+related_concept_ids:
+  - batch_normalization
+  - backpropagation
+  - overfitting_underfitting
+  - transformer_architecture

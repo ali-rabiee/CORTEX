@@ -1,0 +1,25 @@
+---
+concept: actions_action_spaces
+level: 1
+status: seed
+recall:
+  prompt: "Explain Actions and Action Spaces in plain language: what is it, and
+    why does it matter?"
+  keyPoints:
+    - Actions are the agent's controls — the levers it can pull to affect the
+      world.
+    - "In discrete spaces (Atari: left/right/fire), the policy is a simple
+      probability table over choices."
+    - "In continuous spaces (robot: joint torques $\\tau \\in \\mathbb{R}^7$),
+      the policy must output a full distribution over a high-dimensional space."
+check: []
+papers: []
+---
+
+## Intuition
+
+Actions are the agent's controls — the levers it can pull to affect the world. In discrete spaces (Atari: left/right/fire), the policy is a simple probability table over choices. In continuous spaces (robot: joint torques $\tau \in \mathbb{R}^7$), the policy must output a full distribution over a high-dimensional space. The action space design profoundly affects learning: joint torques are general but hard to learn, joint velocities are easier but less dynamic, end-effector poses are intuitive but require inverse kinematics. The $\tanh$ squashing is essential — without it, Gaussian samples can produce arbitrarily large actions that break the simulator.
+
+## In practice
+
+For a 7-DOF robot arm: (1) Joint torque control: $\mathcal{A} = [-\tau_{\max}, \tau_{\max}]^7$, most general but hardest to learn — requires precise force control. (2) Joint velocity control: $\mathcal{A} = [-\dot{q}_{\max}, \dot{q}_{\max}]^7$, easier — low-level PD controller handles torques. (3) End-effector delta: $\mathcal{A} = \Delta(x, y, z, \text{roll}, \text{pitch}, \text{yaw}) \in \mathbb{R}^6$, most intuitive — IK converts to joint space. Action space normalization: always scale to $[-1, 1]$ and use $\tanh$ output + rescaling. SAC uses the reparameterization trick: $a = \tanh(\mu_\theta(s) + \sigma_\theta(s) \odot \epsilon)$, requiring log-prob correction for the $\tanh$ Jacobian: $\log \pi(a|s) = \log \mathcal{N}(u|\mu, \sigma) - \sum_i \log(1 - \tanh^2(u_i))$.

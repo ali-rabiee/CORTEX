@@ -1,0 +1,14 @@
+id: ros_middleware
+title: ROS and Robot Middleware
+domain: systems
+summary: ROS is like an operating system for robots — it lets different software
+  components (camera driver, perception, planning, control) talk to each other
+  without knowing each other's implementation details.
+tags:
+  - systems
+difficulty: 2
+importance: 4
+related_concept_ids:
+  - deployment_thinking
+  - latency_optimization
+  - safety_monitoring

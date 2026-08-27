@@ -1,0 +1,26 @@
+---
+concept: safety_monitoring
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Runtime Safety Monitoring for Robot
+    Systems, including the key equations.
+  keyPoints:
+    - Continuous verification during robot execution that safety constraints are
+      satisfied.
+    - Formalized as monitoring a set of safety predicates $\{\phi_1, \ldots,
+      \phi_M\}$ at each control step, where violation of any predicate triggers
+      a safety response.
+    - "Common constraints: workspace bounds $\\mathbf{p}_{\\text{ee}} \\in
+      \\mathcal{W}_{\\text{safe}}$, velocity limits $\\|\\dot{\\mathbf{q}}\\|
+      \\leq \\dot{q}_{\\max}$, force/torque limits
+      $\\|\\boldsymbol{\\tau}_{\\text{ext}}\\| \\leq \\tau_{\\max}$, collision
+      avoidance $d(\\text{robot}, \\text{obstacle}) \\geq d_{\\min}$, and
+      self-collision checking."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Continuous verification during robot execution that safety constraints are satisfied. Formalized as monitoring a set of safety predicates $\{\phi_1, \ldots, \phi_M\}$ at each control step, where violation of any predicate triggers a safety response. Common constraints: workspace bounds $\mathbf{p}_{\text{ee}} \in \mathcal{W}_{\text{safe}}$, velocity limits $\|\dot{\mathbf{q}}\| \leq \dot{q}_{\max}$, force/torque limits $\|\boldsymbol{\tau}_{\text{ext}}\| \leq \tau_{\max}$, collision avoidance $d(\text{robot}, \text{obstacle}) \geq d_{\min}$, and self-collision checking. Multi-layered: from low-level hardware e-stops to high-level learned anomaly detection.

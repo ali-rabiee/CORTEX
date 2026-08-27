@@ -1,0 +1,22 @@
+---
+concept: point_cloud_processing
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Point Cloud Processing for Robotics,
+    including the key equations.
+  keyPoints:
+    - Point clouds are unordered sets of 3D points $\{(x_i, y_i,
+      z_i)\}_{i=1}^{N}$ from depth sensors (LiDAR, RGB-D cameras).
+    - "Processed by architectures like PointNet (per-point MLP + symmetric
+      function for permutation invariance: $f(\\{x_1, \\ldots, x_n\\}) =
+      \\gamma(\\max_{i} h(x_i))$ where $h$ is a learned per-point function and
+      $\\gamma$ is a global MLP), PointNet++ (hierarchical grouping with
+      farthest point sampling), or voxelization approaches."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Point clouds are unordered sets of 3D points $\{(x_i, y_i, z_i)\}_{i=1}^{N}$ from depth sensors (LiDAR, RGB-D cameras). Processed by architectures like PointNet (per-point MLP + symmetric function for permutation invariance: $f(\{x_1, \ldots, x_n\}) = \gamma(\max_{i} h(x_i))$ where $h$ is a learned per-point function and $\gamma$ is a global MLP), PointNet++ (hierarchical grouping with farthest point sampling), or voxelization approaches.

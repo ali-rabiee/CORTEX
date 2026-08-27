@@ -1,0 +1,26 @@
+---
+concept: replay_buffer
+level: 1
+status: seed
+recall:
+  prompt: "Explain Experience Replay in plain language: what is it, and why does
+    it matter?"
+  keyPoints:
+    - Without replay, each experience is used once and discarded — like reading
+      a textbook only once.
+    - The replay buffer is like keeping a notebook of past experiences you can
+      review repeatedly.
+    - Uniform sampling breaks temporal correlations (consecutive transitions are
+      highly correlated, which is bad for SGD) and enables off-policy learning
+      (reusing data from old policies).
+check: []
+papers: []
+---
+
+## Intuition
+
+Without replay, each experience is used once and discarded — like reading a textbook only once. The replay buffer is like keeping a notebook of past experiences you can review repeatedly. Uniform sampling breaks temporal correlations (consecutive transitions are highly correlated, which is bad for SGD) and enables off-policy learning (reusing data from old policies). Prioritized replay is like a smart study system — spend more time reviewing the examples you got wrong (high TD error). The replay ratio controls how many times you 'study' each experience before collecting new ones.
+
+## In practice
+
+SAC with replay buffer for robot grasping: buffer size $|\mathcal{B}| = 10^6$, batch size $B = 256$, replay ratio $= 1$ (one gradient step per env step). After collecting a transition, sample a random batch from $\mathcal{B}$, compute TD targets $y = r + \gamma (1-d) \min_{i=1,2} Q_{\bar{\phi}_i}(s', \tilde{a}')$, update critics via MSE loss, update actor to maximize $Q - \alpha \log \pi$. For high UTD: REDQ uses replay ratio $= 20$ with an ensemble of $N=10$ Q-functions (random subset of 2 for min) to prevent overestimation from excessive reuse. Hindsight Experience Replay (HER) for sparse rewards: relabel failed trajectories with achieved goals — if the robot missed the target but reached position $g'$, store the transition with reward $r(s, a, g')$ instead.

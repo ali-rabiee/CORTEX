@@ -1,0 +1,28 @@
+---
+concept: dqn
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Deep Q-Network (DQN), including the key
+    equations.
+  keyPoints:
+    - "DQN combines Q-learning with deep neural networks by approximating
+      $Q^*(s,a)$ with a neural network $Q_\\theta(s,a)$, trained to minimize the
+      Bellman error: $$L(\\theta) = \\mathbb{E}_{(s,a,r,s') \\sim
+      \\mathcal{B}}\\left[\\left(Q_\\theta(s,a) - \\underbrace{\\left(r +
+      \\gamma \\max_{a'} Q_{\\bar{\\theta}}(s',
+      a')\\right)}_{\\text{target}}\\right)^2\\right]$$ Key innovations: (1)
+      experience replay buffer $\\mathcal{B}$ to break correlations; (2) target
+      network $Q_{\\bar{\\theta}}$ updated periodically ($\\bar{\\theta}
+      \\leftarrow \\theta$ every $C = 10000$ steps) for stable targets."
+    - "Double DQN decouples selection and evaluation: $y = r + \\gamma
+      Q_{\\bar{\\theta}}(s', \\arg\\max_{a'} Q_\\theta(s', a'))$."
+    - "Dueling DQN separates value and advantage streams: $Q(s,a) = V(s) +
+      A(s,a) - \\frac{1}{|\\mathcal{A}|}\\sum_{a'} A(s,a')$."
+check: []
+papers: []
+---
+
+## Formal definition
+
+DQN combines Q-learning with deep neural networks by approximating $Q^*(s,a)$ with a neural network $Q_\theta(s,a)$, trained to minimize the Bellman error: $$L(\theta) = \mathbb{E}_{(s,a,r,s') \sim \mathcal{B}}\left[\left(Q_\theta(s,a) - \underbrace{\left(r + \gamma \max_{a'} Q_{\bar{\theta}}(s', a')\right)}_{\text{target}}\right)^2\right]$$ Key innovations: (1) experience replay buffer $\mathcal{B}$ to break correlations; (2) target network $Q_{\bar{\theta}}$ updated periodically ($\bar{\theta} \leftarrow \theta$ every $C = 10000$ steps) for stable targets. Double DQN decouples selection and evaluation: $y = r + \gamma Q_{\bar{\theta}}(s', \arg\max_{a'} Q_\theta(s', a'))$. Dueling DQN separates value and advantage streams: $Q(s,a) = V(s) + A(s,a) - \frac{1}{|\mathcal{A}|}\sum_{a'} A(s,a')$.

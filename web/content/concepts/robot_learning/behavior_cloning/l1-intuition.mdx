@@ -1,0 +1,26 @@
+---
+concept: behavior_cloning
+level: 1
+status: seed
+recall:
+  prompt: "Explain Behavior Cloning (BC) in plain language: what is it, and why
+    does it matter?"
+  keyPoints:
+    - Like learning to drive by watching dashcam footage of a good driver and
+      imitating their steering at each frame.
+    - Works great for situations the expert demonstrated.
+    - "But the moment you drift slightly off the expert's trajectory — perhaps
+      due to a minor prediction error — you enter states the expert never showed
+      you, and errors compound: small drift → unfamiliar state → bigger error →
+      more unfamiliar state."
+check: []
+papers: []
+---
+
+## Intuition
+
+Like learning to drive by watching dashcam footage of a good driver and imitating their steering at each frame. Works great for situations the expert demonstrated. But the moment you drift slightly off the expert's trajectory — perhaps due to a minor prediction error — you enter states the expert never showed you, and errors compound: small drift → unfamiliar state → bigger error → more unfamiliar state.
+
+## In practice
+
+Learning a 6-DOF pick-and-place policy from 100 teleoperated demonstrations. With image observations and a ResNet encoder: BC achieves 60% success. Adding data augmentation (random crops, color jitter) brings it to 75%. DAgger with 20 additional corrective demonstrations reaches 90%. The compounding error grows as $\mathcal{O}(T^2)$ in the horizon length $T$ for standard BC.

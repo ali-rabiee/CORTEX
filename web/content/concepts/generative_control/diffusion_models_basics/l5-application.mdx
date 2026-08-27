@@ -1,0 +1,27 @@
+---
+concept: diffusion_models_basics
+level: 5
+status: seed
+recall:
+  prompt: How does Diffusion Models Fundamentals fail in practice, and how would
+    you present it in an interview?
+  keyPoints:
+    - "Wrong noise schedule: linear schedule designed for 256x256 images
+      destroys signal too quickly for 7D action vectors — by $t = 200$, the
+      actions are already pure noise, wasting the remaining 800 steps."
+    - "Too few DDIM steps: aggressive step reduction (e.g., 5 steps) causes
+      blurry/averaged outputs because the ODE solver takes too-large steps
+      through the probability flow."
+    - "Training-sampling mismatch: training with continuous time $t \\in [0, 1]$
+      but sampling with discrete steps introduces accumulating errors."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Wrong noise schedule: linear schedule designed for 256x256 images destroys signal too quickly for 7D action vectors — by $t = 200$, the actions are already pure noise, wasting the remaining 800 steps. Too few DDIM steps: aggressive step reduction (e.g., 5 steps) causes blurry/averaged outputs because the ODE solver takes too-large steps through the probability flow. Training-sampling mismatch: training with continuous time $t \in [0, 1]$ but sampling with discrete steps introduces accumulating errors. Symptoms: generated actions are smoothed/averaged (mode collapse), sampling produces NaN or extreme values, quality degrades sharply below a step threshold. Fix: use cosine schedule for low-dimensional data, tune DDIM steps empirically (10-20 is usually the sweet spot for actions), match training and sampling discretization, consider v-prediction parameterization ($v = \sqrt{\bar{\alpha}_t}\boldsymbol{\epsilon} - \sqrt{1-\bar{\alpha}_t}\mathbf{x}_0$) for more stable training.
+
+## Interview-ready answer
+
+Diffusion models are the generative backbone behind state-of-the-art robot learning methods. The core idea: learn to reverse a noise-corruption process by training a denoising network $\boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t)$. Three perspectives that build intuition: (1) denoising — learn to remove noise at each level, (2) score matching — learn $\nabla_\mathbf{x} \log p(\mathbf{x}_t)$, the gradient pointing toward high-probability data, (3) stochastic differential equations — the forward and reverse processes are continuous-time SDEs. For robotics deployment, the key practical choices are: DDIM over DDPM for 10-20x fewer sampling steps, cosine noise schedule for low-dimensional action spaces, and conditioning architecture (cross-attention for observation conditioning works better than concatenation). The main trade-off is sample quality vs. inference speed — consistency distillation or flow matching can further accelerate generation when latency is critical.

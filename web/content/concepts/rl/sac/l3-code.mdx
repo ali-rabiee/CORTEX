@@ -1,0 +1,109 @@
+---
+concept: sac
+level: 3
+status: final
+recall:
+  prompt: "Write SAC's three losses (twin critics, actor, temperature) and explain where reparameterization and the entropy term enter each."
+  keyPoints:
+    - "Critic target: y = r + gamma * (min(Q1', Q2')(s', a') - alpha * logp(a'|s')) with a' freshly sampled from the current policy, computed under no_grad"
+    - "Actor: maximize min-Q(s, a_theta) - alpha * logp, with a_theta = tanh(mu + sigma * eps) — rsample, gradients flow through the action"
+    - "Temperature: alpha auto-tuned by matching policy entropy to target -dim(A)"
+check:
+  - id: sac_l3_c1
+    prompt: "Why must the actor loss use `dist.rsample()` (reparameterized) while the critic target can use plain sampling?"
+    options:
+      - "rsample is just faster"
+      - "The actor optimizes E[Q(s, a_θ)] *through the action*: gradients must flow Q → a → (μ, σ), which requires the pathwise estimator. The critic target is a constant (no_grad), so how its a' was sampled doesn't matter for gradients"
+      - "The critic requires deterministic actions"
+      - "PyTorch forbids sample() in training mode"
+    answer: 1
+    explanation: "a = tanh(μ + σ·ε) makes the action differentiable w.r.t. policy parameters — SAC's low-variance alternative to the REINFORCE score function. Inside torch.no_grad() targets, .sample() vs .rsample() is irrelevant."
+  - id: sac_l3_c2
+    prompt: "SAC subtracts `alpha * logp(a'|s')` inside the critic target. Removing it (but keeping it in the actor loss) would..."
+    options:
+      - "change nothing — it's cosmetic"
+      - "make the critics estimate the standard Q-function instead of the soft Q-function, breaking consistency with the actor's maximum-entropy objective; values and policy then optimize different rewards"
+      - "cause immediate divergence of alpha"
+      - "double the entropy bonus"
+    answer: 1
+    explanation: "SAC's objective is reward plus policy entropy. The soft Bellman backup must include the −α·log π term or Q no longer represents the soft value the actor is ascending — a coherent-objective bug that degrades quietly rather than crashing."
+---
+
+## The three losses, exactly as implemented
+
+<CodeWalk title="SAC update step (twin critics, tanh-Gaussian actor, auto-α)">
+
+```python title="sac_update.py"
+import torch
+import torch.nn.functional as F
+
+def sac_update(batch, actor, q1, q2, q1_targ, q2_targ,
+               log_alpha, opts, gamma=0.99, tau=0.005, target_entropy=None):
+    obs, act, rew, obs2, done = batch
+    alpha = log_alpha.exp().detach()
+
+    # ---- Critic update --------------------------------------------------
+    with torch.no_grad():
+        dist2 = actor(obs2)
+        act2 = dist2.rsample()                      # fresh action from CURRENT policy
+        logp2 = dist2.log_prob(act2).sum(-1, keepdim=True)
+        q_targ = torch.min(q1_targ(obs2, act2), q2_targ(obs2, act2))
+        y = rew + gamma * (1 - done) * (q_targ - alpha * logp2)   # soft target
+
+    q_loss = F.mse_loss(q1(obs, act), y) + F.mse_loss(q2(obs, act), y)
+    opts.q.zero_grad(); q_loss.backward(); opts.q.step()
+
+    # ---- Actor update (gradients flow THROUGH the action) ---------------
+    dist = actor(obs)
+    a = dist.rsample()                              # tanh(mu + sigma*eps)
+    logp = dist.log_prob(a).sum(-1, keepdim=True)
+    q_min = torch.min(q1(obs, a), q2(obs, a))
+    actor_loss = (alpha * logp - q_min).mean()
+    opts.actor.zero_grad(); actor_loss.backward(); opts.actor.step()
+
+    # ---- Temperature update: hold entropy near target -------------------
+    target_entropy = target_entropy or -act.shape[-1]    # -dim(A)
+    alpha_loss = -(log_alpha * (logp + target_entropy).detach()).mean()
+    opts.alpha.zero_grad(); alpha_loss.backward(); opts.alpha.step()
+
+    # ---- Polyak-average target critics ----------------------------------
+    with torch.no_grad():
+        for p, pt in zip(list(q1.parameters()) + list(q2.parameters()),
+                         list(q1_targ.parameters()) + list(q2_targ.parameters())):
+            pt.mul_(1 - tau).add_(tau * p)
+```
+
+Note what is *not* here: no target actor (the current policy supplies a'),
+no exploration noise schedule (entropy is the exploration), and replay-buffer
+actions `act` appear only in the critic loss — the actor always re-samples.
+
+</CodeWalk>
+
+## The tanh squash, done right
+
+```python title="tanh_gaussian.py"
+class TanhGaussian(torch.nn.Module):
+    def forward(self, obs):
+        mu, log_std = self.net(obs).chunk(2, -1)
+        log_std = log_std.clamp(-5, 2)              # numerical guardrail
+        base = torch.distributions.Normal(mu, log_std.exp())
+        return torch.distributions.TransformedDistribution(
+            base, [torch.distributions.transforms.TanhTransform(cache_size=1)]
+        )
+```
+
+The `TanhTransform` applies the change-of-variables correction
+$\log p(a) = \log p(u) - \sum_i \log(1 - \tanh^2(u_i))$ for you — hand-rolling
+that correction with the wrong sign is the classic source of "SAC entropy
+goes to −∞" bugs.
+
+<KeyIdea>
+
+SAC's robustness comes from three interlocking choices: **twin critics**
+kill overestimation, **entropy in both losses** keeps exploration coherent
+with valuation, and **auto-α** turns the exploration-exploitation dial into
+a constraint (target entropy) you almost never retune. Default
+hyperparameters work across most of MuJoCo/ManiSkill — which is exactly why
+SAC is the off-policy baseline for real-robot learning.
+
+</KeyIdea>

@@ -1,0 +1,27 @@
+---
+concept: cross_entropy_loss
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Cross-Entropy Loss —
+    Information-Theoretic Classification Objective, including the key equations.
+  keyPoints:
+    - "Cross-entropy between true distribution $y$ and predicted distribution
+      $\\hat{y}$ measures the expected number of extra bits needed when using
+      $\\hat{y}$ instead of $y$: $$H(y, \\hat{y}) = -\\sum_{i=1}^{C} y_i \\log
+      \\hat{y}_i$$ For classification with one-hot labels, this reduces to $L =
+      -\\log \\hat{y}_c$ where $c$ is the true class."
+    - "When combined with softmax: $\\hat{y}_i = e^{z_i} / \\sum_j e^{z_j}$, the
+      gradient with respect to logits is simply $\\frac{\\partial L}{\\partial
+      z_i} = \\hat{y}_i - y_i$ — numerically stable and efficient."
+    - "Cross-entropy equals KL divergence plus the entropy of $y$: $H(y,
+      \\hat{y}) = D_{\\text{KL}}(y \\| \\hat{y}) + H(y)$, so minimizing
+      cross-entropy is equivalent to minimizing KL divergence when $H(y)$ is
+      constant."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Cross-entropy between true distribution $y$ and predicted distribution $\hat{y}$ measures the expected number of extra bits needed when using $\hat{y}$ instead of $y$: $$H(y, \hat{y}) = -\sum_{i=1}^{C} y_i \log \hat{y}_i$$ For classification with one-hot labels, this reduces to $L = -\log \hat{y}_c$ where $c$ is the true class. When combined with softmax: $\hat{y}_i = e^{z_i} / \sum_j e^{z_j}$, the gradient with respect to logits is simply $\frac{\partial L}{\partial z_i} = \hat{y}_i - y_i$ — numerically stable and efficient. Cross-entropy equals KL divergence plus the entropy of $y$: $H(y, \hat{y}) = D_{\text{KL}}(y \| \hat{y}) + H(y)$, so minimizing cross-entropy is equivalent to minimizing KL divergence when $H(y)$ is constant.

@@ -1,0 +1,16 @@
+id: gae
+title: Generalized Advantage Estimation (GAE) — Formal Treatment
+domain: rl
+summary: GAE is a knob ($\lambda$) that lets you smoothly trade off between
+  trusting your value function (low $\lambda$, more bias, less variance) and
+  trusting actual observed rewards (high $\lambda$, less bias, more variance).
+tags:
+  - rl
+difficulty: 3
+importance: 4
+related_concept_ids:
+  - advantage_estimation
+  - value_functions
+  - temporal_difference
+  - ppo_clipping
+  - policy_gradients

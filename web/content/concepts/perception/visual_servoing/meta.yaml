@@ -1,0 +1,14 @@
+id: visual_servoing
+title: Visual Servoing
+domain: perception
+summary: Visual servoing is like driving by looking at the road — you
+  continuously adjust the steering based on what you see.
+tags:
+  - perception
+  - robot_learning
+difficulty: 3
+importance: 3
+related_concept_ids:
+  - camera_calibration
+  - pose_estimation_6d
+  - keypoint_manipulation

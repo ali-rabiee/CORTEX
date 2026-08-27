@@ -1,0 +1,26 @@
+---
+concept: pose_estimation_6d
+level: 1
+status: seed
+recall:
+  prompt: "Explain 6D Object Pose Estimation in plain language: what is it, and
+    why does it matter?"
+  keyPoints:
+    - "Given an image of a mug on a table, figure out exactly where it is
+      (translation: 30cm forward, 10cm left, 5cm above table) and how it's
+      rotated (handle pointing right, tilted 15 degrees)."
+    - This is the information a robot needs to plan a grasp.
+    - "The hard part: rotation is tricky to represent — quaternions have
+      double-cover ($\\mathbf{q}$ and $-\\mathbf{q}$ represent the same
+      rotation), Euler angles have gimbal lock."
+check: []
+papers: []
+---
+
+## Intuition
+
+Given an image of a mug on a table, figure out exactly where it is (translation: 30cm forward, 10cm left, 5cm above table) and how it's rotated (handle pointing right, tilted 15 degrees). This is the information a robot needs to plan a grasp. The hard part: rotation is tricky to represent — quaternions have double-cover ($\mathbf{q}$ and $-\mathbf{q}$ represent the same rotation), Euler angles have gimbal lock.
+
+## In practice
+
+FoundationPose: category-level 6D pose estimation using render-and-compare. Given a CAD model and an RGB-D observation, iteratively refine the pose by rendering the model at the current estimate and comparing to the observation. Loss combines mask IoU, depth $L_1$, and feature similarity. Works for unseen object instances within a category.

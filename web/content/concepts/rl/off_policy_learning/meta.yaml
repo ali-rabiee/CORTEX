@@ -1,0 +1,15 @@
+id: off_policy_learning
+title: Off-Policy Learning
+domain: rl
+summary: On-policy learning is like a student who can only learn from their own
+  homework.
+tags:
+  - rl
+difficulty: 2
+importance: 4
+related_concept_ids:
+  - replay_buffer
+  - sac
+  - dqn
+  - offline_rl
+  - policy_gradients

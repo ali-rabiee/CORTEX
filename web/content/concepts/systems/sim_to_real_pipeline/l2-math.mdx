@@ -1,0 +1,23 @@
+---
+concept: sim_to_real_pipeline
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of End-to-End ML Pipeline for Robotics,
+    including the key equations.
+  keyPoints:
+    - "The complete workflow from data collection through deployment: (1)
+      collect demonstrations/sim data, (2) preprocess and curate dataset, (3)
+      train policy with experiment tracking, (4) evaluate in simulation, (5)
+      sim2real validation, (6) deploy with monitoring."
+    - "Each stage has specific tooling: DVC for data versioning, W&B for
+      training, Docker for reproducibility, CI/CD for automated testing."
+    - "The pipeline must be reproducible: any deployed model can be traced back
+      to its exact dataset, code version, and hyperparameters."
+check: []
+papers: []
+---
+
+## Formal definition
+
+The complete workflow from data collection through deployment: (1) collect demonstrations/sim data, (2) preprocess and curate dataset, (3) train policy with experiment tracking, (4) evaluate in simulation, (5) sim2real validation, (6) deploy with monitoring. Each stage has specific tooling: DVC for data versioning, W&B for training, Docker for reproducibility, CI/CD for automated testing. The pipeline must be reproducible: any deployed model can be traced back to its exact dataset, code version, and hyperparameters.

@@ -1,0 +1,25 @@
+---
+concept: entropy_regularization
+level: 5
+status: seed
+recall:
+  prompt: How does Entropy Regularization in Policy Optimization fail in practice,
+    and how would you present it in an interview?
+  keyPoints:
+    - "Two opposing failures: (1) Entropy collapse ($H \\to 0$): policy becomes
+      deterministic prematurely, often stuck in local optima."
+    - "Symptoms: action standard deviations $\\sigma_i \\to 0$, reward plateaus."
+    - "Fix: increase $\\beta$ or use SAC's automatic $\\alpha$ tuning. (2)
+      Entropy dominance ($\\beta$ too large): policy stays nearly uniform, never
+      exploiting good actions."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Two opposing failures: (1) Entropy collapse ($H \to 0$): policy becomes deterministic prematurely, often stuck in local optima. Symptoms: action standard deviations $\sigma_i \to 0$, reward plateaus. Fix: increase $\beta$ or use SAC's automatic $\alpha$ tuning. (2) Entropy dominance ($\beta$ too large): policy stays nearly uniform, never exploiting good actions. Symptoms: entropy stays at its maximum value, reward doesn't improve. Fix: anneal $\beta$ over training, or use the dual formulation to target a specific $\bar{H}$.
+
+## Interview-ready answer
+
+Entropy regularization adds $\beta H(\pi)$ to the reward, preventing premature convergence to deterministic policies. It's essential in continuous control where the action space is large and early commitment to a single mode is catastrophic. The key design choice is how to set $\beta$: fixed coefficient (PPO default: $\beta = 0.01$), annealed schedule, or automatic tuning via constrained optimization (SAC: $\min_\alpha \mathbb{E}[-\alpha \log \pi - \alpha \bar{H}]$ with target $\bar{H} = -\dim(\mathcal{A})$). The SAC approach is superior because it adapts $\beta$ to the task difficulty and training phase. In practice, I always monitor $H(\pi)$ as a training diagnostic — sudden drops indicate potential collapse.

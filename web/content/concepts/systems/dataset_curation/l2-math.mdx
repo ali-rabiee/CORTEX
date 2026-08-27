@@ -1,0 +1,23 @@
+---
+concept: dataset_curation
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Dataset Curation for Robot Learning,
+    including the key equations.
+  keyPoints:
+    - The systematic process of collecting, filtering, balancing, and versioning
+      demonstration datasets for training robot policies.
+    - "Quality matters more than quantity: a policy trained on $N$ high-quality
+      demonstrations often outperforms one trained on $10N$ noisy ones."
+    - "Key considerations: state-action coverage $\\mathcal{C}(\\mathcal{D}) =
+      \\text{vol}(\\text{support}(\\mathcal{D}))$ over the relevant task
+      manifold, data balance across modes/conditions, outlier removal, and
+      consistent labeling."
+check: []
+papers: []
+---
+
+## Formal definition
+
+The systematic process of collecting, filtering, balancing, and versioning demonstration datasets for training robot policies. Quality matters more than quantity: a policy trained on $N$ high-quality demonstrations often outperforms one trained on $10N$ noisy ones. Key considerations: state-action coverage $\mathcal{C}(\mathcal{D}) = \text{vol}(\text{support}(\mathcal{D}))$ over the relevant task manifold, data balance across modes/conditions, outlier removal, and consistent labeling. For multi-task datasets, maintain per-task statistics and ensure no task is severely underrepresented ($N_{\text{task}_i} \geq N_{\min}$ for all $i$).

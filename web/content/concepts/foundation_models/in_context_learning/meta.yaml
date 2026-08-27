@@ -1,0 +1,13 @@
+id: in_context_learning
+title: In-Context Learning and Few-Shot Prompting for Robotics
+domain: foundation_models
+summary: Instead of retraining the entire model for each new task, you show it a
+  few examples and it figures out the pattern.
+tags:
+  - foundation_models
+difficulty: 3
+importance: 4
+related_concept_ids:
+  - task_planning
+  - language_grounding
+  - vla_models

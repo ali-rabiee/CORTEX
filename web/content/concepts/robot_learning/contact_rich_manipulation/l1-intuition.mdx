@@ -1,0 +1,26 @@
+---
+concept: contact_rich_manipulation
+level: 1
+status: seed
+recall:
+  prompt: "Explain Contact-Rich Manipulation in plain language: what is it, and
+    why does it matter?"
+  keyPoints:
+    - "Imagine threading a needle: you can't just plan a trajectory in free
+      space — you must feel the needle against the fabric, adjust force and
+      angle based on tactile feedback, and maintain precise force control while
+      moving."
+    - Every millimeter of insertion involves complex friction and deformation.
+    - This is qualitatively different from pick-and-place where contacts are
+      brief and simple.
+check: []
+papers: []
+---
+
+## Intuition
+
+Imagine threading a needle: you can't just plan a trajectory in free space — you must feel the needle against the fabric, adjust force and angle based on tactile feedback, and maintain precise force control while moving. Every millimeter of insertion involves complex friction and deformation. This is qualitatively different from pick-and-place where contacts are brief and simple.
+
+## In practice
+
+Industrial peg-in-hole insertion with $< 0.5$ mm clearance. Approach: learn a residual policy $\pi_{\text{res}}(a|s, f)$ that takes force-torque readings $f \in \mathbb{R}^6$ alongside visual state and outputs corrections $\Delta x \in SE(3)$ on top of a nominal impedance controller $a = K_p(x_{\text{des}} - x) + K_d(\dot{x}_{\text{des}} - \dot{x}) + \pi_{\text{res}}(s, f)$. Trained with 200 demonstrations + DAgger corrections. Key: impedance control provides passive compliance ($F = K(x_0 - x)$ with tunable stiffness $K$), while the learned policy handles the strategy.

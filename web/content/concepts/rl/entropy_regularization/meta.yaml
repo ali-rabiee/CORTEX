@@ -1,0 +1,15 @@
+id: entropy_regularization
+title: Entropy Regularization in Policy Optimization
+domain: rl
+summary: Without entropy regularization, a policy gradient agent will rapidly
+  converge to a deterministic policy — committing to the first decent strategy
+  it finds.
+tags:
+  - rl
+difficulty: 3
+importance: 4
+related_concept_ids:
+  - sac
+  - ppo_clipping
+  - policy_gradients
+  - exploration

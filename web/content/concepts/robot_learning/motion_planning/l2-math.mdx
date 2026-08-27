@@ -1,0 +1,25 @@
+---
+concept: motion_planning
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Motion Planning for Manipulation,
+    including the key equations.
+  keyPoints:
+    - Finding a collision-free trajectory $\tau = \{q_0, q_1, \ldots, q_T\}$ in
+      configuration space $\mathcal{C} \subseteq \mathbb{R}^n$ from start $q_0$
+      to goal $q_T$ while avoiding obstacles $\mathcal{C}_{\text{obs}}$.
+    - "Sampling-based methods: RRT (Rapidly-exploring Random Trees) explores
+      $\\mathcal{C}_{\\text{free}} = \\mathcal{C} \\setminus
+      \\mathcal{C}_{\\text{obs}}$ by random sampling, RRT* adds asymptotic
+      optimality."
+    - "Optimization-based methods: CHOMP, TrajOpt minimize cost $J(\\tau) =
+      \\sum_t c_{\\text{obs}}(q_t) + \\lambda \\|q_{t+1} - q_t\\|^2$ subject to
+      collision constraints."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Finding a collision-free trajectory $\tau = \{q_0, q_1, \ldots, q_T\}$ in configuration space $\mathcal{C} \subseteq \mathbb{R}^n$ from start $q_0$ to goal $q_T$ while avoiding obstacles $\mathcal{C}_{\text{obs}}$. Sampling-based methods: RRT (Rapidly-exploring Random Trees) explores $\mathcal{C}_{\text{free}} = \mathcal{C} \setminus \mathcal{C}_{\text{obs}}$ by random sampling, RRT* adds asymptotic optimality. Optimization-based methods: CHOMP, TrajOpt minimize cost $J(\tau) = \sum_t c_{\text{obs}}(q_t) + \lambda \|q_{t+1} - q_t\|^2$ subject to collision constraints. MoveIt is the standard ROS framework.

@@ -1,0 +1,14 @@
+id: backpropagation
+title: Backpropagation — Chain Rule on Computational Graphs
+domain: ml_fundamentals
+summary: Think of a factory assembly line where you need to trace a defect back
+  to its source.
+tags:
+  - ml_fundamentals
+difficulty: 2
+importance: 5
+related_concept_ids:
+  - gradient_descent_variants
+  - batch_normalization
+  - cross_entropy_loss
+  - transformer_architecture

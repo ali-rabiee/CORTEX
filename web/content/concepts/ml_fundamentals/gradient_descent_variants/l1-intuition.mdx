@@ -1,0 +1,25 @@
+---
+concept: gradient_descent_variants
+level: 1
+status: seed
+recall:
+  prompt: "Explain Gradient Descent Variants — SGD, Momentum, and Learning Rate
+    Schedules in plain language: what is it, and why does it matter?"
+  keyPoints:
+    - Vanilla SGD is like navigating by the local slope at each step — noisy and
+      slow in ravines.
+    - "Momentum is like rolling a ball: it accumulates velocity in consistent
+      gradient directions, damping oscillations in noisy dimensions."
+    - Nesterov momentum is even smarter — it peeks ahead to where momentum would
+      take you and corrects based on the gradient there, reducing overshooting.
+check: []
+papers: []
+---
+
+## Intuition
+
+Vanilla SGD is like navigating by the local slope at each step — noisy and slow in ravines. Momentum is like rolling a ball: it accumulates velocity in consistent gradient directions, damping oscillations in noisy dimensions. Nesterov momentum is even smarter — it peeks ahead to where momentum would take you and corrects based on the gradient there, reducing overshooting. Learning rate schedules are like adjusting your stride: large steps early to cover ground quickly, small steps later for fine-grained convergence.
+
+## In practice
+
+Training ResNet-50 on ImageNet for robot perception pre-training: SGD with momentum $\mu = 0.9$, base learning rate $\alpha = 0.1$, weight decay $5 \times 10^{-4}$, cosine schedule over 90 epochs with linear warmup for 5 epochs. Batch size 256 across 4 GPUs with synchronized SGD. The learning rate warmup prevents early training instability caused by large gradients from random initialization. For fine-tuning on robot data: reduce learning rate by $10\times$ ($\alpha = 0.01$), use shorter cosine schedule over 20 epochs, freeze BatchNorm statistics.

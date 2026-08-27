@@ -1,0 +1,12 @@
+id: depth_estimation
+title: Depth Estimation for Robotics
+domain: perception
+summary: A robot needs to know how far away things are to interact with them.
+tags:
+  - perception
+difficulty: 3
+importance: 5
+related_concept_ids:
+  - point_cloud_processing
+  - camera_calibration
+  - object_segmentation

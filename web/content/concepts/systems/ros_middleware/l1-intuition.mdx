@@ -1,0 +1,26 @@
+---
+concept: ros_middleware
+level: 1
+status: seed
+recall:
+  prompt: "Explain ROS and Robot Middleware in plain language: what is it, and why
+    does it matter?"
+  keyPoints:
+    - ROS is like an operating system for robots — it lets different software
+      components (camera driver, perception, planning, control) talk to each
+      other without knowing each other's implementation details.
+    - A perception node publishes detected objects, and any number of planning
+      nodes can subscribe.
+    - "Like USB for robot software: standardized interfaces so components are
+      interchangeable."
+check: []
+papers: []
+---
+
+## Intuition
+
+ROS is like an operating system for robots — it lets different software components (camera driver, perception, planning, control) talk to each other without knowing each other's implementation details. A perception node publishes detected objects, and any number of planning nodes can subscribe. Like USB for robot software: standardized interfaces so components are interchangeable.
+
+## In practice
+
+A manipulation system in ROS2: camera driver node publishes `/camera/depth/image_raw` (sensor_msgs/Image) at 30Hz, perception node subscribes and publishes `/detected_objects` (custom msg), grasp planner subscribes to objects and publishes `/grasp_target` (geometry_msgs/PoseStamped), MoveIt action server plans and executes the motion. All transforms tracked via tf2: `base_link → shoulder → elbow → wrist → camera_link`. Launch file orchestrates startup with parameters loaded from YAML config.

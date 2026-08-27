@@ -1,0 +1,14 @@
+id: curriculum_learning
+title: Curriculum Learning in RL
+domain: rl
+summary: "Teaching a child to swim: you don't throw them into the deep end."
+tags:
+  - rl
+  - robot_learning
+difficulty: 3
+importance: 3
+related_concept_ids:
+  - reward_shaping
+  - exploration
+  - sim2real
+  - domain_randomization

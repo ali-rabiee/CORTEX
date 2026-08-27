@@ -1,0 +1,15 @@
+id: ppo_clipping
+title: Proximal Policy Optimization (PPO) — Clipping Mechanism
+domain: rl
+summary: Imagine updating your driving strategy after a bad day.
+tags:
+  - rl
+  - robot_learning
+difficulty: 3
+importance: 5
+related_concept_ids:
+  - trpo
+  - policy_gradients
+  - kl_divergence
+  - entropy_regularization
+  - sac

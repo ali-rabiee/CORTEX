@@ -1,0 +1,23 @@
+---
+concept: rgb_depth_sensing
+level: 1
+status: seed
+recall:
+  prompt: "Explain RGB and Depth Sensing for Robotics in plain language: what is
+    it, and why does it matter?"
+  keyPoints:
+    - A robot's eyes come in many flavors.
+    - A regular camera gives a flat photo — no depth.
+    - "Stereo cameras mimic human binocular vision: two offset views let you
+      triangulate distance."
+check: []
+papers: []
+---
+
+## Intuition
+
+A robot's eyes come in many flavors. A regular camera gives a flat photo — no depth. Stereo cameras mimic human binocular vision: two offset views let you triangulate distance. Structured light cameras cheat by projecting invisible dots and watching how the pattern deforms on surfaces. ToF cameras send out light pulses and time the echo, like sonar but with light. Each has tradeoffs: structured light is cheap and precise indoors but fails in sunlight; ToF works at longer range but has lower resolution; stereo needs texture to match features.
+
+## In practice
+
+Sensor selection for tabletop manipulation: Intel RealSense D435i (structured light, $1280 \times 720$, 30 fps, $0.3$-$3\,\text{m}$ range, $\sim\textdollar 300$) — the workhorse for indoor manipulation. Mount eye-to-hand at $\sim 0.6\,\text{m}$ above workspace for top-down view. Pipeline: capture aligned RGB-D frame $\rightarrow$ apply depth post-processing (temporal filter with $\alpha = 0.4$, spatial filter $\delta = 20$) $\rightarrow$ deproject to point cloud using intrinsics $\rightarrow$ crop to workspace bounds. For transparent objects, supplement with Zivid One+ (structured light, sub-mm accuracy) or fall back to monocular depth estimation.

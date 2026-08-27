@@ -1,0 +1,23 @@
+---
+concept: policy_gradients
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Policy Gradient Methods, including the
+    key equations.
+  keyPoints:
+    - "Policy gradient methods directly optimize the policy $\\pi_\\theta(a|s)$
+      by estimating the gradient of expected return via the policy gradient
+      theorem: $$\\nabla_\\theta J(\\theta) = \\mathbb{E}_{\\tau \\sim
+      \\pi_\\theta}\\left[\\sum_{t=0}^{T} \\nabla_\\theta \\log
+      \\pi_\\theta(a_t|s_t) \\cdot \\hat{A}(s_t, a_t)\\right]$$ where
+      $\\hat{A}(s_t, a_t)$ is the advantage function."
+    - "The policy is updated via gradient ascent: $\\theta \\leftarrow \\theta +
+      \\alpha \\nabla_\\theta J(\\theta)$."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Policy gradient methods directly optimize the policy $\pi_\theta(a|s)$ by estimating the gradient of expected return via the policy gradient theorem: $$\nabla_\theta J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta}\left[\sum_{t=0}^{T} \nabla_\theta \log \pi_\theta(a_t|s_t) \cdot \hat{A}(s_t, a_t)\right]$$ where $\hat{A}(s_t, a_t)$ is the advantage function. The policy is updated via gradient ascent: $\theta \leftarrow \theta + \alpha \nabla_\theta J(\theta)$.

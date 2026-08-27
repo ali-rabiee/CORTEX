@@ -1,0 +1,27 @@
+---
+concept: action_tokenization
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Action Tokenization for Foundation
+    Models, including the key equations.
+  keyPoints:
+    - Converting continuous robot actions $a \in \mathbb{R}^d$ into discrete
+      token sequences for processing by language model architectures.
+    - "Methods: (1) Uniform binning: divide each action dimension into $B$ bins,
+      map continuous value to bin index: $\\text{tok}(a_i) = \\lfloor (a_i -
+      a_{\\min}) / (a_{\\max} - a_{\\min}) \\cdot B \\rfloor$. (2) VQ-VAE
+      codebook: learn a codebook $\\{e_k\\}_{k=1}^K$ and encoder
+      $f_\\text{enc}$, tokenize as $\\text{tok}(a) = \\arg\\min_k
+      \\|f_\\text{enc}(a) - e_k\\|$. (3) Action chunking + tokenization: encode
+      a sequence of $H$ actions as a single token or short token sequence via a
+      temporal encoder."
+    - RT-2 uses per-dimension uniform binning with 256 bins per dimension,
+      representing a 7-DOF action as 7 tokens in the language model vocabulary.
+check: []
+papers: []
+---
+
+## Formal definition
+
+Converting continuous robot actions $a \in \mathbb{R}^d$ into discrete token sequences for processing by language model architectures. Methods: (1) Uniform binning: divide each action dimension into $B$ bins, map continuous value to bin index: $\text{tok}(a_i) = \lfloor (a_i - a_{\min}) / (a_{\max} - a_{\min}) \cdot B \rfloor$. (2) VQ-VAE codebook: learn a codebook $\{e_k\}_{k=1}^K$ and encoder $f_\text{enc}$, tokenize as $\text{tok}(a) = \arg\min_k \|f_\text{enc}(a) - e_k\|$. (3) Action chunking + tokenization: encode a sequence of $H$ actions as a single token or short token sequence via a temporal encoder. RT-2 uses per-dimension uniform binning with 256 bins per dimension, representing a 7-DOF action as 7 tokens in the language model vocabulary.

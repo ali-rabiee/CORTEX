@@ -1,0 +1,24 @@
+---
+concept: temporal_difference
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Temporal Difference (TD) Learning,
+    including the key equations.
+  keyPoints:
+    - TD learning updates value estimates using bootstrapped targets — combining
+      observed rewards with estimated future values rather than waiting for
+      complete episode returns.
+    - "TD(0) updates the state-value function: $$V(s_t) \\leftarrow V(s_t) +
+      \\alpha \\left[r_t + \\gamma V(s_{t+1}) - V(s_t)\\right]$$ The TD error
+      $\\delta_t = r_t + \\gamma V(s_{t+1}) - V(s_t)$ measures the discrepancy
+      between the current estimate and the one-step bootstrapped target."
+    - "$n$-step returns generalize: $G_t^{(n)} = \\sum_{k=0}^{n-1} \\gamma^k
+      r_{t+k} + \\gamma^n V(s_{t+n})$."
+check: []
+papers: []
+---
+
+## Formal definition
+
+TD learning updates value estimates using bootstrapped targets — combining observed rewards with estimated future values rather than waiting for complete episode returns. TD(0) updates the state-value function: $$V(s_t) \leftarrow V(s_t) + \alpha \left[r_t + \gamma V(s_{t+1}) - V(s_t)\right]$$ The TD error $\delta_t = r_t + \gamma V(s_{t+1}) - V(s_t)$ measures the discrepancy between the current estimate and the one-step bootstrapped target. $n$-step returns generalize: $G_t^{(n)} = \sum_{k=0}^{n-1} \gamma^k r_{t+k} + \gamma^n V(s_{t+n})$. TD($\lambda$) uses eligibility traces to blend all $n$-step returns: $V(s) \leftarrow V(s) + \alpha \delta_t e_t(s)$ where $e_t(s) = \gamma \lambda e_{t-1}(s) + \mathbf{1}[s_t = s]$.

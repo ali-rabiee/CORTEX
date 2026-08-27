@@ -1,0 +1,26 @@
+---
+concept: task_planning
+level: 1
+status: seed
+recall:
+  prompt: "Explain Task Planning with LLMs for Robotics in plain language: what is
+    it, and why does it matter?"
+  keyPoints:
+    - "Ask a robot to 'make a sandwich' and it needs to break that into: open
+      the bread bag, take out two slices, get the peanut butter, open the jar,
+      pick up a knife, spread, etc."
+    - LLMs excel at this common-sense task decomposition because they've seen
+      millions of descriptions of everyday activities.
+    - The key is bridging the LLM's textual plan to the robot's physical skills
+      — each sub-task must map to something the robot can actually do.
+check: []
+papers: []
+---
+
+## Intuition
+
+Ask a robot to 'make a sandwich' and it needs to break that into: open the bread bag, take out two slices, get the peanut butter, open the jar, pick up a knife, spread, etc. LLMs excel at this common-sense task decomposition because they've seen millions of descriptions of everyday activities. The key is bridging the LLM's textual plan to the robot's physical skills — each sub-task must map to something the robot can actually do.
+
+## In practice
+
+SayCan + Inner Monologue pipeline: (1) VLM observes workspace, generates scene description. (2) LLM receives goal ('clean up the table') + scene description + available skills list. (3) LLM generates step-by-step plan: ['pick up the cup', 'place cup in sink', 'pick up the plate', ...]. (4) Each step is scored by affordance model $p(\text{feasible}|s_i, \text{state})$. (5) Highest-scoring feasible step is executed. (6) After execution, re-observe and re-plan (closed-loop). Error recovery: if a step fails, the LLM is prompted with the failure observation and re-plans.

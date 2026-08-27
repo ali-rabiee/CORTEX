@@ -1,0 +1,28 @@
+---
+concept: bellman_equations
+level: 1
+status: seed
+recall:
+  prompt: "Explain Bellman Equations in plain language: what is it, and why does
+    it matter?"
+  keyPoints:
+    - "The Bellman equation says: 'the value of being in a state equals the
+      immediate reward plus the discounted value of where you end up.' It's like
+      evaluating a chess position: your position's value = the material you gain
+      this move + how good the resulting position is."
+    - This recursive structure is what makes RL tractable — instead of
+      evaluating entire trajectories, you only need to look one step ahead (if
+      you have an accurate value function).
+    - "The optimality version adds: 'and you should pick the best action,' which
+      is the foundation of planning and Q-learning."
+check: []
+papers: []
+---
+
+## Intuition
+
+The Bellman equation says: 'the value of being in a state equals the immediate reward plus the discounted value of where you end up.' It's like evaluating a chess position: your position's value = the material you gain this move + how good the resulting position is. This recursive structure is what makes RL tractable — instead of evaluating entire trajectories, you only need to look one step ahead (if you have an accurate value function). The optimality version adds: 'and you should pick the best action,' which is the foundation of planning and Q-learning.
+
+## In practice
+
+Q-learning in a gridworld: $Q(s,a) \leftarrow Q(s,a) + \alpha [r + \gamma \max_{a'} Q(s',a') - Q(s,a)]$. The TD target $r + \gamma \max_{a'} Q(s',a')$ is a sample-based approximation of the Bellman optimality equation. Convergence requires: $\alpha_t \to 0$ with $\sum \alpha_t = \infty$ and $\sum \alpha_t^2 < \infty$ (Robbins-Monro conditions). In practice with function approximation (neural nets), the Bellman equation becomes a regression target: minimize $L(\phi) = \mathbb{E}[(Q_\phi(s,a) - (r + \gamma \max_{a'} Q_{\bar{\phi}}(s',a')))^2]$ where $\bar{\phi}$ is a target network updated slowly.

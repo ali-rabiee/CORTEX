@@ -1,0 +1,12 @@
+id: point_cloud_processing
+title: Point Cloud Processing for Robotics
+domain: perception
+summary: A point cloud is like a 3D scan made of millions of dots.
+tags:
+  - perception
+difficulty: 3
+importance: 4
+related_concept_ids:
+  - depth_estimation
+  - object_segmentation
+  - grasp_prediction

@@ -1,0 +1,25 @@
+---
+concept: action_chunking
+level: 1
+status: seed
+recall:
+  prompt: "Explain Action Chunking for Manipulation in plain language: what is it,
+    and why does it matter?"
+  keyPoints:
+    - Instead of giving turn-by-turn GPS directions one step at a time, you give
+      the next 10 steps at once.
+    - The driver can plan smoother turns because they see the upcoming
+      trajectory.
+    - If one step is slightly off, the remaining chunk keeps them on track
+      rather than going off-course.
+check: []
+papers: []
+---
+
+## Intuition
+
+Instead of giving turn-by-turn GPS directions one step at a time, you give the next 10 steps at once. The driver can plan smoother turns because they see the upcoming trajectory. If one step is slightly off, the remaining chunk keeps them on track rather than going off-course.
+
+## In practice
+
+ACT (Action Chunking with Transformers) for bimanual manipulation: predict chunks of $K=100$ timesteps (2 seconds at 50Hz). A CVAE encoder models the latent style variable $z \sim q_\phi(z|\tau)$ to capture multi-modal behavior, transformer decoder generates the chunk $\{a_t\}_{t=0}^{K-1}$ conditioned on $(s, z)$. Temporal ensembling blends overlapping chunks with exponential weights $w_i = \exp(-\alpha \cdot i)$. Achieves near-human performance on complex bimanual tasks with only 50 demonstrations.

@@ -1,0 +1,26 @@
+---
+concept: sim_to_real_pipeline
+level: 1
+status: seed
+recall:
+  prompt: "Explain End-to-End ML Pipeline for Robotics in plain language: what is
+    it, and why does it matter?"
+  keyPoints:
+    - Building a robot policy is like building a factory assembly line — the
+      final product (deployed policy) is only as good as every step in the
+      pipeline.
+    - You need quality control at each stage, version tracking for every
+      component, and the ability to trace any issue back to its source.
+    - Most failures in robot learning are pipeline failures, not algorithm
+      failures.
+check: []
+papers: []
+---
+
+## Intuition
+
+Building a robot policy is like building a factory assembly line — the final product (deployed policy) is only as good as every step in the pipeline. You need quality control at each stage, version tracking for every component, and the ability to trace any issue back to its source. Most failures in robot learning are pipeline failures, not algorithm failures.
+
+## In practice
+
+Full pipeline for a pick-and-place system: (1) Collect 200 teleoperated demos via ALOHA, store in DVC-tracked dataset v1.0. (2) Filter and augment: remove 15 failed demos, add random crops, tag with DVC as v1.1. (3) Train diffusion policy with W&B tracking, sweep over denoising steps $T \in \{10, 50, 100\}$ and chunk size $K \in \{8, 16, 32\}$. (4) Evaluate best checkpoint on 200 sim trials → 92% success. (5) Real-robot eval on 50 trials → 85% success. (6) Deploy with TensorRT, monitor success rate and latency. (7) After 1 week, collect 30 failure cases → add to dataset v1.2 → retrain → 91% real success.

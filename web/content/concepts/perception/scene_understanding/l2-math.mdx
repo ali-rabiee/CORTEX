@@ -1,0 +1,27 @@
+---
+concept: scene_understanding
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Scene Understanding for Robotics,
+    including the key equations.
+  keyPoints:
+    - "Holistic comprehension of 3D environments beyond per-object recognition:
+      (1) Scene graphs — directed graphs $G = (V, E)$ where nodes $v_i$
+      represent objects with attributes (class, pose, size) and edges $e_{ij}$
+      encode spatial relationships (on, inside, next-to, supporting); (2)
+      Spatial relationship reasoning — predicting pairwise relations $r(o_i,
+      o_j) \\in \\{\\text{on, in, near, left-of, supporting, ...}\\}$; (3) Room
+      layout estimation — recovering 3D room geometry (floor, walls, ceiling)
+      from single images; (4) Semantic SLAM — simultaneous localization and
+      mapping augmented with semantic labels, maintaining a map $M =
+      \\{(\\mathbf{p}_i, l_i, \\sigma_i)\\}$ of 3D points with class labels and
+      uncertainties; (5) 3D scene reconstruction — building complete 3D models
+      via NeRF, 3D Gaussian Splatting, or volumetric fusion (TSDF)."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Holistic comprehension of 3D environments beyond per-object recognition: (1) Scene graphs — directed graphs $G = (V, E)$ where nodes $v_i$ represent objects with attributes (class, pose, size) and edges $e_{ij}$ encode spatial relationships (on, inside, next-to, supporting); (2) Spatial relationship reasoning — predicting pairwise relations $r(o_i, o_j) \in \{\text{on, in, near, left-of, supporting, ...}\}$; (3) Room layout estimation — recovering 3D room geometry (floor, walls, ceiling) from single images; (4) Semantic SLAM — simultaneous localization and mapping augmented with semantic labels, maintaining a map $M = \{(\mathbf{p}_i, l_i, \sigma_i)\}$ of 3D points with class labels and uncertainties; (5) 3D scene reconstruction — building complete 3D models via NeRF, 3D Gaussian Splatting, or volumetric fusion (TSDF).

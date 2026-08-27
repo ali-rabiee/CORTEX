@@ -1,0 +1,17 @@
+id: action_generation
+title: Action Generation with Generative Models
+domain: generative_control
+summary: Instead of predicting one action at a time (which leads to jerky,
+  myopic behavior), action generation produces a whole trajectory segment at
+  once — like planning your next several chess moves rather than just the
+  next...
+tags:
+  - generative_control
+  - robot_learning
+difficulty: 3
+importance: 4
+related_concept_ids:
+  - diffusion_policy
+  - flow_matching
+  - multimodal_distributions
+  - diffusion_models_basics

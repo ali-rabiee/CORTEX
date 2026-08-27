@@ -1,0 +1,25 @@
+---
+concept: gae
+level: 5
+status: seed
+recall:
+  prompt: How does Generalized Advantage Estimation (GAE) — Formal Treatment fail
+    in practice, and how would you present it in an interview?
+  keyPoints:
+    - GAE quality is bottlenecked by the value function $V_\phi$.
+    - If the critic is poorly trained (too few updates, bad architecture, wrong
+      learning rate), all advantage estimates become garbage — $\delta_t$
+      contains systematic errors that propagate through the GAE sum.
+    - "Symptoms: advantages are not centered around zero, large magnitude
+      advantage estimates, policy oscillation."
+check: []
+papers: []
+---
+
+## Failure modes
+
+GAE quality is bottlenecked by the value function $V_\phi$. If the critic is poorly trained (too few updates, bad architecture, wrong learning rate), all advantage estimates become garbage — $\delta_t$ contains systematic errors that propagate through the GAE sum. Symptoms: advantages are not centered around zero, large magnitude advantage estimates, policy oscillation. Fix: train critic for more epochs than policy (e.g., value loss coefficient $c_V = 0.5$-$1.0$ in the combined PPO loss, or separate critic training with 5 epochs), use larger critic network, verify $V_\phi$ predictions roughly match actual returns. Another subtle bug: forgetting to zero out $\hat{A}$ at episode boundaries — must reset $\hat{A}_t = \delta_t$ when $s_{t+1}$ is a terminal state.
+
+## Interview-ready answer
+
+GAE is the exponentially-weighted sum of TD residuals: $\hat{A}_t = \sum_l (\gamma\lambda)^l \delta_{t+l}$, equivalently the $(1-\lambda)$-weighted average of all $n$-step advantages. The bias scales as $O(\epsilon_V / (1-\gamma\lambda))$ and variance as $O(\sigma_r^2 / (1-\gamma\lambda)^2)$, so $\lambda$ trades them off. The universal default $\lambda = 0.95$ works because: it reduces variance dramatically versus Monte Carlo ($\lambda = 1$) while keeping bias negligible for reasonably trained value functions. Implementation is a simple backward scan: $\hat{A}_t = \delta_t + \gamma\lambda \hat{A}_{t+1}$. The critical dependency is critic quality — a bad $V_\phi$ corrupts all advantage estimates. I always validate by checking that mean advantage is near zero and that the critic's explained variance ratio $1 - \text{Var}(G - V) / \text{Var}(G) > 0.5$.

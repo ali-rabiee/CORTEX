@@ -1,0 +1,14 @@
+id: dataset_curation
+title: Dataset Curation for Robot Learning
+domain: systems
+summary: Garbage in, garbage out — but for robots, this is even more critical
+  because bad demonstrations teach bad physical habits.
+tags:
+  - systems
+  - robot_learning
+difficulty: 2
+importance: 5
+related_concept_ids:
+  - experiment_tracking
+  - evaluation_methodology
+  - behavior_cloning

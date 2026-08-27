@@ -1,0 +1,29 @@
+---
+concept: keypoint_manipulation
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Keypoint-Based Manipulation, including
+    the key equations.
+  keyPoints:
+    - "Using sparse spatial keypoints as the interface between perception and
+      manipulation policy. (1) Spatial descriptors: per-pixel dense feature
+      vectors $\\phi(u,v) \\in \\mathbb{R}^d$ learned via contrastive loss,
+      where corresponding points across views have high similarity
+      $\\text{sim}(\\phi(u_1, v_1), \\phi(u_2, v_2)) \\approx 1$ and
+      non-corresponding points have low similarity. (2) Dense correspondence
+      (Dense Object Nets): learn descriptor space such that pixel $(u_a, v_a)$
+      in image $I_a$ matches to $\\arg\\min_{(u,v)} \\|\\phi_a(u_a, v_a) -
+      \\phi_b(u, v)\\|$ in image $I_b$. (3) Transporter Networks: learn
+      pick-and-place by detecting a pick keypoint via attention
+      $\\mathcal{A}_{\\text{pick}}(\\mathbf{p}) = f_\\theta(I)(\\mathbf{p})$ and
+      computing a placement via cross-correlation
+      $\\mathcal{A}_{\\text{place}}(\\mathbf{q}) = (g_\\psi(I_{\\text{crop}})
+      \\star f_\\theta(I))(\\mathbf{q})$ over position and rotation."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Using sparse spatial keypoints as the interface between perception and manipulation policy. (1) Spatial descriptors: per-pixel dense feature vectors $\phi(u,v) \in \mathbb{R}^d$ learned via contrastive loss, where corresponding points across views have high similarity $\text{sim}(\phi(u_1, v_1), \phi(u_2, v_2)) \approx 1$ and non-corresponding points have low similarity. (2) Dense correspondence (Dense Object Nets): learn descriptor space such that pixel $(u_a, v_a)$ in image $I_a$ matches to $\arg\min_{(u,v)} \|\phi_a(u_a, v_a) - \phi_b(u, v)\|$ in image $I_b$. (3) Transporter Networks: learn pick-and-place by detecting a pick keypoint via attention $\mathcal{A}_{\text{pick}}(\mathbf{p}) = f_\theta(I)(\mathbf{p})$ and computing a placement via cross-correlation $\mathcal{A}_{\text{place}}(\mathbf{q}) = (g_\psi(I_{\text{crop}}) \star f_\theta(I))(\mathbf{q})$ over position and rotation.

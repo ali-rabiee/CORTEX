@@ -1,0 +1,25 @@
+---
+concept: attention_mechanism
+level: 5
+status: seed
+recall:
+  prompt: How does Attention Mechanism — Scaled Dot-Product Attention with Q/K/V
+    fail in practice, and how would you present it in an interview?
+  keyPoints:
+    - "Attention collapse: all queries attend to the same key, producing
+      near-identical outputs across positions."
+    - "Symptoms: attention entropy drops to near zero, representation rank
+      collapses."
+    - "Root causes: insufficient training data, learning rate too high, or
+      missing residual connections."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Attention collapse: all queries attend to the same key, producing near-identical outputs across positions. Symptoms: attention entropy drops to near zero, representation rank collapses. Root causes: insufficient training data, learning rate too high, or missing residual connections. Fix: add attention dropout ($p = 0.1$), use multi-head attention for diversity, re-parameterize with talking heads or sigma-attention. Also: causal masking errors in autoregressive models cause information leakage from future tokens.
+
+## Interview-ready answer
+
+Attention computes $\text{softmax}(QK^T / \sqrt{d_k})V$ — a differentiable, content-based addressing mechanism. The $\sqrt{d_k}$ scaling is crucial: for $d_k$-dimensional Gaussian-distributed vectors, $q \cdot k$ has variance $d_k$, so scaling stabilizes softmax entropy. Multi-head attention projects into $h$ subspaces, capturing diverse relationships. In robotics, I use cross-attention to ground language instructions in visual observations — the query is the language embedding, keys/values are spatial features. Key implementation detail: FlashAttention fuses the softmax and matmul into a single kernel, reducing HBM reads from $O(n^2)$ to $O(n^2 d / M)$ where $M$ is SRAM size.

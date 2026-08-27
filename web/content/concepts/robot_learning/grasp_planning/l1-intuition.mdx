@@ -1,0 +1,24 @@
+---
+concept: grasp_planning
+level: 1
+status: seed
+recall:
+  prompt: "Explain Grasp Planning and Synthesis in plain language: what is it, and
+    why does it matter?"
+  keyPoints:
+    - Think of picking up an egg vs a book vs a mug.
+    - Each requires different finger positions, approach angles, and grip force.
+    - Analytical grasping is like calculating the physics of each grip; learned
+      grasping is like a human who's picked up thousands of objects and just
+      'knows' where to grab.
+check: []
+papers: []
+---
+
+## Intuition
+
+Think of picking up an egg vs a book vs a mug. Each requires different finger positions, approach angles, and grip force. Analytical grasping is like calculating the physics of each grip; learned grasping is like a human who's picked up thousands of objects and just 'knows' where to grab. Modern methods combine both: learn from data but verify with physics.
+
+## In practice
+
+Contact-GraspNet for bin picking: input a depth image from a top-down RealSense camera, generate point cloud $\mathcal{P}$, network predicts 6-DOF grasp poses $\{(\mathbf{p}_i, \mathbf{R}_i, w_i, q_i)\}$ with quality scores. Filter by reachability via IK, rank by quality $q_i$, execute the top grasp. Trained on ~1.6M grasps in simulation, transfers to real with >90% success on novel objects. Key: approach direction diversity — predicting grasps from multiple angles enables picking in clutter.

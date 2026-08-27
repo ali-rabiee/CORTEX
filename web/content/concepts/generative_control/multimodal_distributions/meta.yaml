@@ -1,0 +1,12 @@
+id: multimodal_distributions
+title: Multi-Modal Action Distributions
+domain: generative_control
+summary: Asked to go around a table, you can go left or right — both are correct.
+tags:
+  - generative_control
+difficulty: 3
+importance: 4
+related_concept_ids:
+  - diffusion_policy
+  - behavior_cloning
+  - flow_matching

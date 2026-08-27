@@ -1,0 +1,23 @@
+---
+concept: sim2real_transfer
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Sim-to-Real Transfer, including the key
+    equations.
+  keyPoints:
+    - Training policies $\pi_\theta(a|s)$ in simulation and deploying them on
+      real robots.
+    - The reality gap — differences in physics, rendering, dynamics, and sensor
+      noise between sim and real — causes policies to fail when transferred.
+    - Formally, we train in an MDP $\mathcal{M}_{\text{sim}} = (\mathcal{S},
+      \mathcal{A}, T_{\text{sim}}, R, \gamma)$ but deploy in
+      $\mathcal{M}_{\text{real}} = (\mathcal{S}, \mathcal{A}, T_{\text{real}},
+      R, \gamma)$ where $T_{\text{sim}} \neq T_{\text{real}}$.
+check: []
+papers: []
+---
+
+## Formal definition
+
+Training policies $\pi_\theta(a|s)$ in simulation and deploying them on real robots. The reality gap — differences in physics, rendering, dynamics, and sensor noise between sim and real — causes policies to fail when transferred. Formally, we train in an MDP $\mathcal{M}_{\text{sim}} = (\mathcal{S}, \mathcal{A}, T_{\text{sim}}, R, \gamma)$ but deploy in $\mathcal{M}_{\text{real}} = (\mathcal{S}, \mathcal{A}, T_{\text{real}}, R, \gamma)$ where $T_{\text{sim}} \neq T_{\text{real}}$. Bridged via domain randomization, system identification, or fine-tuning.

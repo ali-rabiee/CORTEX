@@ -1,0 +1,15 @@
+id: teleoperation
+title: Teleoperation for Data Collection
+domain: robot_learning
+summary: Like a puppeteer controlling a marionette to record a choreography that
+  the puppet will later perform on its own.
+tags:
+  - robot_learning
+  - systems
+difficulty: 2
+importance: 4
+related_concept_ids:
+  - behavior_cloning
+  - imitation_learning
+  - dataset_curation
+  - action_chunking

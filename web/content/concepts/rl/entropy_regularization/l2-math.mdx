@@ -1,0 +1,25 @@
+---
+concept: entropy_regularization
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Entropy Regularization in Policy
+    Optimization, including the key equations.
+  keyPoints:
+    - "Entropy regularization augments the RL objective with a bonus
+      proportional to the policy's entropy, encouraging stochastic behavior:
+      $$J_{\\text{ent}}(\\theta) =
+      \\mathbb{E}_{\\pi_\\theta}\\left[\\sum_{t=0}^{T} \\gamma^t \\bigl(r_t +
+      \\beta\\, H(\\pi_\\theta(\\cdot|s_t))\\bigr)\\right], \\quad H(\\pi) =
+      -\\sum_a \\pi(a|s) \\log \\pi(a|s)$$ For continuous Gaussian policies
+      $\\pi = \\mathcal{N}(\\mu, \\sigma^2 I)$, the entropy has a closed form:
+      $H = \\frac{d}{2}\\ln(2\\pi e) + \\sum_{i=1}^{d} \\ln \\sigma_i$."
+    - SAC takes this further with automatic tuning of $\beta$ (its $\alpha$) to
+      target a desired entropy level $\bar{H}$.
+check: []
+papers: []
+---
+
+## Formal definition
+
+Entropy regularization augments the RL objective with a bonus proportional to the policy's entropy, encouraging stochastic behavior: $$J_{\text{ent}}(\theta) = \mathbb{E}_{\pi_\theta}\left[\sum_{t=0}^{T} \gamma^t \bigl(r_t + \beta\, H(\pi_\theta(\cdot|s_t))\bigr)\right], \quad H(\pi) = -\sum_a \pi(a|s) \log \pi(a|s)$$ For continuous Gaussian policies $\pi = \mathcal{N}(\mu, \sigma^2 I)$, the entropy has a closed form: $H = \frac{d}{2}\ln(2\pi e) + \sum_{i=1}^{d} \ln \sigma_i$. SAC takes this further with automatic tuning of $\beta$ (its $\alpha$) to target a desired entropy level $\bar{H}$.

@@ -1,0 +1,27 @@
+---
+concept: reward_shaping
+level: 5
+status: seed
+recall:
+  prompt: How does Reward Shaping fail in practice, and how would you present it
+    in an interview?
+  keyPoints:
+    - "Reward hacking: agent exploits shaped reward without achieving the
+      intended goal."
+    - "Common in robotics: robot shakes object to maximize 'movement' reward, or
+      hovers near goal to collect proximity reward indefinitely."
+    - "Fix: use potential-based shaping (proven policy-invariant since $\\sum_t
+      [\\gamma \\Phi(s_{t+1}) - \\Phi(s_t)] = \\gamma^T \\Phi(s_T) -
+      \\Phi(s_0)$), minimize auxiliary rewards, verify with sparse reward
+      evaluation."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Reward hacking: agent exploits shaped reward without achieving the intended goal. Common in robotics: robot shakes object to maximize 'movement' reward, or hovers near goal to collect proximity reward indefinitely. Fix: use potential-based shaping (proven policy-invariant since $\sum_t [\gamma \Phi(s_{t+1}) - \Phi(s_t)] = \gamma^T \Phi(s_T) - \Phi(s_0)$), minimize auxiliary rewards, verify with sparse reward evaluation.
+
+## Interview-ready answer
+
+Reward shaping provides denser learning signals for sparse-reward tasks, which is critical in robotics where exploration is expensive. The key theoretical result: potential-based shaping $R' = R + \gamma \Phi(s') - \Phi(s)$ provably preserves the optimal policy (Ng et al., 1999). Non-potential-based shaping is dangerous — it can create local optima. In practice, I use a combination: potential-based terms with $\Phi(s) = -\|s - s_{\text{goal}}\|$ for guidance plus the true sparse reward, and always evaluate final performance on the unshaped reward.

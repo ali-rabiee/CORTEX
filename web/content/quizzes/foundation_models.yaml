@@ -1,0 +1,218 @@
+domain: foundation_models
+questions:
+  - id: fm_q1
+    question: "The key challenge when deploying Vision-Language-Action (VLA) models
+      across different robot embodiments is:"
+    options:
+      - Language understanding degrades
+      - Visual encoders need retraining
+      - Action space mismatch — different robots have different action
+        representations
+      - Compute requirements are too high
+    correct_answer: 2
+    explanation: VLAs are trained with specific action representations (e.g., 7-DOF
+      joint positions for a Franka arm). When transferring to a different robot
+      with different kinematics, joint limits, or action conventions, the action
+      head must be adapted. Language and vision understanding transfer much
+      better. Cross-embodiment datasets like Open X-Embodiment partially address
+      this.
+    concept_ids:
+      - vla_models
+    difficulty: 3
+    tags:
+      - foundation_models
+  - id: fm_q2
+    question: "VLMs (Vision-Language Models) are most reliable for robotic
+      applications when used for:"
+    options:
+      - Precise spatial reasoning (e.g., measuring distances)
+      - High-level scene understanding and task planning
+      - Real-time control at 100Hz
+      - Generating exact grasp poses
+    correct_answer: 1
+    explanation: "VLMs excel at semantic understanding ('this is a messy desk with
+      scattered tools') and task decomposition ('to clean up: first sort, then
+      stack, then wipe'). They're poor at precise spatial reasoning ('the cup is
+      12.3cm to the left') and too slow for real-time control. Best used as
+      high-level planners with specialized modules for spatial/motor execution."
+    concept_ids:
+      - vlm_models
+      - language_grounding
+    difficulty: 2
+    tags:
+      - foundation_models
+  - id: fm_q3
+    question: "In SayCan, the LLM's language score is combined with an affordance
+      score because:"
+    options:
+      - To improve language understanding
+      - To ground the LLM's suggestions in what's physically possible given the
+        current state
+      - To speed up inference
+      - To handle multi-turn dialogue
+    correct_answer: 1
+    explanation: "An LLM might suggest 'pick up the cup' when no cup is visible, or
+      'fly to the shelf' when the robot can't fly. The affordance model checks
+      each proposed action against the current observation: is the target object
+      visible? Is the action physically feasible? The combined score selects
+      actions that are both semantically sensible AND physically possible."
+    concept_ids:
+      - language_grounding
+    difficulty: 2
+    tags:
+      - foundation_models
+  - id: fm_q4
+    question: "The self-attention mechanism computes Attention(Q,K,V) =
+      softmax(QK^T/√d_k)V. The √d_k scaling factor is needed because:"
+    options:
+      - It normalizes the output to unit variance
+      - Without it, dot products grow with dimension, pushing softmax into
+        saturation where gradients vanish
+      - It makes attention faster to compute
+      - It controls the number of attention heads
+    correct_answer: 1
+    explanation: For random Q,K vectors of dimension d_k, the dot product has
+      variance d_k. For large d_k (e.g., 64), unscaled dot products can be very
+      large, pushing softmax outputs close to 0 or 1 (saturation). In this
+      regime, gradients are near-zero and attention becomes a hard argmax.
+      Dividing by √d_k keeps the variance at 1, maintaining softmax in its
+      useful gradient range.
+    concept_ids:
+      - transformer_attention
+    difficulty: 2
+    tags:
+      - foundation_models
+  - id: fm_q5
+    question: "CLIP aligns images and text in a shared embedding space using
+      contrastive learning. For robot perception, this enables:"
+    options:
+      - Faster image processing
+      - Zero-shot object recognition by comparing image embeddings with text
+        embeddings of class descriptions
+      - Better depth estimation
+      - Reduced memory usage
+    correct_answer: 1
+    explanation: CLIP learns to map images and their text descriptions close
+      together in embedding space. At inference, you encode a text query ('red
+      screwdriver') and an image, then measure similarity. No task-specific
+      training is needed — this zero-shot capability enables robots to find
+      objects by natural language description without retraining for each new
+      object category.
+    concept_ids:
+      - clip_contrastive
+      - representation_learning
+    difficulty: 2
+    tags:
+      - foundation_models
+      - perception
+  - id: fm_q6
+    question: "RT-2 converts robot actions into text tokens (e.g., '128 045 230' for
+      xyz position). The advantage of action tokenization is:"
+    options:
+      - It compresses the action space
+      - It allows training on both internet-scale language data and robot data
+        within the same model architecture
+      - It makes actions more interpretable to humans
+      - It reduces the need for action normalization
+    correct_answer: 1
+    explanation: By representing actions as token sequences, RT-2 uses the exact
+      same transformer architecture for both language understanding and action
+      prediction. This enables internet-scale pretraining (on language and
+      vision data) to transfer to robot control — the model learns to 'speak'
+      robot actions as naturally as it speaks English. The shared architecture
+      is key to the emergent generalization capabilities.
+    concept_ids:
+      - action_tokenization
+      - rt2_robotic_fm
+      - vla_models
+    difficulty: 3
+    tags:
+      - foundation_models
+  - id: fm_q7
+    question: "In-context learning in LLMs allows task specification through
+      examples in the prompt rather than gradient updates. For robotics, this is
+      useful because:"
+    options:
+      - It eliminates the need for any training data
+      - It enables rapid task adaptation by showing a few demonstration examples
+        without retraining the model
+      - It produces more accurate policies
+      - It works with any LLM regardless of size
+    correct_answer: 1
+    explanation: "In-context learning lets you specify a new task at inference time
+      by providing examples in the prompt. For robotics: describe a new task,
+      show a few input-output examples, and the model adapts — no fine-tuning
+      needed. This enables rapid prototyping and task switching. The limitation:
+      it requires a sufficiently large model and the task must be expressible
+      within the context window."
+    concept_ids:
+      - in_context_learning
+      - llm_capabilities
+    difficulty: 2
+    tags:
+      - foundation_models
+  - id: fm_q8
+    question: Embodied memory for robot agents (e.g., episodic memory retrieval)
+      addresses what limitation of standard LLMs?
+    options:
+      - Limited vocabulary
+      - Fixed context window that cannot retain long-horizon task history and
+        spatial experience
+      - Slow inference speed
+      - Lack of visual understanding
+    correct_answer: 1
+    explanation: Standard LLMs have a fixed context window (4K-128K tokens). A robot
+      operating for hours generates far more experience than fits in context.
+      Episodic memory systems store past observations, actions, and outcomes in
+      a retrieval-augmented format, allowing the agent to recall relevant past
+      experience ('last time I opened this drawer, the handle was stiff')
+      without fitting everything into the prompt.
+    concept_ids:
+      - embodied_memory
+      - llm_capabilities
+    difficulty: 3
+    tags:
+      - foundation_models
+  - id: fm_q9
+    question: "VLMs for visual question answering in robotics are most limited by:"
+    options:
+      - Image resolution
+      - Poor spatial reasoning — difficulty with precise measurements, spatial
+        relationships, and counting
+      - Language understanding
+      - Inference cost
+    correct_answer: 1
+    explanation: VLMs excel at semantic understanding ('this is a kitchen with tools
+      on the counter') but struggle with precise spatial queries ('is the cup
+      5cm or 10cm from the edge?', 'how many screws are in the pile?'). For
+      robotics, this means VLMs are best as high-level planners, not for precise
+      spatial perception. Dedicated geometric perception modules handle the
+      spatial precision gap.
+    concept_ids:
+      - visual_question_answering
+      - vlm_models
+    difficulty: 2
+    tags:
+      - foundation_models
+  - id: fm_q10
+    question: "Tool use via code generation (e.g., Code as Policies) is preferred
+      over direct LLM action prediction for complex tasks because:"
+    options:
+      - Code runs faster than neural network inference
+      - Code provides compositional, verifiable, and debuggable behavior with
+        precise control flow that LLMs cannot produce in natural language
+      - LLMs cannot understand task instructions
+      - Code doesn't require a robot
+    correct_answer: 1
+    explanation: "Direct LLM outputs are opaque and hard to verify. Code generation
+      produces explicit programs: 'move_to(obj.position + [0, 0, 0.1]); grasp();
+      move_to(target)' — each step is readable, debuggable, and can be verified
+      before execution. Code also enables loops, conditionals, and mathematical
+      operations that are unreliable in natural language generation.
+      Safety-critical robotics benefits enormously from inspectable code."
+    concept_ids:
+      - tool_use_api
+      - task_planning
+    difficulty: 2
+    tags:
+      - foundation_models

@@ -1,0 +1,13 @@
+id: consistency_models
+title: Consistency Models for Single-Step Action Generation
+domain: generative_control
+summary: Diffusion models are like taking 100 small steps from noise to a clean
+  action — accurate but slow.
+tags:
+  - generative_control
+difficulty: 4
+importance: 4
+related_concept_ids:
+  - diffusion_policy
+  - flow_matching
+  - latency_optimization

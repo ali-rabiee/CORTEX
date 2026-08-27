@@ -1,0 +1,23 @@
+---
+concept: exploration
+level: 1
+status: seed
+recall:
+  prompt: "Explain Exploration-Exploitation Tradeoff in plain language: what is
+    it, and why does it matter?"
+  keyPoints:
+    - Imagine choosing restaurants in a new city.
+    - "Exploitation: keep going to the best restaurant you've found so far."
+    - "Exploration: try an unknown restaurant that might be even better (or
+      terrible)."
+check: []
+papers: []
+---
+
+## Intuition
+
+Imagine choosing restaurants in a new city. Exploitation: keep going to the best restaurant you've found so far. Exploration: try an unknown restaurant that might be even better (or terrible). The optimal strategy depends on how long you'll be in the city ($T$) — with only one night left, exploit; with a year ahead, explore more. In RL, this maps directly to the discount factor $\gamma$ and horizon. The deeper challenge in high-dimensional robotics: $\epsilon$-greedy and UCB fail because random exploration in $\mathbb{R}^n$ action spaces almost never finds rewarding actions — you need structured exploration.
+
+## In practice
+
+Training a robot to open novel doors (diverse handles, hinges). $\epsilon$-greedy with $\epsilon = 0.1$ in the 7-DOF action space is hopeless — random joint torques almost never produce useful grasps. Instead, use: (1) curiosity-driven exploration: $r^{\text{int}} = \|\hat{s}_{t+1} - s_{t+1}\|^2$ from a forward dynamics model, rewarding novel states; (2) RND (Random Network Distillation): $r^{\text{int}} = \|f_\theta(s) - f_{\text{fixed}}(s)\|^2$ where the bonus decreases as states become familiar; (3) SAC's entropy regularization as implicit exploration. In practice, combining SAC + curiosity bonuses with $\beta_{\text{int}} = 0.1$ and decaying $\beta$ over training works well.

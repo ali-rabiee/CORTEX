@@ -1,0 +1,360 @@
+domain: rl
+questions:
+  - id: rl_q1
+    question: "When using PPO for robot manipulation and the policy converges to a
+      single deterministic action early in training, the most likely cause is:"
+    options:
+      - Learning rate too high
+      - Entropy coefficient too low
+      - Discount factor too high
+      - Batch size too small
+    correct_answer: 1
+    explanation: Low entropy coefficient allows the policy to collapse to a single
+      mode — the entropy term is what prevents premature determinism. Increasing
+      the entropy bonus to 0.01-0.05 encourages continued exploration. A high
+      learning rate would cause instability rather than convergence, and
+      discount factor/batch size have different failure signatures.
+    concept_ids:
+      - ppo_clipping
+    difficulty: 3
+    tags:
+      - rl
+  - id: rl_q2
+    question: What is the key advantage of SAC over PPO for real-robot training
+      where data collection is expensive?
+    options:
+      - SAC is more stable during training
+      - SAC is off-policy and can reuse data via replay buffer
+      - SAC doesn't require hyperparameter tuning
+      - SAC produces smoother control signals
+    correct_answer: 1
+    explanation: SAC is off-policy — it stores all past experience in a replay
+      buffer and can learn from it repeatedly. This makes SAC much more
+      sample-efficient than PPO, which is on-policy and discards data after each
+      update. When real-robot data costs time and risk, this sample efficiency
+      advantage is decisive.
+    concept_ids:
+      - sac
+      - ppo_clipping
+    difficulty: 2
+    tags:
+      - rl
+  - id: rl_q3
+    question: In the SM-2 spaced repetition algorithm, what happens to the interval
+      when you rate recall quality as 2 (poor but not total failure)?
+    options:
+      - Interval doubles
+      - Interval resets to 1 day
+      - Interval stays the same
+      - Interval increases by ease factor
+    correct_answer: 1
+    explanation: In SM-2, any quality rating below 3 is treated as a failure, which
+      resets repetitions to 0 and interval to 1 day. The item needs to be
+      relearned from scratch. Quality 3+ is considered successful recall, with
+      interval increasing based on the ease factor.
+    concept_ids:
+      - value_functions
+    difficulty: 2
+    tags:
+      - rl
+  - id: rl_q4
+    question: "Potential-based reward shaping (R' = R + γΦ(s') - Φ(s)) guarantees:"
+    options:
+      - Faster convergence
+      - The same optimal policy as the original reward
+      - No reward hacking
+      - Better exploration
+    correct_answer: 1
+    explanation: The key theoretical result of potential-based shaping (Ng et al.,
+      1999) is policy invariance — the optimal policy under the shaped reward is
+      identical to the optimal policy under the original reward. It may help
+      with faster convergence in practice, but the guarantee is specifically
+      about preserving the optimal policy.
+    concept_ids:
+      - reward_shaping
+    difficulty: 3
+    tags:
+      - rl
+  - id: rl_q5
+    question: "In offline RL, the core challenge of distributional shift means:"
+    options:
+      - The reward distribution changes over time
+      - The observation distribution differs between train and test
+      - The learned policy may select actions not seen in the training data,
+        where Q-estimates are unreliable
+      - The data collection policy is non-stationary
+    correct_answer: 2
+    explanation: In offline RL, the learned policy may query the Q-function for
+      (state, action) pairs that were never observed in the dataset. For these
+      out-of-distribution actions, the Q-function is extrapolating and often
+      overestimates values, leading the policy to select bad actions it thinks
+      are good. This is why methods like CQL penalize Q-values for unseen
+      actions.
+    concept_ids:
+      - offline_rl
+    difficulty: 3
+    tags:
+      - rl
+  - id: rl_q6
+    question: "The advantage function A(s,a) = Q(s,a) - V(s) is preferred over raw
+      returns in policy gradients because:"
+    options:
+      - It's faster to compute
+      - It reduces variance by centering the learning signal around the average
+      - It automatically handles continuous action spaces
+      - It removes the need for discount factors
+    correct_answer: 1
+    explanation: "The advantage centers the learning signal: positive A means 'this
+      action was better than average,' negative means worse. Raw returns have
+      high variance because they include the baseline expected return at every
+      state. By subtracting V(s) (the average return from state s), variance is
+      dramatically reduced while keeping the gradient unbiased."
+    concept_ids:
+      - value_functions
+      - policy_gradients
+    difficulty: 2
+    tags:
+      - rl
+  - id: rl_q7
+    question: "The Markov property states that:"
+    options:
+      - Future rewards depend on all past states
+      - The transition probability P(s'|s,a) depends only on the current state
+        and action, not on history
+      - Every state must be fully observable
+      - The policy must be deterministic
+    correct_answer: 1
+    explanation: "The Markov property means the future is conditionally independent
+      of the past given the present: P(s_{t+1}|s_t, a_t, s_{t-1}, ..., s_0) =
+      P(s_{t+1}|s_t, a_t). The current state contains all information needed to
+      predict the next state. This doesn't require full observability — that's a
+      separate property (MDP vs POMDP)."
+    concept_ids:
+      - mdp
+    difficulty: 1
+    tags:
+      - rl
+  - id: rl_q8
+    question: In the Bellman optimality equation V*(s) = max_a [R(s,a) + γ Σ
+      P(s'|s,a) V*(s')], what does the max operator represent?
+    options:
+      - The best state to transition to
+      - Choosing the action that maximizes expected return
+      - The maximum possible reward
+      - The highest-value neighboring state
+    correct_answer: 1
+    explanation: The max over actions means the optimal value function assumes the
+      agent always picks the best available action. For each state, it considers
+      all possible actions and takes the one leading to the highest expected
+      cumulative reward (immediate reward plus discounted future value). This
+      recursive definition is the foundation of value iteration and Q-learning.
+    concept_ids:
+      - bellman_equations
+      - value_functions
+    difficulty: 2
+    tags:
+      - rl
+  - id: rl_q9
+    question: "TD(0) bootstraps by using V(s') to estimate the return. Compared to
+      Monte Carlo estimation, this means TD(0) has:"
+    options:
+      - Lower bias and lower variance
+      - Higher bias and lower variance
+      - Lower bias and higher variance
+      - Higher bias and higher variance
+    correct_answer: 1
+    explanation: TD(0) uses V(s') as a substitute for the full return, introducing
+      bias (V is an approximation). But it only uses a single transition (s, r,
+      s') instead of waiting for the full episode, dramatically reducing
+      variance. Monte Carlo uses the true return (zero bias) but high variance
+      from trajectory randomness. The bias-variance tradeoff is the fundamental
+      distinction.
+    concept_ids:
+      - temporal_difference
+      - value_functions
+    difficulty: 2
+    tags:
+      - rl
+  - id: rl_q10
+    question: "Prioritized experience replay improves over uniform replay by:"
+    options:
+      - Storing more transitions in the same memory
+      - Sampling transitions with higher TD error more frequently
+      - Removing old transitions automatically
+      - Grouping transitions by episode
+    correct_answer: 1
+    explanation: Prioritized replay samples transitions proportional to their TD
+      error |δ| = |r + γV(s') - V(s)|. High TD error means the current value
+      estimate is most wrong for that transition, so it's the most informative
+      to learn from. This can speed up learning 2-3x, but requires importance
+      sampling corrections to avoid bias from the non-uniform sampling.
+    concept_ids:
+      - replay_buffer
+      - temporal_difference
+    difficulty: 2
+    tags:
+      - rl
+  - id: rl_q11
+    question: In GAE(γ,λ), what happens as λ → 0?
+    options:
+      - The advantage estimate becomes pure Monte Carlo
+      - The advantage estimate becomes the one-step TD error δ_t
+      - The advantage estimate has maximum variance
+      - GAE reduces to standard REINFORCE
+    correct_answer: 1
+    explanation: "GAE computes Â_t = Σ_{l=0}^{∞} (γλ)^l δ_{t+l}. As λ → 0, only the
+      l=0 term survives: Â_t = δ_t = r_t + γV(s_{t+1}) - V(s_t). This is the
+      one-step TD advantage — lowest variance but highest bias. As λ → 1, it
+      approaches the full Monte Carlo advantage (high variance, low bias). λ ≈
+      0.95 is the typical sweet spot."
+    concept_ids:
+      - gae
+      - advantage_estimation
+    difficulty: 3
+    tags:
+      - rl
+  - id: rl_q12
+    question: "DQN uses a target network Q_target to compute TD targets. This is
+      because:"
+    options:
+      - It speeds up training by parallelizing computation
+      - It stabilizes training by preventing the target from changing with every
+        gradient step
+      - It reduces memory usage by sharing weights
+      - It allows continuous action spaces
+    correct_answer: 1
+    explanation: Without a target network, the TD target y = r + γ max_a' Q(s', a')
+      changes with every gradient update to Q, creating a moving target problem
+      that destabilizes training. The target network is a delayed copy of Q,
+      updated every C steps (or via Polyak averaging τ). This decouples the
+      target from the online network, providing stable regression targets.
+    concept_ids:
+      - dqn
+      - off_policy_learning
+    difficulty: 2
+    tags:
+      - rl
+  - id: rl_q13
+    question: "TD3 addresses overestimation bias in DDPG by using:"
+    options:
+      - A single critic with gradient clipping
+      - Two critics and taking the minimum Q-value for the target
+      - An ensemble of 5 critics with mean aggregation
+      - A pessimistic Q-function penalty
+    correct_answer: 1
+    explanation: TD3 maintains two Q-networks (Q_1, Q_2) and uses min(Q_1(s',a'),
+      Q_2(s',a')) in the TD target. Since the max over noisy Q estimates is
+      biased upward, taking the minimum of two independent estimates counteracts
+      this positive bias. TD3 also adds target policy smoothing (noise on target
+      actions) and delayed policy updates (update policy every 2 critic
+      updates).
+    concept_ids:
+      - td3
+    difficulty: 3
+    tags:
+      - rl
+  - id: rl_q14
+    question: "PPO clips the surrogate objective L^CLIP = min(r_t(θ) Â_t,
+      clip(r_t(θ), 1-ε, 1+ε) Â_t). When Â_t > 0 and r_t > 1+ε, the gradient for
+      that sample is:"
+    options:
+      - Positive and large
+      - Positive and clipped
+      - Zero — the clip activates
+      - Negative — it reverses the update
+    correct_answer: 2
+    explanation: When the advantage is positive (action was good) and the
+      probability ratio exceeds 1+ε, the clipped term (1+ε)Â_t becomes the
+      minimum, and the gradient through it is zero. This prevents the policy
+      from moving too far in one update even when the advantage is very
+      positive. The clip acts as a trust region constraint without the
+      computational cost of TRPO.
+    concept_ids:
+      - ppo_clipping
+    difficulty: 3
+    tags:
+      - rl
+  - id: rl_q15
+    question: "Curriculum learning in RL works by:"
+    options:
+      - Reducing the learning rate over time
+      - Starting with easier task variants and progressively increasing
+        difficulty
+      - Training on multiple tasks simultaneously
+      - Using a curriculum of different algorithms
+    correct_answer: 1
+    explanation: Curriculum learning starts the agent on simpler versions of the
+      task (wider tolerances, fewer obstacles, shorter horizons) where it can
+      achieve initial success, then gradually increases difficulty as
+      performance improves. This provides a smoother learning signal compared to
+      training on the full hard task from the start, where reward may be too
+      sparse for any learning to occur.
+    concept_ids:
+      - curriculum_learning
+      - reward_shaping
+    difficulty: 2
+    tags:
+      - rl
+  - id: rl_q16
+    question: "In off-policy learning, importance sampling corrects for the
+      distribution mismatch between the behavior policy μ and the target policy
+      π by:"
+    options:
+      - Reweighting samples by π(a|s)/μ(a|s)
+      - Training a separate model to bridge the gap
+      - Discarding samples where the two policies disagree
+      - Averaging the two policies' outputs
+    correct_answer: 0
+    explanation: "Importance sampling reweights each sample by the ratio
+      π(a|s)/μ(a|s). If the target policy would take an action 3x more often
+      than the behavior policy, that sample gets 3x the weight. This corrects
+      the expectation: E_μ[f(x) π(x)/μ(x)] = E_π[f(x)]. The practical problem is
+      variance explosion when ratios are large, which is why methods like
+      V-trace and PPO bound these ratios."
+    concept_ids:
+      - off_policy_learning
+      - policy_gradients
+    difficulty: 3
+    tags:
+      - rl
+  - id: rl_q17
+    question: "The discount factor γ = 0.99 vs γ = 0.9 primarily affects:"
+    options:
+      - How fast the agent learns
+      - How far into the future the agent considers rewards important
+      - Whether the policy is deterministic or stochastic
+      - The number of training episodes needed
+    correct_answer: 1
+    explanation: "The discount factor γ determines the effective planning horizon.
+      With γ = 0.99, rewards 100 steps away are still worth 0.99^100 ≈ 0.37 of
+      their face value. With γ = 0.9, rewards 100 steps away are worth 0.9^100 ≈
+      0.00003 — essentially zero. The effective horizon is approximately
+      1/(1-γ): 100 steps for γ=0.99, 10 steps for γ=0.9."
+    concept_ids:
+      - rewards_returns
+      - mdp
+    difficulty: 1
+    tags:
+      - rl
+  - id: rl_q18
+    question: TRPO constrains policy updates using KL divergence. What problem does
+      this solve compared to vanilla policy gradients?
+    options:
+      - It reduces memory usage
+      - It prevents catastrophically large policy updates that destroy
+        performance
+      - It allows off-policy data reuse
+      - It removes the need for a value baseline
+    correct_answer: 1
+    explanation: "Vanilla policy gradients with a fixed learning rate can take steps
+      that are too large in parameter space, causing the policy to collapse.
+      TRPO enforces a trust region: max_θ L(θ) subject to KL(π_old || π_θ) ≤ δ.
+      This constrains the policy change in distribution space (not parameter
+      space), ensuring each update is small enough to be reliable. PPO
+      approximates this with clipping, which is simpler but less principled."
+    concept_ids:
+      - trpo
+      - policy_gradients
+    difficulty: 3
+    tags:
+      - rl

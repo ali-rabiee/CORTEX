@@ -1,0 +1,22 @@
+---
+concept: reward_shaping
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Reward Shaping, including the key equations.
+  keyPoints:
+    - Reward shaping modifies the reward function to provide denser learning
+      signals while preserving the optimal policy.
+    - "Potential-based shaping is defined as: $$R'(s, a, s') = R(s, a, s') +
+      \\gamma\\, \\Phi(s') - \\Phi(s)$$ where $\\Phi: \\mathcal{S} \\to
+      \\mathbb{R}$ is the potential function."
+    - Ng et al. (1999) proved that potential-based shaping is the only class
+      that guarantees policy invariance — i.e., $\pi^*_{R'} = \pi^*_R$ for all
+      MDPs.
+check: []
+papers: []
+---
+
+## Formal definition
+
+Reward shaping modifies the reward function to provide denser learning signals while preserving the optimal policy. Potential-based shaping is defined as: $$R'(s, a, s') = R(s, a, s') + \gamma\, \Phi(s') - \Phi(s)$$ where $\Phi: \mathcal{S} \to \mathbb{R}$ is the potential function. Ng et al. (1999) proved that potential-based shaping is the only class that guarantees policy invariance — i.e., $\pi^*_{R'} = \pi^*_R$ for all MDPs.

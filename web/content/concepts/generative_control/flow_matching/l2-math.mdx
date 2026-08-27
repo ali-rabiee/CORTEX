@@ -1,0 +1,26 @@
+---
+concept: flow_matching
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Flow Matching for Action Generation,
+    including the key equations.
+  keyPoints:
+    - Flow matching learns a continuous-time vector field $v_\theta(\mathbf{x},
+      t)$ that transports samples from a simple distribution $p_0 =
+      \mathcal{N}(\mathbf{0}, \mathbf{I})$ to the target distribution $p_1$
+      (actions).
+    - "The trajectory follows the ODE: $\\frac{d\\mathbf{x}}{dt} =
+      v_\\theta(\\mathbf{x}, t)$ for $t \\in [0, 1]$."
+    - "Conditional flow matching (CFM) enables efficient training by regressing
+      to the conditional vector field: $$\\mathcal{L}_{\\text{CFM}} =
+      \\mathbb{E}_{t, q(\\mathbf{x}_1)} \\left[ \\| v_\\theta(\\mathbf{x}_t, t)
+      - (\\mathbf{x}_1 - \\mathbf{x}_0) \\|^2 \\right]$$ where $\\mathbf{x}_t =
+      (1-t)\\mathbf{x}_0 + t\\mathbf{x}_1$ is the linear interpolation path."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Flow matching learns a continuous-time vector field $v_\theta(\mathbf{x}, t)$ that transports samples from a simple distribution $p_0 = \mathcal{N}(\mathbf{0}, \mathbf{I})$ to the target distribution $p_1$ (actions). The trajectory follows the ODE: $\frac{d\mathbf{x}}{dt} = v_\theta(\mathbf{x}, t)$ for $t \in [0, 1]$. Conditional flow matching (CFM) enables efficient training by regressing to the conditional vector field: $$\mathcal{L}_{\text{CFM}} = \mathbb{E}_{t, q(\mathbf{x}_1)} \left[ \| v_\theta(\mathbf{x}_t, t) - (\mathbf{x}_1 - \mathbf{x}_0) \|^2 \right]$$ where $\mathbf{x}_t = (1-t)\mathbf{x}_0 + t\mathbf{x}_1$ is the linear interpolation path. Simpler training than diffusion (no noise schedule), faster inference (fewer ODE solver steps).

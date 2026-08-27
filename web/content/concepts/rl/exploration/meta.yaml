@@ -1,0 +1,15 @@
+id: exploration
+title: Exploration-Exploitation Tradeoff
+domain: rl
+summary: Imagine choosing restaurants in a new city.
+tags:
+  - rl
+  - robot_learning
+difficulty: 3
+importance: 5
+related_concept_ids:
+  - sac
+  - entropy_regularization
+  - reward_shaping
+  - offline_rl
+  - value_functions

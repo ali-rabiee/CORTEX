@@ -1,0 +1,24 @@
+---
+concept: action_chunking
+level: 5
+status: seed
+recall:
+  prompt: How does Action Chunking for Manipulation fail in practice, and how
+    would you present it in an interview?
+  keyPoints:
+    - "Chunk too long ($K$ too large): can't react to unexpected perturbations
+      or dynamic changes because actions are committed in advance."
+    - "Chunk too short ($K$ too small): loses the compounding error benefit."
+    - "Also: temporal blending between consecutive chunks can cause jittery
+      behavior if not done carefully."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Chunk too long ($K$ too large): can't react to unexpected perturbations or dynamic changes because actions are committed in advance. Chunk too short ($K$ too small): loses the compounding error benefit. Also: temporal blending between consecutive chunks can cause jittery behavior if not done carefully. Fix: use exponential weighting $w_i = \exp(-\alpha \cdot i)$ for chunk blending, choose $K$ based on task reactivity needs.
+
+## Interview-ready answer
+
+Action chunking addresses the compounding error problem in behavior cloning by predicting sequences of $K$ actions rather than one at a time. The key insight: predicting $K$ steps at once reduces the effective decision horizon from $T$ to $T/K$, so compounding error scales as $\mathcal{O}((T/K)^2)$ instead of $\mathcal{O}(T^2)$. In ACT, $K=100$ works well for manipulation tasks. Combined with temporal ensembling (blending overlapping chunks via exponential weights), it produces smooth, robust trajectories. This idea is also central to diffusion policies, which generate entire action chunks via iterative denoising from $a^{(N)} \sim \mathcal{N}(0, I)$ to $a^{(0)}$.

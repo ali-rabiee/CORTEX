@@ -1,0 +1,23 @@
+---
+concept: action_chunking
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Action Chunking for Manipulation,
+    including the key equations.
+  keyPoints:
+    - Instead of predicting a single action $a_t$ per timestep, predict a
+      sequence (chunk) of $K$ future actions $\{a_t, a_{t+1}, \ldots,
+      a_{t+K-1}\}$ at once.
+    - "The policy becomes $\\pi_\\theta: s_t \\mapsto (a_t, a_{t+1}, \\ldots,
+      a_{t+K-1})$."
+    - Reduces the effective decision horizon from $T$ to $T/K$, mitigates
+      compounding errors in BC (error scales as $\mathcal{O}((T/K)^2)$ instead
+      of $\mathcal{O}(T^2)$), and produces smoother trajectories.
+check: []
+papers: []
+---
+
+## Formal definition
+
+Instead of predicting a single action $a_t$ per timestep, predict a sequence (chunk) of $K$ future actions $\{a_t, a_{t+1}, \ldots, a_{t+K-1}\}$ at once. The policy becomes $\pi_\theta: s_t \mapsto (a_t, a_{t+1}, \ldots, a_{t+K-1})$. Reduces the effective decision horizon from $T$ to $T/K$, mitigates compounding errors in BC (error scales as $\mathcal{O}((T/K)^2)$ instead of $\mathcal{O}(T^2)$), and produces smoother trajectories. Used in ACT (Action Chunking with Transformers) and diffusion policies.

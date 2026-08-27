@@ -1,0 +1,26 @@
+---
+concept: semantic_segmentation
+level: 1
+status: seed
+recall:
+  prompt: "Explain Semantic Segmentation in plain language: what is it, and why
+    does it matter?"
+  keyPoints:
+    - Semantic segmentation colors every pixel in an image with its category —
+      floor is blue, table is green, cup is red.
+    - Unlike detection (which draws boxes), segmentation gives the exact shape.
+    - "U-Net's trick is the skip connections: the encoder compresses the image
+      (losing spatial detail but gaining context), and the decoder expands it
+      back, but the skip connections pipe the fine details directly from encoder
+      to decoder so edges stay sharp."
+check: []
+papers: []
+---
+
+## Intuition
+
+Semantic segmentation colors every pixel in an image with its category — floor is blue, table is green, cup is red. Unlike detection (which draws boxes), segmentation gives the exact shape. U-Net's trick is the skip connections: the encoder compresses the image (losing spatial detail but gaining context), and the decoder expands it back, but the skip connections pipe the fine details directly from encoder to decoder so edges stay sharp. DeepLab's trick: dilated convolutions let you see a large context without downsampling, like looking through a wide-angle lens at multiple zoom levels simultaneously.
+
+## In practice
+
+Navigation-aware segmentation for a mobile manipulator: train DeepLabV3+ (ResNet-101 backbone) on indoor scenes with classes \{floor, wall, table, chair, door, object, person, unknown\}. Data: 5000 frames from the robot's camera + ADE20K pretraining. Input $512 \times 512$ $\rightarrow$ output per-pixel class probabilities. Post-processing: CRF refinement for boundary sharpness, temporal consistency via per-pixel exponential moving average. Use segmentation map for: traversability (floor = free space), surface detection (table = manipulation workspace), safety (person = keep distance). mIoU target: $> 0.65$ across all classes.

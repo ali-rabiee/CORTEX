@@ -1,0 +1,13 @@
+id: attention_mechanism
+title: Attention Mechanism — Scaled Dot-Product Attention with Q/K/V
+domain: ml_fundamentals
+summary: Attention is a soft dictionary lookup.
+tags:
+  - ml_fundamentals
+  - foundation_models
+difficulty: 3
+importance: 5
+related_concept_ids:
+  - transformer_architecture
+  - cross_entropy_loss
+  - dropout_regularization

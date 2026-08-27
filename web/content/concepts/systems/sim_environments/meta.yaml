@@ -1,0 +1,13 @@
+id: sim_environments
+title: Simulation Environments for Robot Learning
+domain: systems
+summary: A flight simulator for robots.
+tags:
+  - systems
+  - robot_learning
+difficulty: 2
+importance: 5
+related_concept_ids:
+  - sim2real_transfer
+  - domain_randomization
+  - latency_optimization

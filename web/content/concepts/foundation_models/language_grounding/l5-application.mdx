@@ -1,0 +1,23 @@
+---
+concept: language_grounding
+level: 5
+status: seed
+recall:
+  prompt: How does Language Grounding in Robotics fail in practice, and how would
+    you present it in an interview?
+  keyPoints:
+    - "Grounding failure: language maps to wrong physical entity or impossible
+      action."
+    - "Example: 'move it closer' — what is 'it'? closer to what?"
+    - Ambiguity in language + imprecise spatial understanding = wrong action.
+check: []
+papers: []
+---
+
+## Failure modes
+
+Grounding failure: language maps to wrong physical entity or impossible action. Example: 'move it closer' — what is 'it'? closer to what? Ambiguity in language + imprecise spatial understanding = wrong action. Fix: explicit disambiguation prompts, maintain dialogue context, use pointing/gaze for reference resolution.
+
+## Interview-ready answer
+
+Language grounding connects LLM reasoning to physical robot capabilities. The key frameworks: SayCan (affordance-weighted language planning, scoring $p(a|l) \cdot p(\text{feasible}|a,s)$), Code as Policies (LLM generates Python code for robot APIs), and VLAs (end-to-end language-conditioned policies). The main challenge is the gap between what language describes abstractly and what the robot can physically do. In practice, I advocate for a grounding verification step: after the LLM proposes an action, check it against perception (can I see that object?) and kinematics (can I reach it?) before executing.

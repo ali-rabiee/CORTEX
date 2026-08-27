@@ -1,0 +1,19 @@
+---
+concept: object_segmentation
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Object Segmentation for Manipulation,
+    including the key equations.
+  keyPoints:
+    - Pixel-level identification of object instances in a scene.
+    - Instance segmentation assigns each pixel a label $y_i \in \{0, 1, \ldots,
+      K\}$ where $K$ is the number of instances.
+    - Semantic segmentation labels each pixel by class.
+check: []
+papers: []
+---
+
+## Formal definition
+
+Pixel-level identification of object instances in a scene. Instance segmentation assigns each pixel a label $y_i \in \{0, 1, \ldots, K\}$ where $K$ is the number of instances. Semantic segmentation labels each pixel by class. Panoptic segmentation combines both. For robotics: SAM (Segment Anything Model) provides zero-shot segmentation from prompts (points, boxes, or text).

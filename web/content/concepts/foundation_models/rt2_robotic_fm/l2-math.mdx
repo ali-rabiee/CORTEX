@@ -1,0 +1,22 @@
+---
+concept: rt2_robotic_fm
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of RT-2 and Robotic Foundation Models,
+    including the key equations.
+  keyPoints:
+    - RT-2 (Robotics Transformer 2) is a vision-language-action (VLA) model that
+      fine-tunes a large VLM (PaLM-E 12B or PaLI-X 55B) on robot demonstration
+      data to directly output robot actions.
+    - "Training: co-fine-tune on a mixture of web-scale vision-language data and
+      130K real robot episodes from the RT-1 dataset."
+    - Actions are tokenized into the language model vocabulary (256 bins per
+      dimension).
+check: []
+papers: []
+---
+
+## Formal definition
+
+RT-2 (Robotics Transformer 2) is a vision-language-action (VLA) model that fine-tunes a large VLM (PaLM-E 12B or PaLI-X 55B) on robot demonstration data to directly output robot actions. Training: co-fine-tune on a mixture of web-scale vision-language data and 130K real robot episodes from the RT-1 dataset. Actions are tokenized into the language model vocabulary (256 bins per dimension). At inference: $a_t = \text{RT-2}(I_t, l) = \text{VLM}(\text{token}(a_t) | I_t, l)$. Key result: internet-scale pre-training enables emergent capabilities — RT-2 can follow instructions involving novel objects, perform chain-of-thought reasoning about physical tasks, and generalize to unseen object categories. Successors: Octo (open-source, smaller, diffusion action head trained on Open X-Embodiment), OpenVLA (7B open-source VLA), $\pi_0$ (flow matching action head, multi-task).

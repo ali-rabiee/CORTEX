@@ -1,0 +1,25 @@
+---
+concept: diffusion_policy
+level: 1
+status: seed
+recall:
+  prompt: "Explain Diffusion Policy in plain language: what is it, and why does it
+    matter?"
+  keyPoints:
+    - Imagine a sculptor starting with a rough block of marble (noise) and
+      iteratively refining it into a statue (action sequence).
+    - Each denoising step adds detail.
+    - "The key advantage over BC: if there are two valid ways to pick up a mug
+      (left side or right side), diffusion can represent both modes instead of
+      averaging them into an invalid middle path."
+check: []
+papers: []
+---
+
+## Intuition
+
+Imagine a sculptor starting with a rough block of marble (noise) and iteratively refining it into a statue (action sequence). Each denoising step adds detail. The key advantage over BC: if there are two valid ways to pick up a mug (left side or right side), diffusion can represent both modes instead of averaging them into an invalid middle path.
+
+## In practice
+
+Diffusion Policy for bimanual manipulation: 2-step observation history (images + proprioception) $\rightarrow$ U-Net-based diffusion model $\rightarrow$ predict 16-step action chunks. With DDIM sampling ($\eta = 0$, 10 denoising steps instead of 100), runs at 10Hz on a GPU. Outperforms BC by 20-40% on multi-modal manipulation tasks.

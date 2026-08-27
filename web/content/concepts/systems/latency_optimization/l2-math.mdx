@@ -1,0 +1,25 @@
+---
+concept: latency_optimization
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Inference Latency Optimization for Robot
+    Control, including the key equations.
+  keyPoints:
+    - Reducing the time from observation to action output to meet real-time
+      control requirements.
+    - "Techniques: model distillation ($\\mathcal{L}_{\\text{KD}} =
+      \\text{KL}(p_{\\text{teacher}} \\| p_{\\text{student}})$), quantization
+      (FP32 $\\rightarrow$ FP16/INT8), TensorRT compilation, batched inference,
+      async perception-control pipelines, model pruning
+      (structured/unstructured)."
+    - "Target latencies: $< 50\\,\\text{ms}$ for manipulation, $<
+      10\\,\\text{ms}$ for reactive control, $< 1\\,\\text{ms}$ for joint-level
+      servo."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Reducing the time from observation to action output to meet real-time control requirements. Techniques: model distillation ($\mathcal{L}_{\text{KD}} = \text{KL}(p_{\text{teacher}} \| p_{\text{student}})$), quantization (FP32 $\rightarrow$ FP16/INT8), TensorRT compilation, batched inference, async perception-control pipelines, model pruning (structured/unstructured). Target latencies: $< 50\,\text{ms}$ for manipulation, $< 10\,\text{ms}$ for reactive control, $< 1\,\text{ms}$ for joint-level servo.

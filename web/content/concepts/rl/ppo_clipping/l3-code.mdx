@@ -1,0 +1,106 @@
+---
+concept: ppo_clipping
+level: 3
+status: final
+recall:
+  prompt: "Sketch the PPO clipped surrogate loss in PyTorch. What are the inputs, and where does the clipping happen?"
+  keyPoints:
+    - "ratio = (logp_new - logp_old).exp() — computed from stored old log-probs, never a second forward pass of a frozen net"
+    - "surr1 = ratio * adv; surr2 = clamp(ratio, 1-eps, 1+eps) * adv; loss = -min(surr1, surr2).mean()"
+    - "Advantages are normalized per batch; the same batch is reused for 3–10 epochs of minibatch SGD"
+check:
+  - id: ppo_l3_c1
+    prompt: "In the PPO loss, why take `torch.min(surr1, surr2)` rather than always using the clipped term `surr2`?"
+    options:
+      - "The min makes the objective a pessimistic lower bound: clipping only removes the incentive to move the ratio further when the update would help, but leaves the gradient intact when the update is bad and needs undoing"
+      - "torch.min is faster to differentiate than clamp alone"
+      - "It guarantees the ratio always stays inside $[1-\\epsilon, 1+\\epsilon]$"
+      - "It averages the clipped and unclipped objectives for lower variance"
+    answer: 0
+    explanation: "Clipping alone would also zero the gradient when the policy has already moved too far in a *bad* direction (e.g. ratio > 1+ε with negative advantage). The min keeps the unclipped term active in exactly those cases, so the policy can recover. The ratio itself is never constrained — only the objective is."
+  - id: ppo_l3_c2
+    prompt: "Why does the implementation store `logp_old` during rollout instead of recomputing it from a frozen copy of the policy?"
+    options:
+      - "Recomputing would give different values because the policy is stochastic"
+      - "The log-prob at collection time is exactly what the importance ratio needs; storing it avoids keeping a second network and a second forward pass per epoch"
+      - "Storing logp_old is required for the entropy bonus"
+      - "PyTorch cannot copy networks cheaply"
+    answer: 1
+    explanation: "The ratio is π_new(a|s) / π_collect(a|s). The denominator is a constant w.r.t. θ — a number you already had when sampling the action. Storing it is exact, cheap, and standard in every implementation (SB3, CleanRL)."
+---
+
+## The whole algorithm fits in one loss
+
+Everything PPO adds over vanilla policy gradient is ~6 lines.
+
+<CodeWalk title="PPO clipped loss (the core, verbatim from any serious implementation)">
+
+```python title="ppo_loss.py"
+import torch
+
+def ppo_loss(policy, batch, clip_eps=0.2, vf_coef=0.5, ent_coef=0.01):
+    """batch: obs (N, obs_dim), act (N, act_dim), logp_old (N,),
+    adv (N,), ret (N,) — all collected under the *previous* policy."""
+    dist, value = policy(batch.obs)            # current policy forward
+    logp = dist.log_prob(batch.act)
+
+    # Importance ratio against the data-collecting policy.
+    ratio = (logp - batch.logp_old).exp()      # (N,)
+
+    # Normalize advantages per batch — stabilizes scale across iterations.
+    adv = (batch.adv - batch.adv.mean()) / (batch.adv.std() + 1e-8)
+
+    surr1 = ratio * adv
+    surr2 = torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * adv
+    policy_loss = -torch.min(surr1, surr2).mean()
+
+    value_loss = (value.squeeze(-1) - batch.ret).pow(2).mean()
+    entropy = dist.entropy().mean()
+
+    return policy_loss + vf_coef * value_loss - ent_coef * entropy
+```
+
+The three terms: clipped surrogate (the actual PPO idea), a value-function
+regression for the critic, and an entropy bonus that delays premature
+determinism.
+
+</CodeWalk>
+
+## The training loop around it
+
+The loss only matters because PPO reuses each batch for several epochs —
+that's where the ratio drifts away from 1 and clipping starts to bite.
+
+```python title="train_step.py"
+for update in range(num_updates):
+    batch = collect_rollout(policy, env, steps=2048)   # logp_old stored here
+    batch.adv, batch.ret = compute_gae(batch, gamma=0.99, lam=0.95)
+
+    for epoch in range(10):                            # reuse the same data
+        for mb in batch.minibatches(64, shuffle=True):
+            loss = ppo_loss(policy, mb, clip_eps=0.2)
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(policy.parameters(), 0.5)
+            optimizer.step()
+```
+
+<KeyIdea>
+
+On epoch 1, `ratio == 1` exactly and clipping is a no-op — PPO's first
+gradient step *is* vanilla policy gradient. Clipping only matters on epochs
+2–10, where it stops the policy from exploiting stale advantages. That reuse
+is the entire sample-efficiency win over A2C.
+
+</KeyIdea>
+
+<Warning>
+
+The two classic implementation bugs: (1) forgetting advantage normalization,
+which makes `clip_eps` meaningless because advantage scale drifts across
+updates; (2) computing `logp_old` with `no_grad` from the *current* network
+inside the epoch loop — the ratio is then 1 forever and you silently train
+vanilla PG. Gradient clipping at 0.5 and `lr = 3e-4` are the defaults worth
+copying.
+
+</Warning>

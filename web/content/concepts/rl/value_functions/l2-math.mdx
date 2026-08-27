@@ -1,0 +1,24 @@
+---
+concept: value_functions
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Value Functions ($V$ and $Q$), including
+    the key equations.
+  keyPoints:
+    - The state-value function $V^\pi(s) =
+      \mathbb{E}_\pi\left[\sum_{t=0}^{\infty} \gamma^t r_t \,\middle|\, s_0 =
+      s\right]$ estimates expected cumulative discounted reward from state $s$
+      under policy $\pi$.
+    - The action-value function $Q^\pi(s,a) =
+      \mathbb{E}_\pi\left[\sum_{t=0}^{\infty} \gamma^t r_t \,\middle|\, s_0 =
+      s,\, a_0 = a\right]$ conditions on the initial action.
+    - The advantage $A^\pi(s,a) = Q^\pi(s,a) - V^\pi(s)$ measures how much
+      better action $a$ is compared to average.
+check: []
+papers: []
+---
+
+## Formal definition
+
+The state-value function $V^\pi(s) = \mathbb{E}_\pi\left[\sum_{t=0}^{\infty} \gamma^t r_t \,\middle|\, s_0 = s\right]$ estimates expected cumulative discounted reward from state $s$ under policy $\pi$. The action-value function $Q^\pi(s,a) = \mathbb{E}_\pi\left[\sum_{t=0}^{\infty} \gamma^t r_t \,\middle|\, s_0 = s,\, a_0 = a\right]$ conditions on the initial action. The advantage $A^\pi(s,a) = Q^\pi(s,a) - V^\pi(s)$ measures how much better action $a$ is compared to average. These satisfy the Bellman equation: $$V^\pi(s) = \mathbb{E}_{a \sim \pi}\left[R(s,a) + \gamma \mathbb{E}_{s'}[V^\pi(s')]\right]$$

@@ -1,0 +1,25 @@
+---
+concept: trpo
+level: 5
+status: seed
+recall:
+  prompt: How does Trust Region Policy Optimization (TRPO) fail in practice, and
+    how would you present it in an interview?
+  keyPoints:
+    - Conjugate gradient approximation errors can violate the trust region
+      constraint, causing occasional large updates.
+    - "Symptoms: sporadic reward drops despite the theoretical monotonic
+      improvement guarantee."
+    - Also, TRPO is computationally expensive — each update requires multiple
+      Hessian-vector products $Fv$ via finite differences.
+check: []
+papers: []
+---
+
+## Failure modes
+
+Conjugate gradient approximation errors can violate the trust region constraint, causing occasional large updates. Symptoms: sporadic reward drops despite the theoretical monotonic improvement guarantee. Also, TRPO is computationally expensive — each update requires multiple Hessian-vector products $Fv$ via finite differences. For large networks (>10M params), the conjugate gradient solve becomes a bottleneck. Fix: use PPO for a simpler approximation, or reduce CG iterations (10 is standard) with tighter line search.
+
+## Interview-ready answer
+
+TRPO provides a principled trust-region approach to policy optimization by solving $\max_\theta L(\theta)$ subject to $D_{\text{KL}}(\pi_{\text{old}} \| \pi_\theta) \leq \delta$, with theoretical monotonic improvement guarantees under certain assumptions. It uses the natural gradient $F^{-1}g$ computed via conjugate gradient without ever forming the Fisher matrix $F$ explicitly — just Hessian-vector products. In practice, PPO replaced TRPO because the clipping objective is much simpler to implement, parallelizes better, and performs comparably. However, TRPO's theory is important: it established why constraining KL divergence (not Euclidean distance in parameter space) is the right measure for policy updates. I would use TRPO over PPO only if I needed strict monotonic improvement guarantees.

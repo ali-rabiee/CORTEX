@@ -1,0 +1,28 @@
+---
+concept: semantic_segmentation
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Semantic Segmentation, including the key
+    equations.
+  keyPoints:
+    - Pixel-level classification assigning each pixel a semantic class label
+      $y_{u,v} \in \{1, \ldots, C\}$ from a predefined set of $C$ categories.
+    - "Core architectures: (1) FCN (Fully Convolutional Network) — replace FC
+      layers with $1 \\times 1$ convolutions for dense prediction; (2) U-Net —
+      encoder-decoder with skip connections preserving spatial detail, loss
+      $\\mathcal{L} = -\\frac{1}{N}\\sum_{i}\\sum_{c} y_{i,c} \\log
+      \\hat{y}_{i,c}$ with optional class weighting for imbalanced scenes; (3)
+      DeepLab — atrous (dilated) convolutions at multiple rates (ASPP) for
+      multi-scale context without reducing resolution; (4) Transformer-based —
+      SegFormer, Mask2Former."
+    - "Variants: instance segmentation (separate instances of the same class),
+      panoptic segmentation (combines semantic + instance: 'stuff' classes like
+      floor + 'thing' classes like cups)."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Pixel-level classification assigning each pixel a semantic class label $y_{u,v} \in \{1, \ldots, C\}$ from a predefined set of $C$ categories. Core architectures: (1) FCN (Fully Convolutional Network) — replace FC layers with $1 \times 1$ convolutions for dense prediction; (2) U-Net — encoder-decoder with skip connections preserving spatial detail, loss $\mathcal{L} = -\frac{1}{N}\sum_{i}\sum_{c} y_{i,c} \log \hat{y}_{i,c}$ with optional class weighting for imbalanced scenes; (3) DeepLab — atrous (dilated) convolutions at multiple rates (ASPP) for multi-scale context without reducing resolution; (4) Transformer-based — SegFormer, Mask2Former. Variants: instance segmentation (separate instances of the same class), panoptic segmentation (combines semantic + instance: 'stuff' classes like floor + 'thing' classes like cups).

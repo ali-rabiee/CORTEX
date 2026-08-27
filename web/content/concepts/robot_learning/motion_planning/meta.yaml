@@ -1,0 +1,14 @@
+id: motion_planning
+title: Motion Planning for Manipulation
+domain: robot_learning
+summary: Imagine navigating a robot arm through a cluttered shelf to grab an
+  object in the back.
+tags:
+  - robot_learning
+  - systems
+difficulty: 2
+importance: 4
+related_concept_ids:
+  - contact_rich_manipulation
+  - sim2real_transfer
+  - latency_optimization

@@ -1,0 +1,24 @@
+---
+concept: advantage_estimation
+level: 1
+status: seed
+recall:
+  prompt: "Explain Generalized Advantage Estimation (GAE) in plain language: what
+    is it, and why does it matter?"
+  keyPoints:
+    - Imagine estimating how good a chess move was.
+    - You could look one step ahead (low variance but biased by your imperfect
+      position evaluator — that's $\lambda = 0$, the TD residual $\delta_t$).
+    - Or you could play out the entire game and use the actual outcome (unbiased
+      but high variance — that's $\lambda = 1$, Monte Carlo).
+check: []
+papers: []
+---
+
+## Intuition
+
+Imagine estimating how good a chess move was. You could look one step ahead (low variance but biased by your imperfect position evaluator — that's $\lambda = 0$, the TD residual $\delta_t$). Or you could play out the entire game and use the actual outcome (unbiased but high variance — that's $\lambda = 1$, Monte Carlo). GAE with $\lambda = 0.95$ is like mostly trusting the game outcome but slightly anchoring to your position evaluator at each step. The $(\gamma\lambda)^l$ weighting means distant TD residuals contribute exponentially less.
+
+## In practice
+
+In a PPO implementation for quadruped locomotion: collect rollouts of length $T=2048$, compute TD residuals $\delta_t = r_t + \gamma V_\phi(s_{t+1}) - V_\phi(s_t)$, then compute GAE advantages backwards: $\hat{A}_T = 0$, $\hat{A}_t = \delta_t + \gamma\lambda \hat{A}_{t+1}$. With $\gamma = 0.99$, $\lambda = 0.95$: the effective lookahead is $\frac{1}{1-\gamma\lambda} \approx 20$ steps. Normalize: $\hat{A} \leftarrow (\hat{A} - \mu)/\sigma$ per batch. Value targets: $V_{\text{target},t} = \hat{A}_t + V_\phi(s_t)$.

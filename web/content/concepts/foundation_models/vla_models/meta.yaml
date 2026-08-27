@@ -1,0 +1,16 @@
+id: vla_models
+title: Vision-Language-Action (VLA) Models
+domain: foundation_models
+summary: "A VLM can look at a scene and answer 'what do you see?' A VLA goes
+  further: 'given what you see and the instruction pick up the red cup, what
+  should the robot do?' It bridges language understanding, visual
+  perception,..."
+tags:
+  - foundation_models
+  - robot_learning
+difficulty: 4
+importance: 5
+related_concept_ids:
+  - vlm_models
+  - behavior_cloning
+  - language_grounding

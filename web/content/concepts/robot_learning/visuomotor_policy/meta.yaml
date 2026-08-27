@@ -1,0 +1,15 @@
+id: visuomotor_policy
+title: Visuomotor Policies
+domain: robot_learning
+summary: Instead of building separate perception (detect object) → planning
+  (compute grasp) → control (execute motion) modules, you train one neural
+  network that sees the camera image and outputs joint velocities.
+tags:
+  - robot_learning
+  - perception
+difficulty: 3
+importance: 4
+related_concept_ids:
+  - behavior_cloning
+  - sim2real_transfer
+  - representation_learning

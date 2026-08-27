@@ -1,0 +1,28 @@
+---
+concept: transformer_architecture
+level: 1
+status: seed
+recall:
+  prompt: "Explain Transformer Architecture — Self-Attention and Positional
+    Encoding in plain language: what is it, and why does it matter?"
+  keyPoints:
+    - A Transformer is like a room full of researchers, each simultaneously
+      reading the entire document and highlighting the parts most relevant to
+      their assigned position.
+    - Multi-head attention lets different heads attend to different types of
+      relationships — one head might track syntactic dependencies while another
+      captures semantic similarity.
+    - Positional encodings are the page numbers that tell each researcher where
+      they are in the document, since unlike RNNs, there is no inherent notion
+      of order.
+check: []
+papers: []
+---
+
+## Intuition
+
+A Transformer is like a room full of researchers, each simultaneously reading the entire document and highlighting the parts most relevant to their assigned position. Multi-head attention lets different heads attend to different types of relationships — one head might track syntactic dependencies while another captures semantic similarity. Positional encodings are the page numbers that tell each researcher where they are in the document, since unlike RNNs, there is no inherent notion of order.
+
+## In practice
+
+A ViT-Base for robotic manipulation perception: patch size 16, $d_{\text{model}} = 768$, 12 heads, 12 layers. Input: $224 \times 224$ image → 196 patches + [CLS] token. Self-attention computes all-pairs patch relationships in $O(n^2 d)$ where $n = 197$. For a robot policy taking 3Hz camera input, the 86M parameter ViT runs in ~8ms on an RTX 3090. Key: pre-trained on ImageNet, fine-tuned on robot data with frozen early layers.

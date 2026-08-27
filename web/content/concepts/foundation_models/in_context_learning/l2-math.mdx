@@ -1,0 +1,23 @@
+---
+concept: in_context_learning
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of In-Context Learning and Few-Shot
+    Prompting for Robotics, including the key equations.
+  keyPoints:
+    - Leveraging a foundation model's ability to adapt to new tasks at inference
+      time through carefully constructed prompts containing examples, without
+      any gradient updates.
+    - "For robotics: providing the model with $k$ demonstration examples
+      $\\{(o_i, a_i)\\}_{i=1}^{k}$ in the prompt to condition behavior on a new
+      task."
+    - Formally, the predicted action is $a^* = \arg\max_a P_\theta(a |
+      o_{\text{query}}, \{(o_1, a_1), \ldots, (o_k, a_k)\})$.
+check: []
+papers: []
+---
+
+## Formal definition
+
+Leveraging a foundation model's ability to adapt to new tasks at inference time through carefully constructed prompts containing examples, without any gradient updates. For robotics: providing the model with $k$ demonstration examples $\{(o_i, a_i)\}_{i=1}^{k}$ in the prompt to condition behavior on a new task. Formally, the predicted action is $a^* = \arg\max_a P_\theta(a | o_{\text{query}}, \{(o_1, a_1), \ldots, (o_k, a_k)\})$. Extends to Code as Policies: LLM generates executable robot code from a few examples of the desired input-output mapping.

@@ -1,0 +1,25 @@
+---
+concept: motion_planning
+level: 5
+status: seed
+recall:
+  prompt: How does Motion Planning for Manipulation fail in practice, and how
+    would you present it in an interview?
+  keyPoints:
+    - "Planning in narrow passages (e.g., reaching into a tight shelf): RRT has
+      low probability of sampling in the narrow $\\mathcal{C}_{\\text{free}}$
+      passage, causing timeout."
+    - "Also: plans may be jerky or unnecessarily long without post-processing."
+    - "Symptoms: planner takes >10s or fails entirely, robot takes a circuitous
+      path."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Planning in narrow passages (e.g., reaching into a tight shelf): RRT has low probability of sampling in the narrow $\mathcal{C}_{\text{free}}$ passage, causing timeout. Also: plans may be jerky or unnecessarily long without post-processing. Symptoms: planner takes >10s or fails entirely, robot takes a circuitous path. Fix: use bidirectional RRT-Connect, add task-space biasing, shortcut smoothing, or switch to optimization-based methods (TrajOpt) for constrained scenarios.
+
+## Interview-ready answer
+
+Motion planning is the bridge between high-level policy outputs and safe robot execution. For manipulation, I typically use: RRT-Connect for general planning (fast, probabilistically complete), TrajOpt for constrained tasks (maintains end-effector orientation during pouring), and pre-computed roadmaps for repetitive tasks. In practice, the biggest challenge is not the planning algorithm but the collision model — stale or inaccurate scene geometry causes collisions. My pipeline: perception $\rightarrow$ scene update $\rightarrow$ plan $\rightarrow$ validate $\rightarrow$ execute, with real-time collision checking during execution. For learned policies, motion planning serves as a safety layer between the policy's desired actions and actual execution.

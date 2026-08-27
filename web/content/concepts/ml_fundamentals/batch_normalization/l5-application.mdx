@@ -1,0 +1,24 @@
+---
+concept: batch_normalization
+level: 5
+status: seed
+recall:
+  prompt: How does Batch Normalization — Reducing Internal Covariate Shift fail in
+    practice, and how would you present it in an interview?
+  keyPoints:
+    - Small batch sizes ($m < 16$) cause noisy batch statistics, destabilizing
+      training.
+    - This is common in robotics where memory-intensive models limit batch size.
+    - "Symptoms: validation metrics fluctuate wildly, train/eval performance gap
+      due to batch vs running statistics mismatch."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Small batch sizes ($m < 16$) cause noisy batch statistics, destabilizing training. This is common in robotics where memory-intensive models limit batch size. Symptoms: validation metrics fluctuate wildly, train/eval performance gap due to batch vs running statistics mismatch. Root cause: $\sigma_B^2$ estimated from small batches has high variance. Fixes: use Group Normalization ($\text{GN}$) or Layer Normalization ($\text{LN}$) which are batch-size independent, or synchronized BatchNorm across GPUs. Also: BatchNorm breaks when used with gradient accumulation across micro-batches — each micro-batch has its own statistics.
+
+## Interview-ready answer
+
+BatchNorm normalizes activations to zero mean and unit variance per feature using batch statistics, then applies learnable $\gamma$ and $\beta$. It smooths the loss landscape (Santurkar et al., not just covariate shift reduction as originally claimed) enabling higher learning rates. Critical implementation details: use running statistics at inference, be aware of train/eval mode bugs (a common source of silent performance drops), and avoid small batch sizes where statistics are noisy. For transformers and small-batch robotics settings, Layer Normalization is preferred since it normalizes across features rather than batch. In practice: BatchNorm for CNNs with large batches, LayerNorm for transformers and attention-based architectures.

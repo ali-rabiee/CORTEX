@@ -1,0 +1,22 @@
+---
+concept: overfitting_underfitting
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Overfitting and Underfitting —
+    Bias-Variance Tradeoff and Model Capacity, including the key equations.
+  keyPoints:
+    - "The expected test error decomposes as: $$E[(y - \\hat{f}(x))^2] =
+      \\text{Bias}(\\hat{f})^2 + \\text{Var}(\\hat{f}) + \\sigma^2$$ where
+      $\\sigma^2$ is irreducible noise."
+    - Underfitting (high bias) occurs when the model lacks capacity to capture
+      the true function — both training and test error are high.
+    - Overfitting (high variance) occurs when the model memorizes training noise
+      — training error is low but test error is high.
+check: []
+papers: []
+---
+
+## Formal definition
+
+The expected test error decomposes as: $$E[(y - \hat{f}(x))^2] = \text{Bias}(\hat{f})^2 + \text{Var}(\hat{f}) + \sigma^2$$ where $\sigma^2$ is irreducible noise. Underfitting (high bias) occurs when the model lacks capacity to capture the true function — both training and test error are high. Overfitting (high variance) occurs when the model memorizes training noise — training error is low but test error is high. Model capacity is formalized by VC dimension, Rademacher complexity, or more practically by parameter count and effective dimensionality.

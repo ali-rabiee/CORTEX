@@ -1,0 +1,24 @@
+---
+concept: domain_randomization
+level: 5
+status: seed
+recall:
+  prompt: How does Domain Randomization fail in practice, and how would you
+    present it in an interview?
+  keyPoints:
+    - "Randomization range too wide: policy becomes overly conservative,
+      performing worst-case behavior everywhere."
+    - "Randomization range too narrow: doesn't cover real-world variation, i.e.,
+      $\\xi_{\\text{real}} \\notin \\Xi$."
+    - "Symptoms: either cautious/slow policy or failed transfer."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Randomization range too wide: policy becomes overly conservative, performing worst-case behavior everywhere. Randomization range too narrow: doesn't cover real-world variation, i.e., $\xi_{\text{real}} \notin \Xi$. Symptoms: either cautious/slow policy or failed transfer. Fix: use automatic domain randomization (ADR) that expands ranges based on performance thresholds $\phi$, or use system identification to set realistic ranges.
+
+## Interview-ready answer
+
+Domain randomization makes sim2real work at scale. The insight: if the policy has seen enough variation during training, the real world becomes just another sample from the training distribution $p(\xi)$. In practice, I randomize physics ($m, \mu, d$), dynamics (action delay $\Delta t$, control frequency), and visual properties (textures, lighting, camera). The critical design choice is the randomization distribution — too narrow and $\xi_{\text{real}} \notin \Xi$, too wide and the policy becomes conservative. ADR (Automatic Domain Randomization) addresses this by expanding ranges when the policy exceeds a success threshold and narrowing when it fails.

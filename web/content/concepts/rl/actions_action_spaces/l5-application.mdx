@@ -1,0 +1,30 @@
+---
+concept: actions_action_spaces
+level: 5
+status: seed
+recall:
+  prompt: How does Actions and Action Spaces fail in practice, and how would you
+    present it in an interview?
+  keyPoints:
+    - "Action space design mistakes: (1) Unnormalized actions — if joint 1 has
+      range $[-1, 1]$ and joint 7 has range $[-100, 100]$, the policy struggles
+      to learn appropriate scales."
+    - "Fix: normalize all actions to $[-1, 1]$. (2) Action dimension too high —
+      learning a policy for $a \\in \\mathbb{R}^{30}$ (e.g., full dexterous
+      hand) is extremely sample-inefficient."
+    - "Fix: use action primitives, hierarchical actions, or pre-trained
+      low-level controllers. (3) Missing $\\tanh$ squashing — Gaussian policies
+      can output $|a| \\gg 1$, causing simulator instabilities or NaN gradients.
+      (4) Incorrect log-probability computation when using $\\tanh$ — forgetting
+      the Jacobian correction term leads to biased policy gradient estimates."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Action space design mistakes: (1) Unnormalized actions — if joint 1 has range $[-1, 1]$ and joint 7 has range $[-100, 100]$, the policy struggles to learn appropriate scales. Fix: normalize all actions to $[-1, 1]$. (2) Action dimension too high — learning a policy for $a \in \mathbb{R}^{30}$ (e.g., full dexterous hand) is extremely sample-inefficient. Fix: use action primitives, hierarchical actions, or pre-trained low-level controllers. (3) Missing $\tanh$ squashing — Gaussian policies can output $|a| \gg 1$, causing simulator instabilities or NaN gradients. (4) Incorrect log-probability computation when using $\tanh$ — forgetting the Jacobian correction term leads to biased policy gradient estimates.
+
+## Interview-ready answer
+
+Action space design is one of the most impactful choices in robot RL. For manipulation, I typically use end-effector delta actions $\Delta(x,y,z,\text{rot}) \in \mathbb{R}^{6-7}$ with a low-level controller, rather than raw joint torques — this dramatically improves sample efficiency. For locomotion, joint position targets with PD controllers are standard. Key implementation details: always normalize to $[-1, 1]$, use $\tanh$ squashing with log-prob Jacobian correction ($-\sum \log(1 - \tanh^2)$), and consider action smoothing (temporal filtering) to avoid jerky motions. For high-DOF systems like dexterous hands ($d \geq 20$), action space reduction via PCA, synergies, or hierarchical policies is critical for tractable learning.

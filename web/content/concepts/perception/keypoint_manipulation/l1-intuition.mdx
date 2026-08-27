@@ -1,0 +1,25 @@
+---
+concept: keypoint_manipulation
+level: 1
+status: seed
+recall:
+  prompt: "Explain Keypoint-Based Manipulation in plain language: what is it, and
+    why does it matter?"
+  keyPoints:
+    - Instead of telling a robot the full 6D pose of every object, keypoints say
+      'grab here, place there' — just a few critical points.
+    - "Dense correspondence goes further: for every pixel on an object, learn a
+      descriptor so you can find 'the same point' even if the object moved,
+      rotated, or you're looking from a different angle."
+    - It's like each point on the object has a unique fingerprint.
+check: []
+papers: []
+---
+
+## Intuition
+
+Instead of telling a robot the full 6D pose of every object, keypoints say 'grab here, place there' — just a few critical points. Dense correspondence goes further: for every pixel on an object, learn a descriptor so you can find 'the same point' even if the object moved, rotated, or you're looking from a different angle. It's like each point on the object has a unique fingerprint. Transporter Networks elegantly combine picking and placing: attention finds 'what to pick,' cross-correlation finds 'where to place it and at what angle.'
+
+## In practice
+
+Dense Object Nets for mug manipulation: train on 500 self-supervised episodes of a robot pushing/rotating a mug, collecting RGB images from a fixed camera. Learn dense descriptors ($D = 3$ dimensions for visualization, $D = 16$ for deployment) via pixelwise contrastive loss on corresponding points (from known camera poses + depth). At test time: user clicks 'grasp here' on a reference image $\rightarrow$ find the corresponding 3D point on the current observation by matching descriptors $\rightarrow$ grasp at that point. Generalizes across mug instances (different colors, sizes) because the descriptor captures functional geometry (handle, rim) not appearance. Transporter Networks for kit assembly: 10 demonstrations of placing parts in a tray $\rightarrow$ learns pick attention + place cross-correlation $\rightarrow$ achieves $> 90\%$ success with rotation discretization of $1°$ increments over $360°$.

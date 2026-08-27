@@ -1,0 +1,24 @@
+---
+concept: off_policy_learning
+level: 1
+status: seed
+recall:
+  prompt: "Explain Off-Policy Learning in plain language: what is it, and why does
+    it matter?"
+  keyPoints:
+    - On-policy learning is like a student who can only learn from their own
+      homework.
+    - Off-policy learning is like learning from everyone's homework — including
+      last year's students.
+    - "The benefit is obvious: massive data reuse via replay buffers."
+check: []
+papers: []
+---
+
+## Intuition
+
+On-policy learning is like a student who can only learn from their own homework. Off-policy learning is like learning from everyone's homework — including last year's students. The benefit is obvious: massive data reuse via replay buffers. The challenge: if the behavior policy $\pi_\beta$ rarely takes action $a$ but your target policy $\pi$ relies on it, you have very few samples for that action, leading to high variance importance weights $\frac{\pi(a|s)}{\pi_\beta(a|s)} \gg 1$. Q-learning elegantly sidesteps this by bootstrapping — the $\max_{a'} Q(s',a')$ target doesn't require samples from $\pi$.
+
+## In practice
+
+Comparing on-policy PPO vs off-policy SAC for a Franka reach task: PPO collects 2048 steps, uses them for 10 update epochs, then discards them — data efficiency $\approx 10 \times$. SAC stores all data in a replay buffer ($|\mathcal{B}| = 10^6$), samples each transition $\sim 100$ times over training — data efficiency $\approx 100 \times$. For a real robot collecting at 10 Hz: PPO needs $\sim 5$ hours for 200K steps; SAC needs $\sim 30$ minutes for 20K steps (10x fewer) to reach similar performance. Importance sampling in practice: V-trace (used in IMPALA) clips importance weights $\min(\bar{c}, \frac{\pi}{\pi_\beta})$ to control variance while maintaining some correction.

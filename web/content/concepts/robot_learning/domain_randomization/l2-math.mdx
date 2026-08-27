@@ -1,0 +1,23 @@
+---
+concept: domain_randomization
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Domain Randomization, including the key
+    equations.
+  keyPoints:
+    - Training with randomized simulation parameters $\xi \sim \mathcal{U}(\Xi)$
+      so the policy treats the real world as just another random variation.
+    - "The objective becomes: $$\\pi^* = \\arg\\max_\\pi \\mathbb{E}_{\\xi \\sim
+      p(\\xi)} \\left[ \\mathbb{E}_{\\tau \\sim \\pi, T_\\xi} \\left[
+      \\sum_{t=0}^H \\gamma^t R(s_t, a_t) \\right] \\right]$$ Parameters
+      randomized include: mass $m$, friction $\\mu$, damping $d$, visual
+      textures, lighting, camera pose, observation noise $\\epsilon \\sim
+      \\mathcal{N}(0, \\sigma^2)$, action delays $\\Delta t$."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Training with randomized simulation parameters $\xi \sim \mathcal{U}(\Xi)$ so the policy treats the real world as just another random variation. The objective becomes: $$\pi^* = \arg\max_\pi \mathbb{E}_{\xi \sim p(\xi)} \left[ \mathbb{E}_{\tau \sim \pi, T_\xi} \left[ \sum_{t=0}^H \gamma^t R(s_t, a_t) \right] \right]$$ Parameters randomized include: mass $m$, friction $\mu$, damping $d$, visual textures, lighting, camera pose, observation noise $\epsilon \sim \mathcal{N}(0, \sigma^2)$, action delays $\Delta t$.

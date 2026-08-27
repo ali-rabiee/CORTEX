@@ -1,0 +1,27 @@
+---
+concept: llm_capabilities
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of LLM Capabilities and Limitations for
+    Robotics, including the key equations.
+  keyPoints:
+    - "Large language models are autoregressive transformers trained to predict
+      the next token: $P_\\theta(x_t | x_{<t})$, pre-trained on internet-scale
+      text corpora via the objective $\\mathcal{L} = -\\sum_t \\log
+      P_\\theta(x_t | x_{<t})$."
+    - "Key capabilities: (1) zero/few-shot task specification via prompting, (2)
+      chain-of-thought (CoT) reasoning — decomposing complex problems into
+      intermediate steps, (3) instruction following via RLHF/DPO alignment."
+    - "Key limitations for robotics: hallucination (generating plausible but
+      incorrect physical facts), no grounded physical understanding (language
+      about physics $\\neq$ physics intuition), token limits bounding context
+      window (typically 4K-128K tokens), and inability to directly perceive or
+      act in the physical world without additional modules."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Large language models are autoregressive transformers trained to predict the next token: $P_\theta(x_t | x_{<t})$, pre-trained on internet-scale text corpora via the objective $\mathcal{L} = -\sum_t \log P_\theta(x_t | x_{<t})$. Key capabilities: (1) zero/few-shot task specification via prompting, (2) chain-of-thought (CoT) reasoning — decomposing complex problems into intermediate steps, (3) instruction following via RLHF/DPO alignment. Key limitations for robotics: hallucination (generating plausible but incorrect physical facts), no grounded physical understanding (language about physics $\neq$ physics intuition), token limits bounding context window (typically 4K-128K tokens), and inability to directly perceive or act in the physical world without additional modules.

@@ -1,0 +1,26 @@
+---
+concept: sim2real_transfer
+level: 1
+status: seed
+recall:
+  prompt: "Explain Sim-to-Real Transfer in plain language: what is it, and why
+    does it matter?"
+  keyPoints:
+    - Like training a pilot only on a flight simulator, then putting them in a
+      real cockpit.
+    - The simulator doesn't perfectly model turbulence, weather, or instrument
+      lag.
+    - Domain randomization is like training in hundreds of slightly wrong
+      simulators — the pilot learns to handle anything because no single sim was
+      'right.'
+check: []
+papers: []
+---
+
+## Intuition
+
+Like training a pilot only on a flight simulator, then putting them in a real cockpit. The simulator doesn't perfectly model turbulence, weather, or instrument lag. Domain randomization is like training in hundreds of slightly wrong simulators — the pilot learns to handle anything because no single sim was 'right.'
+
+## In practice
+
+Training a robot hand to rotate a Rubik's cube (OpenAI, 2019). Policy trained in Isaac Gym with massive domain randomization: friction $\mu \in [0.5\mu_0, 1.5\mu_0]$, mass $m \in [0.7m_0, 1.3m_0]$, joint damping $d \in [0.6d_0, 1.4d_0]$, visual texture randomization. $10^{11}$ sim steps, transferred zero-shot to real robot with ~70% success.

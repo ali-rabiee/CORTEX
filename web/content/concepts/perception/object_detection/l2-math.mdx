@@ -1,0 +1,23 @@
+---
+concept: object_detection
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Object Detection for Robotics, including
+    the key equations.
+  keyPoints:
+    - Localizing and classifying objects in images by predicting bounding boxes
+      $\{(x, y, w, h, c, p)\}$ where $(x, y, w, h)$ are box coordinates, $c$ is
+      the class label, and $p$ is the confidence score.
+    - "Two-stage methods (Faster R-CNN): Region Proposal Network generates
+      candidates $\\rightarrow$ RoI pooling $\\rightarrow$ per-proposal
+      classification and regression."
+    - "One-stage methods (YOLO, SSD, RetinaNet): directly predict boxes on a
+      dense grid."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Localizing and classifying objects in images by predicting bounding boxes $\{(x, y, w, h, c, p)\}$ where $(x, y, w, h)$ are box coordinates, $c$ is the class label, and $p$ is the confidence score. Two-stage methods (Faster R-CNN): Region Proposal Network generates candidates $\rightarrow$ RoI pooling $\rightarrow$ per-proposal classification and regression. One-stage methods (YOLO, SSD, RetinaNet): directly predict boxes on a dense grid. Anchor-free methods (FCOS, CenterNet): predict object centers and regress to box boundaries, avoiding anchor design. Evaluation: mAP (mean Average Precision) at IoU thresholds (mAP@0.5, mAP@0.5:0.95). NMS (Non-Maximum Suppression) removes duplicate detections: suppress box $j$ if $\text{IoU}(b_i, b_j) > \tau$ and $p_j < p_i$.

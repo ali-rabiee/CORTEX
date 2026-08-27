@@ -1,0 +1,13 @@
+id: visual_question_answering
+title: Visual Question Answering for Robotics
+domain: foundation_models
+summary: VQA turns a robot's camera into a question-answerable oracle.
+tags:
+  - foundation_models
+  - perception
+difficulty: 2
+importance: 3
+related_concept_ids:
+  - vlm_models
+  - language_grounding
+  - task_planning

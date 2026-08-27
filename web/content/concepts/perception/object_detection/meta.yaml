@@ -1,0 +1,14 @@
+id: object_detection
+title: Object Detection for Robotics
+domain: perception
+summary: Object detection answers 'what objects are in this image and where?'
+  with rectangular bounding boxes.
+tags:
+  - perception
+  - ml_fundamentals
+difficulty: 2
+importance: 4
+related_concept_ids:
+  - object_segmentation
+  - open_vocabulary_detection
+  - image_representations

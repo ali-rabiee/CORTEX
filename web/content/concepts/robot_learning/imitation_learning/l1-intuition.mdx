@@ -1,0 +1,25 @@
+---
+concept: imitation_learning
+level: 1
+status: seed
+recall:
+  prompt: "Explain Imitation Learning (Overview) in plain language: what is it,
+    and why does it matter?"
+  keyPoints:
+    - "Two ways to learn from watching a chef: (1) mimic their exact hand
+      movements at each step (behavior cloning), or (2) figure out what they're
+      optimizing for — flavor, presentation, efficiency — and then optimize for
+      that yourself (inverse RL)."
+    - The first is simpler but brittle; the second transfers better because you
+      understand the 'why' behind the actions.
+check: []
+papers: []
+---
+
+## Intuition
+
+Two ways to learn from watching a chef: (1) mimic their exact hand movements at each step (behavior cloning), or (2) figure out what they're optimizing for — flavor, presentation, efficiency — and then optimize for that yourself (inverse RL). The first is simpler but brittle; the second transfers better because you understand the 'why' behind the actions.
+
+## In practice
+
+Comparison on a contact-rich peg-in-hole task with 100 human demonstrations: BC achieves 60% success, DAgger reaches 90% with 3 rounds of corrections, GAIL reaches 80% but needs $10^6$ environment steps for the RL inner loop, IRL (MaxEntIRL) recovers a reward that enables 85% success and generalizes to new peg shapes unseen in demos. In practice, BC + action chunking often matches or beats IRL/GAIL with far less compute, which is why diffusion-policy-style BC has become dominant.

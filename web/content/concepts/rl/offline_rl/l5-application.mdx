@@ -1,0 +1,24 @@
+---
+concept: offline_rl
+level: 5
+status: seed
+recall:
+  prompt: How does Offline Reinforcement Learning fail in practice, and how would
+    you present it in an interview?
+  keyPoints:
+    - Overestimation of $Q$-values for out-of-distribution actions leads to
+      policy collapse.
+    - The learned policy selects actions where $Q_\theta(s,a)$ is incorrectly
+      optimistic because $(s,a) \notin \mathcal{D}$.
+    - "Symptoms: high $Q$-values but low actual returns when deployed."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Overestimation of $Q$-values for out-of-distribution actions leads to policy collapse. The learned policy selects actions where $Q_\theta(s,a)$ is incorrectly optimistic because $(s,a) \notin \mathcal{D}$. Symptoms: high $Q$-values but low actual returns when deployed. Fix: use conservative methods (CQL with $\alpha \geq 1.0$, IQL with $\tau = 0.7$), increase conservatism parameter, filter dataset to improve quality.
+
+## Interview-ready answer
+
+Offline RL is critical for robotics because online interaction is expensive and risky. The core challenge is distributional shift — the learned policy $\pi_\theta$ may take actions never seen in $\mathcal{D}$, where $Q$-estimates are unreliable. CQL addresses this by adding the penalty $\alpha \mathbb{E}_s[\log \sum_a \exp Q(s,a) - \mathbb{E}_{\pi_\beta}[Q]]$, which provably lower-bounds the true $Q$. IQL is more elegant — it never queries $Q$ for actions outside the dataset by using expectile regression with $\tau \in (0.5, 1)$. In practice, dataset quality matters enormously: diverse, high-quality data outperforms volume. I think offline RL + online fine-tuning (e.g., Cal-QL, RLPD) is the practical sweet spot.

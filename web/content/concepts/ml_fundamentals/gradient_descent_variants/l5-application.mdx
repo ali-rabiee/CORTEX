@@ -1,0 +1,27 @@
+---
+concept: gradient_descent_variants
+level: 5
+status: seed
+recall:
+  prompt: How does Gradient Descent Variants — SGD, Momentum, and Learning Rate
+    Schedules fail in practice, and how would you present it in an interview?
+  keyPoints:
+    - Learning rate too high causes divergence (loss increases or oscillates);
+      too low causes extremely slow convergence or getting trapped in sharp
+      minima.
+    - With momentum, overshooting is amplified — the combination of high
+      learning rate and high momentum ($\mu > 0.9$) can cause the optimizer to
+      oscillate around the minimum.
+    - "Large batch sizes require learning rate scaling (linear scaling rule:
+      $\\alpha \\propto B$) but this breaks down for $B > 8192$."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Learning rate too high causes divergence (loss increases or oscillates); too low causes extremely slow convergence or getting trapped in sharp minima. With momentum, overshooting is amplified — the combination of high learning rate and high momentum ($\mu > 0.9$) can cause the optimizer to oscillate around the minimum. Large batch sizes require learning rate scaling (linear scaling rule: $\alpha \propto B$) but this breaks down for $B > 8192$. Symptoms: loss spikes, training instability, or final performance below expected baseline. Fixes: grid search over $\alpha \in \{0.001, 0.01, 0.1\}$, use warmup for large batches, monitor gradient norms.
+
+## Interview-ready answer
+
+SGD with momentum ($\mu = 0.9$) remains the gold standard for supervised vision tasks — it generalizes better than Adam in many cases due to finding flatter minima. The key practical decisions are: (1) learning rate (most important hyperparameter), (2) schedule (cosine annealing is the default choice), (3) warmup duration (critical for large batches and transformers), (4) weight decay ($5 \times 10^{-4}$ for SGD, higher for AdamW). The linear scaling rule ($\alpha \propto B$) enables multi-GPU training but requires warmup. For transformers and generative models, Adam/AdamW has overtaken SGD because adaptive learning rates handle the heterogeneous gradient scales across attention and FFN layers.

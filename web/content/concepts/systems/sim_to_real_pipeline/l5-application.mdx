@@ -1,0 +1,25 @@
+---
+concept: sim_to_real_pipeline
+level: 5
+status: seed
+recall:
+  prompt: How does End-to-End ML Pipeline for Robotics fail in practice, and how
+    would you present it in an interview?
+  keyPoints:
+    - "Pipeline rot: training infrastructure changes break reproducibility, old
+      models can't be retrained, data formats evolve without migration scripts."
+    - "Also: evaluation pipeline doesn't match deployment conditions, so lab
+      metrics don't predict field performance."
+    - "Symptoms: 'it worked last month but we can't reproduce it', evaluation
+      shows 95% but deployment shows 70%."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Pipeline rot: training infrastructure changes break reproducibility, old models can't be retrained, data formats evolve without migration scripts. Also: evaluation pipeline doesn't match deployment conditions, so lab metrics don't predict field performance. Symptoms: 'it worked last month but we can't reproduce it', evaluation shows 95% but deployment shows 70%. Fix: containerize everything, automate the full pipeline with CI/CD, test evaluation conditions match deployment, version all artifacts (data, code, models, configs).
+
+## Interview-ready answer
+
+The ML pipeline is where most real-world robot learning projects succeed or fail. My standard pipeline: data collection (teleoperation with quality checks) → DVC-versioned dataset → training with W&B experiment tracking → automated sim evaluation → real-robot validation → containerized deployment with monitoring. Key principles: (1) every artifact is versioned and traceable, (2) automated testing at every stage (data validation, training convergence checks, sim eval), (3) evaluation conditions must match deployment, (4) monitoring and feedback loops for continuous improvement. The biggest ROI investment: a robust data pipeline. Most teams spend 80% of time on algorithms and 20% on data — inverting this ratio usually yields better results.

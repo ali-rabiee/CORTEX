@@ -1,0 +1,27 @@
+---
+concept: cross_entropy_loss
+level: 5
+status: seed
+recall:
+  prompt: How does Cross-Entropy Loss — Information-Theoretic Classification
+    Objective fail in practice, and how would you present it in an interview?
+  keyPoints:
+    - Numerical instability when computing $\log(\hat{y}_i)$ with very small
+      $\hat{y}_i$, resulting in NaN or Inf loss.
+    - "Root cause: computing softmax and log separately instead of using the
+      numerically stable log-softmax formulation $\\log \\hat{y}_i = z_i - \\log
+      \\sum_j e^{z_j}$ (with max-subtraction trick)."
+    - "Also: cross-entropy assumes mutually exclusive classes — using it for
+      multi-label classification (where multiple labels can be true) is
+      incorrect; use binary cross-entropy per class instead."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Numerical instability when computing $\log(\hat{y}_i)$ with very small $\hat{y}_i$, resulting in NaN or Inf loss. Root cause: computing softmax and log separately instead of using the numerically stable log-softmax formulation $\log \hat{y}_i = z_i - \log \sum_j e^{z_j}$ (with max-subtraction trick). Also: cross-entropy assumes mutually exclusive classes — using it for multi-label classification (where multiple labels can be true) is incorrect; use binary cross-entropy per class instead. Symptoms: loss spikes, NaN gradients, or poor multi-label performance.
+
+## Interview-ready answer
+
+Cross-entropy $H(y, \hat{y}) = -\sum y_i \log \hat{y}_i$ is the standard classification loss, equivalent to minimizing KL divergence from the model distribution to the true distribution. The softmax + cross-entropy combination has the elegant gradient $\hat{y} - y$ which is both stable and efficient. Practical considerations: always use log-softmax with NLL loss (or combined cross-entropy loss) for numerical stability, apply label smoothing ($\alpha = 0.1$) to improve calibration, and use focal loss for class-imbalanced problems common in robotics perception. For distillation (e.g., compressing a ViT teacher to a smaller student for real-time robot inference), cross-entropy with soft targets and temperature $\tau$ is key: $L = H(\text{softmax}(z_T / \tau), \text{softmax}(z_S / \tau))$.

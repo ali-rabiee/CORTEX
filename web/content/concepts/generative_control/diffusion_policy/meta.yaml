@@ -1,0 +1,15 @@
+id: diffusion_policy
+title: Diffusion Policy
+domain: generative_control
+summary: Imagine a sculptor starting with a rough block of marble (noise) and
+  iteratively refining it into a statue (action sequence).
+tags:
+  - generative_control
+  - robot_learning
+difficulty: 4
+importance: 5
+related_concept_ids:
+  - action_chunking
+  - behavior_cloning
+  - multimodal_distributions
+  - consistency_models

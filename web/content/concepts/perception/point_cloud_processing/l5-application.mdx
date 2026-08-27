@@ -1,0 +1,23 @@
+---
+concept: point_cloud_processing
+level: 5
+status: seed
+recall:
+  prompt: How does Point Cloud Processing for Robotics fail in practice, and how
+    would you present it in an interview?
+  keyPoints:
+    - Sensor noise at object edges creates phantom points between objects.
+    - Transparent/reflective objects produce missing/incorrect depth.
+    - "Symptoms: segmentation leaks between adjacent objects, grasps planned on
+      phantom geometry."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Sensor noise at object edges creates phantom points between objects. Transparent/reflective objects produce missing/incorrect depth. Symptoms: segmentation leaks between adjacent objects, grasps planned on phantom geometry. Fix: temporal point cloud filtering, use learned depth completion for specular surfaces, RGB-based segmentation as prior.
+
+## Interview-ready answer
+
+Point clouds are the standard 3D representation for manipulation. PointNet/PointNet++ handle the key challenge of permutation invariance through the symmetric function $f(\{x_1, \ldots, x_n\}) = \gamma(\max_i h(x_i))$. In practice, I preprocess with voxel downsampling, outlier removal, and workspace cropping. For manipulation, PointNet++ with per-point features works well for segmentation and grasp prediction. Key engineering detail: depth sensor choice matters — structured light (RealSense) has different noise characteristics than time-of-flight (Azure Kinect). For transparent objects, RGB-guided depth completion or multi-view fusion is necessary.

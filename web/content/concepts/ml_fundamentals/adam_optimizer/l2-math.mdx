@@ -1,0 +1,25 @@
+---
+concept: adam_optimizer
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Adam Optimizer — Adaptive Learning Rates
+    with Momentum, including the key equations.
+  keyPoints:
+    - Adam (Adaptive Moment Estimation) maintains per-parameter exponential
+      moving averages of the first moment (mean) $m_t = \beta_1 m_{t-1} + (1 -
+      \beta_1) g_t$ and second moment (uncentered variance) $v_t = \beta_2
+      v_{t-1} + (1 - \beta_2) g_t^2$.
+    - Bias-corrected estimates are $\hat{m}_t = m_t / (1 - \beta_1^t)$ and
+      $\hat{v}_t = v_t / (1 - \beta_2^t)$.
+    - "The update rule is: $$\\theta_{t+1} = \\theta_t -
+      \\frac{\\alpha}{\\sqrt{\\hat{v}_t} + \\epsilon} \\hat{m}_t$$ Default
+      hyperparameters: $\\beta_1 = 0.9$, $\\beta_2 = 0.999$, $\\epsilon =
+      10^{-8}$."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Adam (Adaptive Moment Estimation) maintains per-parameter exponential moving averages of the first moment (mean) $m_t = \beta_1 m_{t-1} + (1 - \beta_1) g_t$ and second moment (uncentered variance) $v_t = \beta_2 v_{t-1} + (1 - \beta_2) g_t^2$. Bias-corrected estimates are $\hat{m}_t = m_t / (1 - \beta_1^t)$ and $\hat{v}_t = v_t / (1 - \beta_2^t)$. The update rule is: $$\theta_{t+1} = \theta_t - \frac{\alpha}{\sqrt{\hat{v}_t} + \epsilon} \hat{m}_t$$ Default hyperparameters: $\beta_1 = 0.9$, $\beta_2 = 0.999$, $\epsilon = 10^{-8}$.

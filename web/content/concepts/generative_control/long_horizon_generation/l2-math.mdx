@@ -1,0 +1,22 @@
+---
+concept: long_horizon_generation
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Long-Horizon Generation and Hierarchical
+    Policies, including the key equations.
+  keyPoints:
+    - Generating action plans and trajectories that span extended time horizons
+      (100s to 1000s of steps) by decomposing the problem hierarchically.
+    - "High-level policy (planner) generates subgoals or waypoints: $g_{1:K} =
+      \\pi_{\\text{high}}(o_t, \\text{task})$, where each subgoal $g_k$ is an
+      intermediate target state, image, or latent vector."
+    - "Low-level policy (controller) executes between subgoals: $a_t =
+      \\pi_{\\text{low}}(o_t, g_k)$."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Generating action plans and trajectories that span extended time horizons (100s to 1000s of steps) by decomposing the problem hierarchically. High-level policy (planner) generates subgoals or waypoints: $g_{1:K} = \pi_{\text{high}}(o_t, \text{task})$, where each subgoal $g_k$ is an intermediate target state, image, or latent vector. Low-level policy (controller) executes between subgoals: $a_t = \pi_{\text{low}}(o_t, g_k)$. Diffusion for trajectory planning: generate full trajectories $\tau = (s_0, a_0, s_1, a_1, \ldots, s_T)$ via diffusion over the trajectory space, conditioned on start and goal states. Classifier-free guidance enables flexible conditioning: $\boldsymbol{\epsilon}_\text{guided} = (1+w) \boldsymbol{\epsilon}_\theta(\tau^t, t, c) - w \boldsymbol{\epsilon}_\theta(\tau^t, t)$ with guidance weight $w$ and condition $c$ (goal, constraints).

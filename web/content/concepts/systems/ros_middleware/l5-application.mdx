@@ -1,0 +1,23 @@
+---
+concept: ros_middleware
+level: 5
+status: seed
+recall:
+  prompt: How does ROS and Robot Middleware fail in practice, and how would you
+    present it in an interview?
+  keyPoints:
+    - "Timing issues: ROS message latency causes stale data (perception is 100ms
+      old by the time the controller uses it)."
+    - Transform lookup failures when tf2 tree has gaps or delays.
+    - Message queue overflow when subscribers can't keep up with publishers.
+check: []
+papers: []
+---
+
+## Failure modes
+
+Timing issues: ROS message latency causes stale data (perception is 100ms old by the time the controller uses it). Transform lookup failures when tf2 tree has gaps or delays. Message queue overflow when subscribers can't keep up with publishers. Symptoms: robot reacts to old information, tf exceptions crash nodes, memory usage grows unbounded. Fix: use ROS2 QoS profiles (BEST_EFFORT for fast topics, RELIABLE for critical ones), set appropriate queue depths, use approximate time synchronization for multi-sensor fusion, monitor with `ros2 topic hz` and `ros2 doctor`.
+
+## Interview-ready answer
+
+ROS2 is essential infrastructure for any robot system beyond a research demo. Key architectural decisions: (1) node decomposition — separate perception, planning, and control into independent nodes for modularity and fault isolation, (2) QoS configuration — BEST_EFFORT with small queue for high-frequency sensor data, RELIABLE for commands, (3) lifecycle nodes for managed startup/shutdown, (4) zero-copy transport (shared memory) for large messages like images. The biggest mistake I see: putting the entire robot stack in one monolithic node. This prevents parallelism, makes debugging harder, and means one crash takes down everything. For learned policies, I typically run inference in a dedicated node that subscribes to observations and publishes actions at a fixed rate.

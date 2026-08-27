@@ -1,0 +1,27 @@
+---
+concept: visual_question_answering
+level: 1
+status: seed
+recall:
+  prompt: "Explain Visual Question Answering for Robotics in plain language: what
+    is it, and why does it matter?"
+  keyPoints:
+    - VQA turns a robot's camera into a question-answerable oracle.
+    - Instead of building separate perception modules for every possible query
+      (object detection, state estimation, spatial reasoning), you ask a VLM
+      natural language questions about the scene.
+    - "'Is the door open?' 'How many cups are on the table?' 'What's blocking
+      the path?' This unifies diverse perception tasks into a single
+      language-based interface, making it easy to add new perception
+      capabilities by just asking new questions."
+check: []
+papers: []
+---
+
+## Intuition
+
+VQA turns a robot's camera into a question-answerable oracle. Instead of building separate perception modules for every possible query (object detection, state estimation, spatial reasoning), you ask a VLM natural language questions about the scene. 'Is the door open?' 'How many cups are on the table?' 'What's blocking the path?' This unifies diverse perception tasks into a single language-based interface, making it easy to add new perception capabilities by just asking new questions.
+
+## In practice
+
+VQA-based state estimation for manipulation: a closed-loop policy captures a workspace image after each action and queries a VLM: 'Is the block inside the bowl? Answer yes or no.' $\rightarrow$ used as success detection without training a task-specific classifier. Spatial reasoning pipeline: 'What object is closest to the robot gripper?' $\rightarrow$ VLM identifies the object $\rightarrow$ combined with depth camera for precise localization. VoxPoser (Huang et al.) uses VLM queries to build 3D value maps: 'Where should the robot place the cup?' $\rightarrow$ VLM generates spatial affordance descriptions $\rightarrow$ projected into 3D voxel costs for motion planning.

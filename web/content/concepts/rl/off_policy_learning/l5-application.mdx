@@ -1,0 +1,27 @@
+---
+concept: off_policy_learning
+level: 5
+status: seed
+recall:
+  prompt: How does Off-Policy Learning fail in practice, and how would you present
+    it in an interview?
+  keyPoints:
+    - "Distribution shift: the replay buffer contains data from many past
+      policies $\\pi_{\\beta_1}, \\ldots, \\pi_{\\beta_K}$, which may be very
+      different from the current $\\pi_\\theta$."
+    - "This causes: (1) Q-function extrapolation errors for state-action pairs
+      common under $\\pi_\\theta$ but rare in $\\mathcal{B}$; (2) stale value
+      estimates that mislead the policy."
+    - "Symptoms: training instability, sudden performance drops, Q-values
+      diverging."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Distribution shift: the replay buffer contains data from many past policies $\pi_{\beta_1}, \ldots, \pi_{\beta_K}$, which may be very different from the current $\pi_\theta$. This causes: (1) Q-function extrapolation errors for state-action pairs common under $\pi_\theta$ but rare in $\mathcal{B}$; (2) stale value estimates that mislead the policy. Symptoms: training instability, sudden performance drops, Q-values diverging. Fix: target networks with slow update ($\tau = 0.005$), clipped double-Q, limiting replay ratio, or using n-step returns with truncated importance sampling. On-policy methods avoid these issues entirely but at the cost of much worse sample efficiency.
+
+## Interview-ready answer
+
+Off-policy learning is critical for sample-efficient RL, especially in robotics where real-world data is expensive. The core idea: learn from replay buffers of past experience, correcting for distribution mismatch. Q-learning achieves this elegantly — the Bellman backup $r + \gamma \max_{a'} Q(s',a')$ doesn't reference the data-generating policy. The main challenge is extrapolation error: the Q-function is queried for state-action pairs not well-represented in the data. Stabilization techniques: target networks ($\tau = 0.005$), clipped double-Q ($\min(Q_1, Q_2)$), and careful replay ratio tuning. The on-policy vs off-policy trade-off is: stability and simplicity (PPO) vs sample efficiency (SAC). For sim2real, I typically use SAC (off-policy) in simulation for efficiency, and if fine-tuning on real robot, PPO with small batches for stability.

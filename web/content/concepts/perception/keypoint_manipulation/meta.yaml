@@ -1,0 +1,14 @@
+id: keypoint_manipulation
+title: Keypoint-Based Manipulation
+domain: perception
+summary: Instead of telling a robot the full 6D pose of every object, keypoints
+  say 'grab here, place there' — just a few critical points.
+tags:
+  - perception
+  - robot_learning
+difficulty: 3
+importance: 3
+related_concept_ids:
+  - visual_servoing
+  - affordance_prediction
+  - image_representations

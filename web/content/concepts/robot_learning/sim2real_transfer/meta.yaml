@@ -1,0 +1,13 @@
+id: sim2real_transfer
+title: Sim-to-Real Transfer
+domain: robot_learning
+summary: Like training a pilot only on a flight simulator, then putting them in
+  a real cockpit.
+tags:
+  - robot_learning
+difficulty: 3
+importance: 5
+related_concept_ids:
+  - domain_randomization
+  - system_identification
+  - domain_adaptation

@@ -1,0 +1,14 @@
+id: clip_contrastive
+title: CLIP and Contrastive Learning for Vision-Language Alignment
+domain: foundation_models
+summary: CLIP learns to place images and their matching text descriptions close
+  together in a shared vector space, while pushing non-matching pairs apart.
+tags:
+  - foundation_models
+  - perception
+difficulty: 2
+importance: 4
+related_concept_ids:
+  - vlm_models
+  - representation_learning
+  - language_grounding

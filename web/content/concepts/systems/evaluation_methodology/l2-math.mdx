@@ -1,0 +1,24 @@
+---
+concept: evaluation_methodology
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Evaluation Methodology for Robot
+    Learning, including the key equations.
+  keyPoints:
+    - Rigorous assessment of robot policy performance.
+    - "Primary metric: success rate $\\hat{p} =
+      \\frac{\\text{successes}}{N_{\\text{trials}}}$ with Wilson confidence
+      interval: $$\\hat{p} \\pm z_{\\alpha/2}
+      \\sqrt{\\frac{\\hat{p}(1-\\hat{p})}{N_{\\text{trials}}}}$$ Includes:
+      failure mode analysis, sim-to-real transfer gap $\\Delta = p_{\\text{sim}}
+      - p_{\\text{real}}$, generalization tests (novel objects, positions),
+      robustness tests (perturbations), and statistical significance across
+      seeds ($n \\geq 3$)."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Rigorous assessment of robot policy performance. Primary metric: success rate $\hat{p} = \frac{\text{successes}}{N_{\text{trials}}}$ with Wilson confidence interval: $$\hat{p} \pm z_{\alpha/2} \sqrt{\frac{\hat{p}(1-\hat{p})}{N_{\text{trials}}}}$$ Includes: failure mode analysis, sim-to-real transfer gap $\Delta = p_{\text{sim}} - p_{\text{real}}$, generalization tests (novel objects, positions), robustness tests (perturbations), and statistical significance across seeds ($n \geq 3$).

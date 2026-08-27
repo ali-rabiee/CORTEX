@@ -1,0 +1,14 @@
+id: adam_optimizer
+title: Adam Optimizer — Adaptive Learning Rates with Momentum
+domain: ml_fundamentals
+summary: Adam is like a hiker with a compass (momentum $m_t$ pointing in the
+  average gradient direction) and terrain awareness (variance $v_t$ measuring
+  how bumpy each dimension is).
+tags:
+  - ml_fundamentals
+difficulty: 3
+importance: 5
+related_concept_ids:
+  - gradient_descent_variants
+  - backpropagation
+  - batch_normalization

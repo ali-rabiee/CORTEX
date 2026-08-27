@@ -1,0 +1,20 @@
+---
+concept: experiment_tracking
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Experiment Tracking and Reproducibility,
+    including the key equations.
+  keyPoints:
+    - Systematic logging of hyperparameters, metrics, code versions, data
+      versions, and artifacts for every training run.
+    - "Tools: W&B (Weights & Biases), MLflow, TensorBoard."
+    - "Reproducibility requires: fixed seeds, deterministic ops, versioned data,
+      containerized environments."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Systematic logging of hyperparameters, metrics, code versions, data versions, and artifacts for every training run. Tools: W&B (Weights & Biases), MLflow, TensorBoard. Reproducibility requires: fixed seeds, deterministic ops, versioned data, containerized environments. Formally, a reproducible experiment is a tuple $(\mathcal{D}, \theta, f, \text{env})$ — dataset, hyperparameters, code, environment — from which identical results can be regenerated.

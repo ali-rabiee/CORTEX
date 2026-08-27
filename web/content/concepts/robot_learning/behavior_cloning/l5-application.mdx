@@ -1,0 +1,27 @@
+---
+concept: behavior_cloning
+level: 5
+status: seed
+recall:
+  prompt: How does Behavior Cloning (BC) fail in practice, and how would you
+    present it in an interview?
+  keyPoints:
+    - "Covariate shift / compounding errors: the policy makes a small error
+      $\\epsilon$ at each step, entering states where $d_{\\pi_\\theta}(s) \\neq
+      d_{\\pi^*}(s)$, causing the total error to grow as $\\mathcal{O}(\\epsilon
+      T^2)$ over horizon $T$."
+    - "Symptoms: works in easy cases but fails on slight perturbations, degrades
+      over longer horizons."
+    - "Fix: use DAgger (online expert correction), add noise during data
+      collection, use action chunking, or switch to offline RL."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Covariate shift / compounding errors: the policy makes a small error $\epsilon$ at each step, entering states where $d_{\pi_\theta}(s) \neq d_{\pi^*}(s)$, causing the total error to grow as $\mathcal{O}(\epsilon T^2)$ over horizon $T$. Symptoms: works in easy cases but fails on slight perturbations, degrades over longer horizons. Fix: use DAgger (online expert correction), add noise during data collection, use action chunking, or switch to offline RL.
+
+## Interview-ready answer
+
+BC is the simplest imitation learning approach — supervised learning minimizing $\|\pi_\theta(s) - a^*\|^2$ on expert $(s, a)$ pairs. It works surprisingly well when you have enough diverse demonstrations and the right architecture. The fundamental limitation is compounding errors from covariate shift: the learned state distribution $d_{\pi_\theta}$ diverges from the expert distribution $d_{\pi^*}$, with error growing as $\mathcal{O}(T^2)$. Practical fixes: DAgger for online correction, action chunking (predicting sequences of $K$ actions rather than single actions), data augmentation, and collecting demonstrations with intentional perturbations. For industry, BC is often the first thing to try — if it works with 50-100 demos, you've saved months over RL.

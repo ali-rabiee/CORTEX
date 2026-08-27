@@ -1,0 +1,25 @@
+---
+concept: gradient_descent_variants
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Gradient Descent Variants — SGD,
+    Momentum, and Learning Rate Schedules, including the key equations.
+  keyPoints:
+    - "Stochastic gradient descent (SGD) updates parameters using gradients
+      estimated from mini-batches: $\\theta_{t+1} = \\theta_t - \\alpha
+      \\nabla_\\theta L_B(\\theta_t)$ where $B$ is the batch."
+    - "SGD with momentum adds a velocity term: $$v_t = \\mu v_{t-1} +
+      \\nabla_\\theta L_B, \\quad \\theta_{t+1} = \\theta_t - \\alpha v_t$$
+      Nesterov momentum evaluates the gradient at the look-ahead position:
+      $\\nabla_\\theta L_B(\\theta_t - \\alpha \\mu v_{t-1})$."
+    - Learning rate schedules include step decay, cosine annealing $\alpha_t =
+      \alpha_{\min} + \frac{1}{2}(\alpha_{\max} - \alpha_{\min})(1 + \cos(\pi t
+      / T))$, and warmup-then-decay strategies.
+check: []
+papers: []
+---
+
+## Formal definition
+
+Stochastic gradient descent (SGD) updates parameters using gradients estimated from mini-batches: $\theta_{t+1} = \theta_t - \alpha \nabla_\theta L_B(\theta_t)$ where $B$ is the batch. SGD with momentum adds a velocity term: $$v_t = \mu v_{t-1} + \nabla_\theta L_B, \quad \theta_{t+1} = \theta_t - \alpha v_t$$ Nesterov momentum evaluates the gradient at the look-ahead position: $\nabla_\theta L_B(\theta_t - \alpha \mu v_{t-1})$. Learning rate schedules include step decay, cosine annealing $\alpha_t = \alpha_{\min} + \frac{1}{2}(\alpha_{\max} - \alpha_{\min})(1 + \cos(\pi t / T))$, and warmup-then-decay strategies.

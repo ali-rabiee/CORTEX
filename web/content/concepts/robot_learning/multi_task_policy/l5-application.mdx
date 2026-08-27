@@ -1,0 +1,25 @@
+---
+concept: multi_task_policy
+level: 5
+status: seed
+recall:
+  prompt: How does Multi-Task and Language-Conditioned Policies fail in practice,
+    and how would you present it in an interview?
+  keyPoints:
+    - "Language grounding failure: the policy understands the language (correct
+      text embedding) but fails to ground it in the physical scene (picks wrong
+      object)."
+    - "Negative transfer: adding too many diverse tasks degrades performance on
+      each individual task compared to single-task specialists."
+    - Distribution of tasks in training data matters — rare tasks get forgotten.
+check: []
+papers: []
+---
+
+## Failure modes
+
+Language grounding failure: the policy understands the language (correct text embedding) but fails to ground it in the physical scene (picks wrong object). Negative transfer: adding too many diverse tasks degrades performance on each individual task compared to single-task specialists. Distribution of tasks in training data matters — rare tasks get forgotten. Symptoms: policy follows common instructions well but fails on rare or compositional ones. Fix: balanced task sampling, task-specific evaluation, hierarchical policies (language $\rightarrow$ subgoal $\rightarrow$ action), and grounding modules that explicitly link language to perception.
+
+## Interview-ready answer
+
+Multi-task policies are the path to general-purpose robot systems. Language conditioning via $\pi(a|s, \text{Enc}(l))$ is the most flexible approach — it enables open-vocabulary task specification and compositional generalization. The architecture choices that matter: (1) language encoder — CLIP or SentenceBERT for instruction embedding, (2) fusion mechanism — FiLM conditioning or cross-attention between visual and language features, (3) action space — discretized tokens (RT-2) vs continuous (diffusion). The key challenge is data: you need diverse demonstrations across many tasks with language annotations. Current frontier: RT-2, Octo, and OpenVLA show that internet-scale pretraining dramatically improves multi-task robot performance.

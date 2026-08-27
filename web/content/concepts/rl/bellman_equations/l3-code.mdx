@@ -1,0 +1,96 @@
+---
+concept: bellman_equations
+level: 3
+status: final
+recall:
+  prompt: "Show, in code, that the Bellman backup is a contraction — and connect the same backup to the TD(0) update used with samples."
+  keyPoints:
+    - "Policy evaluation: V <- R_pi + gamma * P_pi @ V; the error max|V_k - V*| shrinks by factor gamma every sweep"
+    - "Solving (I - gamma P_pi) V = R_pi directly gives the same fixed point — Bellman = linear system"
+    - "TD(0) is the sampled version: V[s] += alpha * (r + gamma * V[s2] - V[s]); expectation replaced by one draw"
+check:
+  - id: bell_l3_c1
+    prompt: "Policy evaluation can be done by iterating the backup or by solving (I − γPπ)V = Rπ. Why does deep RL iterate instead of solving?"
+    options:
+      - "The linear solve is numerically unstable"
+      - "With function approximation and unknown P there is no matrix to invert — iteration with sampled backups (TD) is the only form that survives; the tabular solve exists only when the model is known and S is enumerable"
+      - "Iteration is always faster"
+      - "γ must equal 1 for the solve to work"
+    answer: 1
+    explanation: "(I − γPπ) is invertible for γ<1, and for small tabular problems the solve is the better tool. Deep RL's whole predicament is that P is unknown and V is a network — leaving stochastic-approximation iteration (TD learning) as the workable route."
+  - id: bell_l3_c2
+    prompt: "Empirically, the gap max|V_k − V*| in the contraction demo shrinks by ~0.99× per sweep with γ=0.99. The practical consequence for deep RL is..."
+    options:
+      - "convergence is exponential, so always pick γ close to 1"
+      - "the effective number of backups information needs to propagate scales like 1/(1−γ); long-horizon tasks (γ→1) are slow to learn value precisely because the contraction weakens"
+      - "γ has no effect on speed, only on optimality"
+      - "TD learning fails for γ above 0.95"
+    answer: 1
+    explanation: "Contraction modulus γ means error ~γ^k after k backups: at γ=0.99 you need ~230 sweeps per error-decade; at 0.999, ~2300. The 1/(1−γ) horizon shows up everywhere — n-step returns and λ exist to propagate information faster than one step per backup."
+---
+
+## Watch the contraction happen
+
+The Banach fixed-point argument becomes visceral when you print it.
+
+<CodeWalk title="Policy evaluation three ways: iterate, solve, sample">
+
+```python title="bellman_demo.py"
+import numpy as np
+
+rng = np.random.default_rng(0)
+S, gamma = 20, 0.95
+
+# A random MDP under a fixed policy: P_pi (S,S) row-stochastic, R_pi (S,)
+P = rng.random((S, S)); P /= P.sum(1, keepdims=True)
+R = rng.normal(size=S)
+
+# --- Ground truth: Bellman equation as a linear system ---------------
+V_star = np.linalg.solve(np.eye(S) - gamma * P, R)
+
+# --- Method 1: iterate the backup, watch the gamma-contraction --------
+V = np.zeros(S)
+for k in range(1, 200):
+    V = R + gamma * P @ V                      # the Bellman backup
+    err = np.abs(V - V_star).max()
+    if k % 25 == 0:
+        print(f"sweep {k:3d}  max-error {err:.2e}")   # shrinks ~gamma^k
+    if err < 1e-10:
+        break
+
+# --- Method 2: TD(0) — same backup, but from sampled transitions ------
+V_td, alpha = np.zeros(S), 0.05
+s = 0
+for step in range(200_000):
+    s2 = rng.choice(S, p=P[s])                 # sample s' ~ P(.|s)
+    td_error = R[s] + gamma * V_td[s2] - V_td[s]
+    V_td[s] += alpha * td_error                # stochastic backup
+    s = s2
+print("TD max-error:", np.abs(V_td - V_star).max())   # ~1e-1 at alpha=0.05
+```
+
+Three views of one equation: a **linear system** (exact), a **contraction
+iteration** (error × γ per sweep), and a **stochastic approximation** (TD —
+noisy, biased toward recent experience, but model-free).
+
+</CodeWalk>
+
+<KeyIdea>
+
+Every value-based deep RL loss is this demo with a network: DQN's target
+`r + γ max_a Q(s', a)` is one sampled application of the Bellman
+*optimality* operator; the MSE loss pulls Q toward the backed-up value, and
+the target network exists to keep that moving fixed point still long enough
+to regress onto.
+
+</KeyIdea>
+
+<Warning>
+
+The contraction guarantee dies the moment you combine **bootstrapping, off-
+policy data, and function approximation** — the deadly triad. The operator
+is still a contraction in sup-norm, but a gradient step on an MSE projects
+into network space, and the composition (project ∘ backup) need not contract.
+That's the one-line explanation for most Q-learning divergence you'll debug.
+
+</Warning>

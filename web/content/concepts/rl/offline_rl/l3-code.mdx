@@ -1,0 +1,125 @@
+---
+concept: offline_rl
+level: 3
+status: final
+recall:
+  prompt: "Write the CQL penalty and the IQL expectile loss. What does each do to combat out-of-distribution action optimism?"
+  keyPoints:
+    - "CQL adds E[logsumexp_a Q(s,a)] - E[Q(s, a_data)]: pushes down Q on all (especially OOD) actions, holds it up on dataset actions"
+    - "IQL never queries OOD actions: V learns an upper expectile (tau~0.7-0.9) of Q over dataset actions only; policy via advantage-weighted regression"
+    - "Both reduce to the same diagnosis: the Bellman max leaks optimism through actions the dataset can't refute"
+check:
+  - id: orl_l3_c1
+    prompt: "In the CQL loss, the `logsumexp` over actions serves to..."
+    options:
+      - "normalize the Q-network outputs"
+      - "approximate a soft maximum of Q over ALL actions, so minimizing it pushes down exactly the (possibly OOD) actions the policy/max would exploit, while the dataset term keeps in-distribution Q-values supported"
+      - "implement entropy regularization of the policy"
+      - "speed up the backward pass"
+    answer: 1
+    explanation: "logsumexp is a differentiable soft-max over the action axis. Minimizing E_s[logsumexp_a Q − Q(s, a_data)] is a targeted anti-optimism term: it suppresses the inflated peaks where the learned policy would otherwise flee the data."
+  - id: orl_l3_c2
+    prompt: "IQL's expectile value loss uses asymmetric weights |τ − 1(u<0)| with τ=0.7. The effect is..."
+    options:
+      - "V regresses to the mean of Q under the dataset policy"
+      - "V regresses toward an UPPER expectile of dataset-action Q-values — approximating max over GOOD dataset actions without ever evaluating an action outside the data"
+      - "V becomes pessimistic about all actions"
+      - "the critic trains twice as fast"
+    answer: 1
+    explanation: "With τ>0.5, underestimates are penalized more than overestimates, so V leans toward the better dataset actions — an in-sample stand-in for the Bellman max. That's IQL's whole trick: no OOD queries anywhere in training."
+---
+
+## Two fixes for the same leak
+
+Vanilla Q-learning on a fixed dataset dies from `max_a Q(s', a)` evaluating
+actions the data never tried. CQL fences the values; IQL never asks the
+question.
+
+<CodeWalk title="CQL: conservative penalty on top of a standard TD loss">
+
+```python title="cql.py"
+import torch
+import torch.nn.functional as F
+
+def cql_loss(q_net, q_target, batch, num_samples=10,
+             gamma=0.99, alpha_cql=5.0):
+    obs, act, rew, obs2, done = batch                      # act: (B, A_dim)
+
+    # --- standard TD target (here: SAC-style with a policy; omitted) ---
+    with torch.no_grad():
+        y = rew + gamma * (1 - done) * q_target(obs2, sample_policy(obs2))
+    td = F.mse_loss(q_net(obs, act), y)
+
+    # --- conservative penalty -------------------------------------------
+    # Sample candidate actions: random uniform + from the current policy.
+    rand_a = torch.empty(num_samples, *act.shape).uniform_(-1, 1)
+    pol_a = torch.stack([sample_policy(obs) for _ in range(num_samples)])
+    cand = torch.cat([rand_a, pol_a])                      # (2K, B, A_dim)
+
+    q_cand = torch.stack([q_net(obs, a) for a in cand])    # (2K, B, 1)
+    push_down = torch.logsumexp(q_cand, dim=0).mean()      # soft-max over actions
+    hold_up = q_net(obs, act).mean()                       # dataset actions
+
+    return td + alpha_cql * (push_down - hold_up)
+```
+
+`alpha_cql` is the pessimism dial: too low and the policy exploits OOD
+peaks; too high and Q collapses below the data and the policy can't beat
+behavior cloning.
+
+</CodeWalk>
+
+<CodeWalk title="IQL: in-sample learning — no OOD action ever evaluated">
+
+```python title="iql.py"
+def expectile_loss(diff, tau=0.7):
+    weight = torch.where(diff > 0, tau, 1 - tau)
+    return (weight * diff.pow(2)).mean()
+
+def iql_update(q_net, v_net, actor, batch, gamma=0.99, beta=3.0, tau=0.7):
+    obs, act, rew, obs2, done = batch
+
+    # 1) V chases an upper expectile of Q over DATASET actions only.
+    with torch.no_grad():
+        q = q_net(obs, act)
+    v_loss = expectile_loss(q - v_net(obs), tau)
+
+    # 2) Q does a SARSA-style backup through V — no max anywhere.
+    with torch.no_grad():
+        y = rew + gamma * (1 - done) * v_net(obs2)
+    q_loss = F.mse_loss(q_net(obs, act), y)
+
+    # 3) Policy: advantage-weighted regression toward good dataset actions.
+    with torch.no_grad():
+        adv = q_net(obs, act) - v_net(obs)
+        w = torch.exp(beta * adv).clamp(max=100.0)
+    pi_loss = -(w * actor.log_prob(obs, act)).mean()
+
+    return v_loss, q_loss, pi_loss
+```
+
+Every quantity is evaluated at state-action pairs *from the dataset*. The
+expectile (τ→1 approaches the in-sample max) supplies the improvement
+signal that the missing Bellman max used to.
+
+</CodeWalk>
+
+<KeyIdea>
+
+Read any offline RL method by asking one question: **where does it get the
+max?** CQL keeps the max but taxes it; IQL replaces it with an expectile
+over data; BCQ/TD3+BC restrict the argmax to near-data actions; Decision
+Transformer abandons it. The answer predicts both compute cost and how far
+above the dataset's best behavior the method can reach.
+
+</KeyIdea>
+
+<Warning>
+
+Evaluation is the silent killer: offline methods can't be validated offline
+with the same data that trained them. Hyperparameters like `alpha_cql`,
+`tau`, `beta` change ranking across datasets — report results across the
+D4RL/OGBench splits, and on robots budget for a small online evaluation
+round before believing any offline number.
+
+</Warning>

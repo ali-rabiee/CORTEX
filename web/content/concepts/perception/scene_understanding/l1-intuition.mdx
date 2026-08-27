@@ -1,0 +1,27 @@
+---
+concept: scene_understanding
+level: 1
+status: seed
+recall:
+  prompt: "Explain Scene Understanding for Robotics in plain language: what is it,
+    and why does it matter?"
+  keyPoints:
+    - Scene understanding is about seeing the forest, not just the trees.
+    - A robot that detects individual objects but doesn't understand 'the cup is
+      on the table, which is next to the chair, in a kitchen' can't follow
+      instructions like 'get me the cup from the kitchen table.' Scene graphs
+      encode this relational structure — they're like a map of what's-where and
+      what's-connected-to-what.
+    - "Semantic SLAM goes further: as the robot moves, it builds a persistent 3D
+      model of the world annotated with object identities and relationships."
+check: []
+papers: []
+---
+
+## Intuition
+
+Scene understanding is about seeing the forest, not just the trees. A robot that detects individual objects but doesn't understand 'the cup is on the table, which is next to the chair, in a kitchen' can't follow instructions like 'get me the cup from the kitchen table.' Scene graphs encode this relational structure — they're like a map of what's-where and what's-connected-to-what. Semantic SLAM goes further: as the robot moves, it builds a persistent 3D model of the world annotated with object identities and relationships.
+
+## In practice
+
+Building a semantic SLAM system for a mobile manipulator: ORB-SLAM3 for visual odometry $\rightarrow$ keyframe selection $\rightarrow$ run Mask2Former on keyframes for panoptic segmentation $\rightarrow$ project 2D segments to 3D using depth $\rightarrow$ incremental 3D instance fusion with volumetric TSDF (voxel size $0.02\,\text{m}$) $\rightarrow$ maintain scene graph with spatial relationships computed from 3D bounding box overlaps and relative positions. Query interface: 'Where is the nearest mug?' $\rightarrow$ traverse scene graph $\rightarrow$ return 6D pose. Update rate: full scene graph rebuild every 5 keyframes, incremental object tracking between keyframes.

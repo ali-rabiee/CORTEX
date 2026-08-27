@@ -1,0 +1,25 @@
+---
+concept: rgb_depth_sensing
+level: 5
+status: seed
+recall:
+  prompt: How does RGB and Depth Sensing for Robotics fail in practice, and how
+    would you present it in an interview?
+  keyPoints:
+    - "Structured light interference: multiple RealSense cameras facing each
+      other produce corrupted depth from overlapping IR patterns."
+    - "ToF multipath: light bouncing off multiple surfaces before returning
+      creates ghost depth readings, especially in corners and concave geometry."
+    - "Stereo failure on textureless surfaces: smooth white tables produce no
+      disparity matches $\\rightarrow$ depth holes."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Structured light interference: multiple RealSense cameras facing each other produce corrupted depth from overlapping IR patterns. ToF multipath: light bouncing off multiple surfaces before returning creates ghost depth readings, especially in corners and concave geometry. Stereo failure on textureless surfaces: smooth white tables produce no disparity matches $\rightarrow$ depth holes. Symptoms: flickering depth values, systematic depth bias, holes in depth map. Fix: for multi-camera structured light, use hardware sync with alternating IR projector duty cycles; for ToF multipath, use multi-frequency modulation; for textureless stereo, project auxiliary texture patterns.
+
+## Interview-ready answer
+
+Sensor selection is the first design decision in any perception pipeline. For indoor manipulation at $< 1.5\,\text{m}$, structured light (RealSense D435) offers the best price/performance ratio — sub-cm accuracy, good resolution, easy ROS integration. For larger workspaces or outdoor, stereo (ZED 2) or ToF (Azure Kinect) is better. The key engineering considerations: (1) operating range vs accuracy tradeoff, (2) failure modes — structured light fails on transparent/specular surfaces and in sunlight, ToF has multipath artifacts, stereo needs texture; (3) multi-camera setups need interference management; (4) always apply temporal and spatial filtering to raw depth. I typically fuse active depth with monocular depth estimation for robustness.

@@ -1,0 +1,25 @@
+---
+concept: camera_calibration
+level: 1
+status: seed
+recall:
+  prompt: "Explain Camera Calibration and Hand-Eye Calibration in plain language:
+    what is it, and why does it matter?"
+  keyPoints:
+    - Intrinsics tell the camera 'what does my image mean in 3D?' (how pixels
+      map to rays).
+    - Extrinsics tell the robot 'where is the camera in my coordinate system?'
+      Without accurate calibration, a robot pointing at pixel $(320, 240)$ might
+      reach 2cm off — which is the difference between a successful grasp and a
+      miss.
+check: []
+papers: []
+---
+
+## Intuition
+
+Intrinsics tell the camera 'what does my image mean in 3D?' (how pixels map to rays). Extrinsics tell the robot 'where is the camera in my coordinate system?' Without accurate calibration, a robot pointing at pixel $(320, 240)$ might reach 2cm off — which is the difference between a successful grasp and a miss.
+
+## In practice
+
+Eye-in-hand calibration: mount checkerboard on table, move robot to 15-20 poses capturing the board from different angles. Solve $AX = XB$ where $A$ = robot pose changes, $B$ = camera pose changes (from checkerboard detection). Validate: command robot to touch known points, measure error. Target: $< 2\,\text{mm}$ reprojection error.

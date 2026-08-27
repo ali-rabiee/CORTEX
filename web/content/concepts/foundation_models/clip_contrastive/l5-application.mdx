@@ -1,0 +1,29 @@
+---
+concept: clip_contrastive
+level: 5
+status: seed
+recall:
+  prompt: How does CLIP and Contrastive Learning for Vision-Language Alignment
+    fail in practice, and how would you present it in an interview?
+  keyPoints:
+    - "Spatial reasoning weakness: CLIP embeddings capture semantic content
+      (what objects are present) but poorly encode spatial relationships ('the
+      cup is to the left of the plate' vs 'the cup is to the right of the plate'
+      may have nearly identical CLIP scores)."
+    - "Fine-grained distinction failure: CLIP struggles to distinguish visually
+      similar but functionally different objects (e.g., Phillips vs flathead
+      screwdriver)."
+    - "Reward hacking with CLIP rewards: RL agent finds observations that
+      maximize CLIP similarity without actually completing the task (adversarial
+      images)."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Spatial reasoning weakness: CLIP embeddings capture semantic content (what objects are present) but poorly encode spatial relationships ('the cup is to the left of the plate' vs 'the cup is to the right of the plate' may have nearly identical CLIP scores). Fine-grained distinction failure: CLIP struggles to distinguish visually similar but functionally different objects (e.g., Phillips vs flathead screwdriver). Reward hacking with CLIP rewards: RL agent finds observations that maximize CLIP similarity without actually completing the task (adversarial images). Symptoms: robot moves to configurations that 'look right' to CLIP but don't achieve the physical goal. Fix: use CLIP for coarse semantic matching only, combine with geometric/spatial features for precise reasoning, add task-completion verification beyond CLIP similarity.
+
+## Interview-ready answer
+
+CLIP is foundational for connecting language and vision in robotics. Three main applications: (1) reward functions — CLIP similarity between observation and goal description provides dense, language-specified rewards for RL without manual reward engineering, (2) open-vocabulary perception — robots can detect and manipulate objects described in natural language using CLIP-based detectors like OWL-ViT, (3) representation learning — CLIP features are strong pre-trained representations for downstream policy learning. Key limitations: CLIP is semantic, not spatial — it knows what's in the scene but not precisely where. For robotics, I always pair CLIP with geometric perception (depth, point clouds) for spatial reasoning. The contrastive training objective is the key insight: by aligning two modalities in a shared space, we get zero-shot transfer and compositionality for free.

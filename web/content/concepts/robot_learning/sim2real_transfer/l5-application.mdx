@@ -1,0 +1,28 @@
+---
+concept: sim2real_transfer
+level: 5
+status: seed
+recall:
+  prompt: How does Sim-to-Real Transfer fail in practice, and how would you
+    present it in an interview?
+  keyPoints:
+    - "Reality gap too large: sim dynamics $T_{\\text{sim}}(s'|s,a)$ don't
+      capture real contact modes (e.g., soft deformable objects, liquids,
+      articulated mechanisms)."
+    - "Symptoms: policy works perfectly in sim but fails immediately on real
+      robot."
+    - "Fix: improve sim fidelity for critical dynamics, use residual RL
+      ($\\pi_{\\text{real}}(a|s) = \\pi_{\\text{sim}}(a|s) +
+      \\Delta\\pi_{\\text{residual}}(a|s)$), or switch to real-world
+      fine-tuning."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Reality gap too large: sim dynamics $T_{\text{sim}}(s'|s,a)$ don't capture real contact modes (e.g., soft deformable objects, liquids, articulated mechanisms). Symptoms: policy works perfectly in sim but fails immediately on real robot. Fix: improve sim fidelity for critical dynamics, use residual RL ($\pi_{\text{real}}(a|s) = \pi_{\text{sim}}(a|s) + \Delta\pi_{\text{residual}}(a|s)$), or switch to real-world fine-tuning.
+
+## Interview-ready answer
+
+Sim2real is the dominant paradigm for robot learning because real-world data is expensive and risky. The core challenge is the reality gap: $T_{\text{sim}} \neq T_{\text{real}}$. Domain randomization is the most practical solution: randomize physics params, visual appearance, and dynamics during training so the policy becomes robust to sim-real mismatch. Key implementation: randomize the parameters that matter most for your task (contact dynamics for manipulation, terrain for locomotion). Complementary approaches: system identification to narrow the randomization range, and residual policies $\pi = \pi_{\text{sim}} + \Delta\pi$ for real-world fine-tuning.

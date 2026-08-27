@@ -1,0 +1,25 @@
+---
+concept: teleoperation
+level: 1
+status: seed
+recall:
+  prompt: "Explain Teleoperation for Data Collection in plain language: what is
+    it, and why does it matter?"
+  keyPoints:
+    - Like a puppeteer controlling a marionette to record a choreography that
+      the puppet will later perform on its own.
+    - The quality of the puppet's solo performance depends entirely on how well
+      the puppeteer could control it during recording.
+    - A clunky interface produces jerky, unnatural demonstrations that are hard
+      to learn from.
+check: []
+papers: []
+---
+
+## Intuition
+
+Like a puppeteer controlling a marionette to record a choreography that the puppet will later perform on its own. The quality of the puppet's solo performance depends entirely on how well the puppeteer could control it during recording. A clunky interface produces jerky, unnatural demonstrations that are hard to learn from.
+
+## In practice
+
+ALOHA teleoperation for bimanual manipulation: two leader robot arms that the human physically moves, mechanically coupled to two follower arms that mirror the motion in real-time. Records joint positions at 50Hz. Advantages: intuitive (same kinematic structure), low latency (\<10ms), high-quality demonstrations. Used to collect 50 demonstrations per task for ACT training. Alternative: Meta Quest VR controllers mapped to robot end-effector via $\Delta \mathbf{x}_r = k \cdot \Delta \mathbf{x}_{\text{VR}}$ with scaling factor $k$ for precision.

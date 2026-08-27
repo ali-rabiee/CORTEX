@@ -1,0 +1,17 @@
+id: bellman_equations
+title: Bellman Equations
+domain: rl
+summary: "The Bellman equation says: 'the value of being in a state equals the
+  immediate reward plus the discounted value of where you end up.' It's like
+  evaluating a chess position: your position's value = the material you gai..."
+tags:
+  - rl
+  - ml_fundamentals
+difficulty: 2
+importance: 5
+related_concept_ids:
+  - mdp
+  - value_functions
+  - temporal_difference
+  - dqn
+  - rewards_returns

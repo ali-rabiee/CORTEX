@@ -1,0 +1,14 @@
+id: actions_action_spaces
+title: Actions and Action Spaces
+domain: rl
+summary: Actions are the agent's controls — the levers it can pull to affect the world.
+tags:
+  - rl
+  - robot_learning
+difficulty: 1
+importance: 4
+related_concept_ids:
+  - mdp
+  - states_observations
+  - policy_gradients
+  - sac

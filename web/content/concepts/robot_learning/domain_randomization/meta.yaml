@@ -1,0 +1,14 @@
+id: domain_randomization
+title: Domain Randomization
+domain: robot_learning
+summary: If you learn to cook in 1000 different kitchens — different stoves,
+  different pans, different temperatures — you'll handle any new kitchen because
+  you've seen enough variation.
+tags:
+  - robot_learning
+difficulty: 3
+importance: 5
+related_concept_ids:
+  - sim2real_transfer
+  - system_identification
+  - visual_randomization

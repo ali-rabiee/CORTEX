@@ -1,0 +1,25 @@
+---
+concept: transformer_architecture
+level: 5
+status: seed
+recall:
+  prompt: How does Transformer Architecture — Self-Attention and Positional
+    Encoding fail in practice, and how would you present it in an interview?
+  keyPoints:
+    - Quadratic attention complexity $O(n^2)$ becomes prohibitive for long
+      sequences.
+    - At $n = 4096$ tokens, the attention matrix is 64MB in FP32 per head per
+      layer.
+    - "Symptoms: OOM errors, training wall-time dominated by attention
+      computation."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Quadratic attention complexity $O(n^2)$ becomes prohibitive for long sequences. At $n = 4096$ tokens, the attention matrix is 64MB in FP32 per head per layer. Symptoms: OOM errors, training wall-time dominated by attention computation. Fixes: FlashAttention (IO-aware exact attention), linear attention approximations (Performer, Random Feature Attention), or sparse attention patterns (Longformer, BigBird). Also: without proper positional encoding, the model treats sequences as bags of tokens and fails on order-sensitive tasks.
+
+## Interview-ready answer
+
+The Transformer replaces recurrence with self-attention, enabling full parallelization during training. The core computation is scaled dot-product attention $\text{softmax}(QK^T / \sqrt{d_k})V$, run in parallel across $h$ heads to capture diverse relational patterns. Positional encodings (sinusoidal or learned) inject sequence order. In robotics, I use Transformers for both perception (ViT for visual features) and policy learning (Decision Transformer, action-chunking transformers). Practical considerations: FlashAttention for memory efficiency, pre-LayerNorm for training stability, and RoPE for better length generalization.

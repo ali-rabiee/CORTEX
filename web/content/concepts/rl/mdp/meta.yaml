@@ -1,0 +1,15 @@
+id: mdp
+title: Markov Decision Process (MDP)
+domain: rl
+summary: An MDP is the 'game board' of RL — it defines the rules.
+tags:
+  - rl
+  - ml_fundamentals
+difficulty: 1
+importance: 5
+related_concept_ids:
+  - states_observations
+  - actions_action_spaces
+  - rewards_returns
+  - bellman_equations
+  - value_functions

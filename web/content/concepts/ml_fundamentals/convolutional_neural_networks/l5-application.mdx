@@ -1,0 +1,27 @@
+---
+concept: convolutional_neural_networks
+level: 5
+status: seed
+recall:
+  prompt: How does Convolutional Neural Networks — Translation Equivariance and
+    Hierarchical Features fail in practice, and how would you present it in an
+    interview?
+  keyPoints:
+    - "Failure to account for receptive field limitations: the network cannot
+      reason about relationships between distant image regions if the receptive
+      field is too small."
+    - "Symptoms: works on cropped close-up images but fails on full scene
+      understanding."
+    - "Also: translation equivariance breaks at boundaries (padding artifacts)
+      and with strided convolutions (aliasing)."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Failure to account for receptive field limitations: the network cannot reason about relationships between distant image regions if the receptive field is too small. Symptoms: works on cropped close-up images but fails on full scene understanding. Also: translation equivariance breaks at boundaries (padding artifacts) and with strided convolutions (aliasing). Pooling discards precise spatial information needed for pixel-level tasks. Fixes: use dilated convolutions to increase receptive field without losing resolution, feature pyramid networks (FPN) for multi-scale reasoning, and deformable convolutions for adaptive receptive fields.
+
+## Interview-ready answer
+
+CNNs encode translation equivariance through weight sharing and local connectivity — the same filter detects the same pattern everywhere. The hierarchical feature extraction (edges → parts → objects) emerges naturally from stacking convolutional layers. Key design choices: (1) receptive field must cover the relevant spatial context — use dilated convolutions or deeper networks for global reasoning, (2) stride and pooling control the resolution-computation tradeoff, (3) residual connections enable training very deep networks (50-150+ layers). For robotics: CNNs remain the backbone for real-time perception (ResNet, EfficientNet) due to favorable FLOPs vs accuracy compared to ViTs at smaller scales. ViTs surpass CNNs when data and compute are abundant, but CNNs with pre-training remain the practical choice for deployment on edge devices like Jetson.

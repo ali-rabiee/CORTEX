@@ -1,0 +1,25 @@
+---
+concept: dataset_curation
+level: 1
+status: seed
+recall:
+  prompt: "Explain Dataset Curation for Robot Learning in plain language: what is
+    it, and why does it matter?"
+  keyPoints:
+    - Garbage in, garbage out — but for robots, this is even more critical
+      because bad demonstrations teach bad physical habits.
+    - A dataset with 1000 demos where the robot always approaches from the right
+      will produce a policy that can't handle left-side approaches.
+    - Curation means ensuring your training data covers the situations the robot
+      will actually encounter, with consistent quality throughout.
+check: []
+papers: []
+---
+
+## Intuition
+
+Garbage in, garbage out — but for robots, this is even more critical because bad demonstrations teach bad physical habits. A dataset with 1000 demos where the robot always approaches from the right will produce a policy that can't handle left-side approaches. Curation means ensuring your training data covers the situations the robot will actually encounter, with consistent quality throughout.
+
+## In practice
+
+Curating a bimanual manipulation dataset: (1) Collect 500 teleoperated demonstrations across 10 tasks. (2) Automated filtering: discard episodes where task success is ambiguous, joint velocity exceeds safety limits ($\|\dot{q}\| > \dot{q}_{\max}$), or gripper force is anomalous. (3) Balance check: ensure each task has $\geq 40$ demos, each object orientation bin has $\geq 10$ demos. (4) Quality audit: human reviews a random 10% sample for labeling accuracy. (5) Augmentation: for underrepresented regions, collect targeted demonstrations. (6) Version with DVC: tag as `v1.2`, log statistics (per-task counts, action distribution plots, state-space coverage heatmaps). Result: 420 clean demos that train a better policy than the original 500.

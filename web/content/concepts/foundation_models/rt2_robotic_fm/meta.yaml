@@ -1,0 +1,16 @@
+id: rt2_robotic_fm
+title: RT-2 and Robotic Foundation Models
+domain: foundation_models
+summary: "RT-2 tests the hypothesis: can a model that has 'read' the entire
+  internet and 'seen' billions of images transfer that knowledge to controlling
+  a physical robot?"
+tags:
+  - foundation_models
+  - robot_learning
+difficulty: 3
+importance: 5
+related_concept_ids:
+  - vla_models
+  - action_tokenization
+  - vlm_models
+  - language_grounding

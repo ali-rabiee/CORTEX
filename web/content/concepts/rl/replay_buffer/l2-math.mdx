@@ -1,0 +1,23 @@
+---
+concept: replay_buffer
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Experience Replay, including the key
+    equations.
+  keyPoints:
+    - An experience replay buffer $\mathcal{B}$ stores transition tuples $(s_t,
+      a_t, r_t, s_{t+1}, d_t)$ (where $d_t$ is the done flag) collected during
+      environment interaction.
+    - "During training, minibatches are sampled uniformly: $(s, a, r, s', d)
+      \\sim \\text{Uniform}(\\mathcal{B})$."
+    - "Prioritized Experience Replay (PER) samples proportional to TD error
+      magnitude: $P(i) \\propto |\\delta_i|^\\alpha$ with importance sampling
+      correction $w_i = (N \\cdot P(i))^{-\\beta}$."
+check: []
+papers: []
+---
+
+## Formal definition
+
+An experience replay buffer $\mathcal{B}$ stores transition tuples $(s_t, a_t, r_t, s_{t+1}, d_t)$ (where $d_t$ is the done flag) collected during environment interaction. During training, minibatches are sampled uniformly: $(s, a, r, s', d) \sim \text{Uniform}(\mathcal{B})$. Prioritized Experience Replay (PER) samples proportional to TD error magnitude: $P(i) \propto |\delta_i|^\alpha$ with importance sampling correction $w_i = (N \cdot P(i))^{-\beta}$. Typical buffer sizes: $|\mathcal{B}| = 10^5$-$10^6$ transitions. The replay ratio (gradient steps per environment step) controls sample efficiency: ratio $= 1$ for standard off-policy, ratio $= 4$-$20$ for high-UTD (Update-To-Data) methods like REDQ.

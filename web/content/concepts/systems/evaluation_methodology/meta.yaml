@@ -1,0 +1,13 @@
+id: evaluation_methodology
+title: Evaluation Methodology for Robot Learning
+domain: systems
+summary: A 90% success rate in the lab means nothing if you only tested on 10
+  trials with the same object in the same position.
+tags:
+  - systems
+difficulty: 2
+importance: 5
+related_concept_ids:
+  - experiment_tracking
+  - deployment_thinking
+  - failure_analysis

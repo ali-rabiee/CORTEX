@@ -1,0 +1,13 @@
+id: flow_matching
+title: Flow Matching for Action Generation
+domain: generative_control
+summary: Imagine a river that flows from a random starting point to exactly
+  where you need to go.
+tags:
+  - generative_control
+difficulty: 4
+importance: 4
+related_concept_ids:
+  - diffusion_policy
+  - action_chunking
+  - consistency_models

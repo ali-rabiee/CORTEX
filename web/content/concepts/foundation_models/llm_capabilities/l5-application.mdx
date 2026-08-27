@@ -1,0 +1,25 @@
+---
+concept: llm_capabilities
+level: 5
+status: seed
+recall:
+  prompt: How does LLM Capabilities and Limitations for Robotics fail in practice,
+    and how would you present it in an interview?
+  keyPoints:
+    - "Hallucination in physical reasoning: LLM generates plans involving
+      physically impossible actions or nonexistent objects."
+    - CoT can amplify errors — one wrong reasoning step propagates through the
+      chain.
+    - "Token limit truncation: long observation histories or complex scenes
+      exceed context window, causing the model to 'forget' earlier information."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Hallucination in physical reasoning: LLM generates plans involving physically impossible actions or nonexistent objects. CoT can amplify errors — one wrong reasoning step propagates through the chain. Token limit truncation: long observation histories or complex scenes exceed context window, causing the model to 'forget' earlier information. Grounding gap: LLM describes actions in natural language but the mapping to precise motor commands is ambiguous ('move a little to the left' — how much is 'a little'?). Symptoms: robot attempts infeasible actions, plans reference objects not in scene, or precision degrades on long tasks. Fix: always validate LLM outputs against perception (object detection) and kinematics (feasibility checker), use structured output formats (JSON with defined schema), implement context summarization for long-horizon tasks.
+
+## Interview-ready answer
+
+LLMs bring powerful reasoning and common-sense knowledge to robotics, but they have critical limitations we must engineer around. Capabilities I leverage: (1) task decomposition via CoT prompting — LLMs excel at breaking 'clean up the kitchen' into ordered sub-tasks, (2) code generation — Code as Policies lets LLMs write executable robot commands, (3) few-shot adaptation — new tasks via prompting, not retraining. Limitations I always account for: (1) hallucination — I never trust LLM outputs without verification against perception and kinematics, (2) no physical intuition — LLMs don't understand forces, friction, or dynamics, so I pair them with physics-aware modules, (3) context limits — I use summarization and retrieval for long-horizon tasks. The key design pattern: LLM as the reasoning brain, with perception and physics as reality checks.

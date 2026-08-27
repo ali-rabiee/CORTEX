@@ -1,0 +1,27 @@
+---
+concept: rt2_robotic_fm
+level: 1
+status: seed
+recall:
+  prompt: "Explain RT-2 and Robotic Foundation Models in plain language: what is
+    it, and why does it matter?"
+  keyPoints:
+    - "RT-2 tests the hypothesis: can a model that has 'read' the entire
+      internet and 'seen' billions of images transfer that knowledge to
+      controlling a physical robot?"
+    - The answer is yes — by fine-tuning a VLM on robot data, the model retains
+      its broad understanding of objects, concepts, and language while learning
+      to translate that understanding into physical actions.
+    - It's like teaching a polymath to use their hands — they already know what
+      a cup is, what 'fragile' means, and how stacking works.
+check: []
+papers: []
+---
+
+## Intuition
+
+RT-2 tests the hypothesis: can a model that has 'read' the entire internet and 'seen' billions of images transfer that knowledge to controlling a physical robot? The answer is yes — by fine-tuning a VLM on robot data, the model retains its broad understanding of objects, concepts, and language while learning to translate that understanding into physical actions. It's like teaching a polymath to use their hands — they already know what a cup is, what 'fragile' means, and how stacking works. They just need to learn the motor commands.
+
+## In practice
+
+RT-2 emergent capabilities: (1) novel object generalization — trained on picking up common objects, can pick up a toy dinosaur it has never seen by leveraging VLM's visual knowledge. (2) Chain-of-thought reasoning — prompted with 'pick up the object that could be used to hammer a nail,' RT-2 reasons through objects and selects a rock. (3) Semantic understanding — 'move the Coke can to Taylor Swift' (person on a printed image) works despite never being trained on this combination. Octo deployment: 93M parameter model, processes 2 image streams + language + proprioception, diffusion action head generates 4-step action chunks at 5Hz, runs on a single GPU.

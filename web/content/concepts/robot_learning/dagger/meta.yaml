@@ -1,0 +1,15 @@
+id: dagger
+title: DAgger (Dataset Aggregation)
+domain: robot_learning
+summary: A student driver first watches an instructor, then drives themselves
+  while the instructor sits in the passenger seat calling out what they would do
+  at each moment.
+tags:
+  - robot_learning
+  - rl
+difficulty: 3
+importance: 4
+related_concept_ids:
+  - behavior_cloning
+  - imitation_learning
+  - covariate_shift

@@ -1,0 +1,22 @@
+---
+concept: vla_models
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Vision-Language-Action (VLA) Models,
+    including the key equations.
+  keyPoints:
+    - "VLAs are foundation models that map visual observations $o_t$ and
+      language instructions $l$ to robot actions $a_t$: $\\pi_\\theta(a_t | o_t,
+      l)$."
+    - They extend VLMs with action prediction heads, trained on large-scale
+      robot demonstration datasets.
+    - "Architecture: vision encoder (ViT) $\\rightarrow$ projection
+      $\\rightarrow$ language model backbone $\\rightarrow$ action head."
+check: []
+papers: []
+---
+
+## Formal definition
+
+VLAs are foundation models that map visual observations $o_t$ and language instructions $l$ to robot actions $a_t$: $\pi_\theta(a_t | o_t, l)$. They extend VLMs with action prediction heads, trained on large-scale robot demonstration datasets. Architecture: vision encoder (ViT) $\rightarrow$ projection $\rightarrow$ language model backbone $\rightarrow$ action head. Actions often tokenized into discrete bins or predicted as continuous vectors via a diffusion/flow head. Examples: RT-2 ($\pi(a_t | I_t, l) = \text{PaLM-E}(\text{tokenize}(a_t) | I_t, l)$), Octo, OpenVLA.

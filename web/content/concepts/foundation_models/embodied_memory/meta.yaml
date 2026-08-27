@@ -1,0 +1,14 @@
+id: embodied_memory
+title: Memory and State Tracking in Embodied Agents
+domain: foundation_models
+summary: A robot exploring a building opens a drawer in the kitchen and sees
+  batteries inside, then 30 minutes later is asked to 'bring me some batteries.'
+  Without memory, it would have to search the entire building again.
+tags:
+  - foundation_models
+difficulty: 3
+importance: 3
+related_concept_ids:
+  - task_planning
+  - in_context_learning
+  - llm_capabilities

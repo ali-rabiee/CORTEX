@@ -1,0 +1,26 @@
+---
+concept: mdp
+level: 5
+status: seed
+recall:
+  prompt: How does Markov Decision Process (MDP) fail in practice, and how would
+    you present it in an interview?
+  keyPoints:
+    - "Markov property violation: real-world states are often non-Markovian
+      because observations are partial."
+    - A robot using only RGB images as 'state' violates Markov — velocities,
+      occluded objects, and contact forces are hidden.
+    - "Symptoms: policy fails to learn or converges to suboptimal behavior
+      because the same observation maps to different optimal actions depending
+      on history."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Markov property violation: real-world states are often non-Markovian because observations are partial. A robot using only RGB images as 'state' violates Markov — velocities, occluded objects, and contact forces are hidden. Symptoms: policy fails to learn or converges to suboptimal behavior because the same observation maps to different optimal actions depending on history. Fix: use recurrent policies (LSTM/GRU), frame stacking (concatenate $k$ recent observations), or proper state estimation. Also: choosing $\gamma$ too low truncates the effective planning horizon $\frac{1}{1-\gamma}$, causing myopic behavior.
+
+## Interview-ready answer
+
+An MDP is defined by $(\mathcal{S}, \mathcal{A}, P, R, \gamma)$ and is the foundational formalism for RL. The Markov property — $P(s'|s,a)$ depends only on the current state-action pair — is what makes dynamic programming and Bellman equations tractable. In robotics, the state space $\mathcal{S}$ must be carefully designed to satisfy Markov: including joint positions AND velocities (not just positions), adding goal information, and potentially including contact states. When Markov is violated (e.g., image observations), we need either state estimation or memory mechanisms (RNNs, transformers). The discount $\gamma$ controls the planning horizon $\frac{1}{1-\gamma}$ — for manipulation tasks with ~50-step episodes I use $\gamma=0.99$ (horizon $\approx 100$), for locomotion with longer horizons $\gamma=0.995$.

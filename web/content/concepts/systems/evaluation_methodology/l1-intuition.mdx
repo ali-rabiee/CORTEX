@@ -1,0 +1,25 @@
+---
+concept: evaluation_methodology
+level: 1
+status: seed
+recall:
+  prompt: "Explain Evaluation Methodology for Robot Learning in plain language:
+    what is it, and why does it matter?"
+  keyPoints:
+    - A 90% success rate in the lab means nothing if you only tested on 10
+      trials with the same object in the same position.
+    - "Proper evaluation means: 100+ trials, varied conditions, reporting
+      confidence intervals, and categorizing failure modes."
+    - It's the difference between 'it works' and 'it works and I know when it
+      will fail.'
+check: []
+papers: []
+---
+
+## Intuition
+
+A 90% success rate in the lab means nothing if you only tested on 10 trials with the same object in the same position. Proper evaluation means: 100+ trials, varied conditions, reporting confidence intervals, and categorizing failure modes. It's the difference between 'it works' and 'it works and I know when it will fail.'
+
+## In practice
+
+Manipulation policy evaluation: 100 trials across 5 object categories $\times$ 4 initial positions = 2000 total trials. Report: overall success rate ($85\% \pm 3\%$), per-category breakdown, failure mode taxonomy (grasp slip: 40% of failures, perception error: 30%, planning failure: 30%). Include sim and real results separately. Compute $p$-value via McNemar's test when comparing two policies on paired trials.

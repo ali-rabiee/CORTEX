@@ -1,0 +1,26 @@
+---
+concept: transformer_attention
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Transformer and Attention Mechanisms for
+    Embodied AI, including the key equations.
+  keyPoints:
+    - "The transformer architecture processes sequences via self-attention:
+      $\\text{Attention}(Q, K, V) =
+      \\text{softmax}\\left(\\frac{QK^\\top}{\\sqrt{d_k}}\\right)V$, where
+      queries $Q = XW_Q$, keys $K = XW_K$, values $V = XW_V$ are linear
+      projections of input tokens."
+    - "Multi-head attention runs $h$ parallel heads: $\\text{MHA}(X) =
+      \\text{Concat}(\\text{head}_1, \\ldots, \\text{head}_h)W_O$."
+    - "Cross-attention conditions on a separate sequence (e.g., observation
+      tokens attend to language tokens): $\\text{CrossAttn}(X_{\\text{obs}},
+      X_{\\text{lang}}) = \\text{softmax}\\left(\\frac{Q_{\\text{obs}}
+      K_{\\text{lang}}^\\top}{\\sqrt{d_k}}\\right)V_{\\text{lang}}$."
+check: []
+papers: []
+---
+
+## Formal definition
+
+The transformer architecture processes sequences via self-attention: $\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^\top}{\sqrt{d_k}}\right)V$, where queries $Q = XW_Q$, keys $K = XW_K$, values $V = XW_V$ are linear projections of input tokens. Multi-head attention runs $h$ parallel heads: $\text{MHA}(X) = \text{Concat}(\text{head}_1, \ldots, \text{head}_h)W_O$. Cross-attention conditions on a separate sequence (e.g., observation tokens attend to language tokens): $\text{CrossAttn}(X_{\text{obs}}, X_{\text{lang}}) = \text{softmax}\left(\frac{Q_{\text{obs}} K_{\text{lang}}^\top}{\sqrt{d_k}}\right)V_{\text{lang}}$. Positional encoding injects sequence order: sinusoidal $PE_{(pos, 2i)} = \sin(pos / 10000^{2i/d})$, learned embeddings, or RoPE. KV cache stores previously computed key-value pairs for autoregressive inference, avoiding $O(n^2)$ recomputation. Efficient attention variants (FlashAttention, linear attention, sliding window) reduce complexity for real-time robot control from $O(n^2)$ to $O(n \log n)$ or $O(n)$.

@@ -1,0 +1,25 @@
+---
+concept: consistency_models
+level: 5
+status: seed
+recall:
+  prompt: How does Consistency Models for Single-Step Action Generation fail in
+    practice, and how would you present it in an interview?
+  keyPoints:
+    - "Quality gap: single-step generation is inherently less precise than
+      multi-step refinement, especially for high-dimensional action spaces."
+    - The distilled model may struggle with the tails of the action distribution
+      (rare but valid modes).
+    - "Symptoms: slightly lower success rate on tasks requiring high precision
+      (e.g., peg insertion with $< 1\\,\\text{mm}$ tolerance)."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Quality gap: single-step generation is inherently less precise than multi-step refinement, especially for high-dimensional action spaces. The distilled model may struggle with the tails of the action distribution (rare but valid modes). Symptoms: slightly lower success rate on tasks requiring high precision (e.g., peg insertion with $< 1\,\text{mm}$ tolerance). Fix: use 2-4 step inference as a compromise (still much faster than full diffusion), train with larger model capacity, use progressive distillation schedule.
+
+## Interview-ready answer
+
+Consistency models solve the key deployment bottleneck of diffusion policies: inference speed. By learning to map any noise level directly to the clean sample (self-consistency property $f_\theta(\mathbf{x}_t, t) = f_\theta(\mathbf{x}_{t'}, t')$), we get single-step generation. For robotics: this means going from 10+ denoising steps ($\sim 500\,\text{ms}$) to 1-2 steps ($\sim 50\text{-}100\,\text{ms}$), enabling real-time closed-loop control. The training recipe: take a well-trained diffusion policy, distill with consistency loss using EMA target network. I see consistency models as the deployment form of diffusion policies — train with diffusion for quality, deploy with consistency for speed.

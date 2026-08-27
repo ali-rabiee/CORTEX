@@ -1,0 +1,15 @@
+id: task_planning
+title: Task Planning with LLMs for Robotics
+domain: foundation_models
+summary: "Ask a robot to 'make a sandwich' and it needs to break that into: open
+  the bread bag, take out two slices, get the peanut butter, open the jar, pick
+  up a knife, spread, etc."
+tags:
+  - foundation_models
+  - robot_learning
+difficulty: 3
+importance: 5
+related_concept_ids:
+  - language_grounding
+  - vla_models
+  - vlm_models

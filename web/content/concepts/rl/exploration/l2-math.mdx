@@ -1,0 +1,28 @@
+---
+concept: exploration
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Exploration-Exploitation Tradeoff,
+    including the key equations.
+  keyPoints:
+    - "The exploration-exploitation dilemma is the fundamental tension in
+      sequential decision making: the agent must exploit current knowledge to
+      maximize immediate reward while exploring uncertain actions to improve
+      future decisions."
+    - "Formally, an optimal exploration strategy minimizes the Bayesian regret:
+      $$\\text{BayesRegret}(T) = \\mathbb{E}\\left[\\sum_{t=1}^{T} V^*(s_t) -
+      Q^*(s_t, a_t)\\right]$$ Key approaches include: $\\epsilon$-greedy (action
+      $a = \\arg\\max Q$ with probability $1-\\epsilon$, random otherwise), UCB
+      ($a = \\arg\\max_a [Q(s,a) + c\\sqrt{\\ln t / N(s,a)}]$), Thompson
+      Sampling (sample $Q \\sim P(Q|\\mathcal{D})$, act greedily), and intrinsic
+      motivation via curiosity or count-based bonuses: $r^{\\text{int}} = \\beta
+      / \\sqrt{N(s)}$ or $r^{\\text{int}} = \\|\\hat{f}(s_{t+1}) - f_\\phi(s_t,
+      a_t)\\|^2$ (prediction error)."
+check: []
+papers: []
+---
+
+## Formal definition
+
+The exploration-exploitation dilemma is the fundamental tension in sequential decision making: the agent must exploit current knowledge to maximize immediate reward while exploring uncertain actions to improve future decisions. Formally, an optimal exploration strategy minimizes the Bayesian regret: $$\text{BayesRegret}(T) = \mathbb{E}\left[\sum_{t=1}^{T} V^*(s_t) - Q^*(s_t, a_t)\right]$$ Key approaches include: $\epsilon$-greedy (action $a = \arg\max Q$ with probability $1-\epsilon$, random otherwise), UCB ($a = \arg\max_a [Q(s,a) + c\sqrt{\ln t / N(s,a)}]$), Thompson Sampling (sample $Q \sim P(Q|\mathcal{D})$, act greedily), and intrinsic motivation via curiosity or count-based bonuses: $r^{\text{int}} = \beta / \sqrt{N(s)}$ or $r^{\text{int}} = \|\hat{f}(s_{t+1}) - f_\phi(s_t, a_t)\|^2$ (prediction error).

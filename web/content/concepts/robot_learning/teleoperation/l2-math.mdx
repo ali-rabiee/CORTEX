@@ -1,0 +1,25 @@
+---
+concept: teleoperation
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Teleoperation for Data Collection,
+    including the key equations.
+  keyPoints:
+    - Human-operated remote control of a robot to collect demonstration
+      trajectories $\tau = \{(s_t, a_t)\}_{t=0}^T$ for imitation learning.
+    - "Methods: kinesthetic teaching (physically guiding the robot), VR
+      teleoperation (mapping human hand/controller $\\mathbf{x}_h$ to robot
+      end-effector $\\mathbf{x}_r$ via $\\mathbf{x}_r = f(\\mathbf{x}_h)$),
+      bilateral teleoperation (with force feedback $f_r \\rightarrow f_h$), and
+      shared autonomy (human provides high-level guidance, robot handles
+      low-level control)."
+    - Data quality depends on the operator interface, action space mapping, and
+      control latency.
+check: []
+papers: []
+---
+
+## Formal definition
+
+Human-operated remote control of a robot to collect demonstration trajectories $\tau = \{(s_t, a_t)\}_{t=0}^T$ for imitation learning. Methods: kinesthetic teaching (physically guiding the robot), VR teleoperation (mapping human hand/controller $\mathbf{x}_h$ to robot end-effector $\mathbf{x}_r$ via $\mathbf{x}_r = f(\mathbf{x}_h)$), bilateral teleoperation (with force feedback $f_r \rightarrow f_h$), and shared autonomy (human provides high-level guidance, robot handles low-level control). Data quality depends on the operator interface, action space mapping, and control latency.

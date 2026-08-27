@@ -1,0 +1,23 @@
+---
+concept: experiment_tracking
+level: 5
+status: seed
+recall:
+  prompt: How does Experiment Tracking and Reproducibility fail in practice, and
+    how would you present it in an interview?
+  keyPoints:
+    - "Results not reproducible: 'worked on my machine' syndrome."
+    - Random seeds not fixed, GPU non-determinism, data pipeline changed between
+      runs, library version drift.
+    - "Symptoms: best result can't be recreated."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Results not reproducible: 'worked on my machine' syndrome. Random seeds not fixed, GPU non-determinism, data pipeline changed between runs, library version drift. Symptoms: best result can't be recreated. Fix: log everything (code hash, pip freeze, data hash), use containers (Docker), set CUBLAS_WORKSPACE_CONFIG for GPU determinism.
+
+## Interview-ready answer
+
+Experiment tracking is non-negotiable for professional ML work. My setup: W&B for metrics/hyperparams/artifacts, git for code, DVC for data versioning, Docker for environment reproducibility. Key principles: (1) every run must be reproducible from its logged config, (2) compare runs on equal footing (same eval protocol), (3) track compute cost alongside performance. In industry, the ability to trace any deployed model back to its exact training configuration is a hard requirement for debugging production issues.

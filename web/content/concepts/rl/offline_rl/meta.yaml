@@ -1,0 +1,13 @@
+id: offline_rl
+title: Offline Reinforcement Learning
+domain: rl
+summary: Like learning to drive from dashcam footage without ever getting behind
+  the wheel.
+tags:
+  - rl
+difficulty: 4
+importance: 4
+related_concept_ids:
+  - behavior_cloning
+  - distributional_shift
+  - replay_buffer

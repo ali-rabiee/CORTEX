@@ -1,0 +1,27 @@
+---
+concept: evaluation_methodology
+level: 5
+status: seed
+recall:
+  prompt: How does Evaluation Methodology for Robot Learning fail in practice, and
+    how would you present it in an interview?
+  keyPoints:
+    - "Cherry-picked results: only reporting best seed, testing only on easy
+      configurations, not controlling for environmental variation."
+    - "Also: sim evaluation doesn't predict real performance — policies that
+      reach 99% in sim may drop to 60% in real ($\\Delta_{\\text{sim2real}} =
+      39\\%$)."
+    - "Fix: always report real-robot results, use sufficient trial counts ($N
+      \\geq 50$), report standard deviation across seeds, test on held-out
+      configurations."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Cherry-picked results: only reporting best seed, testing only on easy configurations, not controlling for environmental variation. Also: sim evaluation doesn't predict real performance — policies that reach 99% in sim may drop to 60% in real ($\Delta_{\text{sim2real}} = 39\%$). Fix: always report real-robot results, use sufficient trial counts ($N \geq 50$), report standard deviation across seeds, test on held-out configurations.
+
+## Interview-ready answer
+
+Rigorous evaluation is what separates research demos from deployable systems. My evaluation protocol: (1) define success criteria precisely (binary success, not continuous metrics), (2) test across varied conditions (objects, positions, lighting), (3) report mean $\pm$ std across $\geq 3$ seeds and $\geq 50$ trials, (4) categorize every failure. In industry, I also add: edge case discovery (adversarial testing), long-horizon reliability (1000+ sequential executions), and degradation testing (what breaks first as conditions change). The most important metric is rarely the one in the paper — it's the failure mode distribution.

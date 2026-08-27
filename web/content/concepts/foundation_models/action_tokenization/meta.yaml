@@ -1,0 +1,14 @@
+id: action_tokenization
+title: Action Tokenization for Foundation Models
+domain: foundation_models
+summary: Language models operate on discrete tokens, but robot actions are
+  continuous (joint angles, velocities, end-effector poses).
+tags:
+  - foundation_models
+  - robot_learning
+difficulty: 3
+importance: 4
+related_concept_ids:
+  - vla_models
+  - rt2_robotic_fm
+  - in_context_learning

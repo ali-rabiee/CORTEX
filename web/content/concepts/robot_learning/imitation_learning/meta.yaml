@@ -1,0 +1,18 @@
+id: imitation_learning
+title: Imitation Learning (Overview)
+domain: robot_learning
+summary: "Two ways to learn from watching a chef: (1) mimic their exact hand
+  movements at each step (behavior cloning), or (2) figure out what they're
+  optimizing for — flavor, presentation, efficiency — and then optimize for
+  th..."
+tags:
+  - robot_learning
+  - rl
+difficulty: 3
+importance: 5
+related_concept_ids:
+  - behavior_cloning
+  - dagger
+  - inverse_rl
+  - gail
+  - diffusion_policy

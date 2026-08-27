@@ -1,0 +1,27 @@
+---
+concept: long_horizon_generation
+level: 5
+status: seed
+recall:
+  prompt: How does Long-Horizon Generation and Hierarchical Policies fail in
+    practice, and how would you present it in an interview?
+  keyPoints:
+    - "Compounding errors in hierarchical policies: high-level planner generates
+      a subgoal the low-level policy cannot reach (e.g., requires passing
+      through an obstacle)."
+    - "Temporal abstraction mismatch: subgoals are too far apart (low-level
+      fails to bridge) or too close (overhead of hierarchy without benefit)."
+    - "Trajectory diffusion scalability: generating trajectories of $T = 1000$
+      steps requires diffusing in a $1000 \\times d$-dimensional space — model
+      capacity and training data requirements scale poorly."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Compounding errors in hierarchical policies: high-level planner generates a subgoal the low-level policy cannot reach (e.g., requires passing through an obstacle). Temporal abstraction mismatch: subgoals are too far apart (low-level fails to bridge) or too close (overhead of hierarchy without benefit). Trajectory diffusion scalability: generating trajectories of $T = 1000$ steps requires diffusing in a $1000 \times d$-dimensional space — model capacity and training data requirements scale poorly. Subgoal representation: pixel-space subgoal images are brittle to lighting/viewpoint changes; latent subgoals are hard to interpret and debug. Symptoms: robot completes first few subgoals then fails, generated trajectories drift from feasibility constraints, long plans are physically impossible in the middle. Fix: train the high-level policy with reachability-aware objectives (only generate subgoals the low-level can reach), use adaptive temporal abstraction (shorter subgoals for difficult segments), plan in a learned latent space rather than raw state space, implement re-planning at multiple hierarchy levels with feasibility checking.
+
+## Interview-ready answer
+
+Long-horizon generation is one of the hardest open problems in robot learning. The fundamental tension: you need to reason about the future (planning) while handling uncertainty and multi-modality (generative models). The approaches I find most promising: (1) hierarchical diffusion — high-level diffusion model generates subgoal sequences, low-level diffusion policy executes between them (SuSIE, VPDD), (2) trajectory-level diffusion — Diffuser and its variants generate full trajectories with inpainting for constraints, (3) plan-then-act with LLMs — language-based planning for task decomposition with learned low-level controllers for execution. The key design choice: subgoal representation. Image subgoals (SuSIE) are intuitive but brittle; latent subgoals are compact but hard to debug; language subgoals (SayCan) are interpretable but lose spatial precision. In practice, I advocate for a hybrid: language for task decomposition, latent or image subgoals for spatial precision within each sub-task, and replanning at both levels for robustness to execution errors.

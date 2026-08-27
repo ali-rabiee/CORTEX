@@ -1,0 +1,22 @@
+---
+concept: ppo_clipping
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Proximal Policy Optimization (PPO) —
+    Clipping Mechanism, including the key equations.
+  keyPoints:
+    - PPO constrains policy updates by clipping the probability ratio $r(\theta)
+      = \frac{\pi_{\theta}(a|s)}{\pi_{\theta_{\text{old}}}(a|s)}$ to
+      $[1-\epsilon, 1+\epsilon]$, preventing destructively large policy changes.
+    - "The clipped surrogate objective is: $$L^{\\text{CLIP}}(\\theta) =
+      \\mathbb{E}\\left[\\min\\left(r(\\theta)\\hat{A},
+      \\;\\text{clip}(r(\\theta), 1-\\epsilon,
+      1+\\epsilon)\\hat{A}\\right)\\right]$$"
+check: []
+papers: []
+---
+
+## Formal definition
+
+PPO constrains policy updates by clipping the probability ratio $r(\theta) = \frac{\pi_{\theta}(a|s)}{\pi_{\theta_{\text{old}}}(a|s)}$ to $[1-\epsilon, 1+\epsilon]$, preventing destructively large policy changes. The clipped surrogate objective is: $$L^{\text{CLIP}}(\theta) = \mathbb{E}\left[\min\left(r(\theta)\hat{A}, \;\text{clip}(r(\theta), 1-\epsilon, 1+\epsilon)\hat{A}\right)\right]$$

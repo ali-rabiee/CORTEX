@@ -1,0 +1,24 @@
+---
+concept: value_functions
+level: 5
+status: seed
+recall:
+  prompt: How does Value Functions ($V$ and $Q$) fail in practice, and how would
+    you present it in an interview?
+  keyPoints:
+    - Value function overestimation leading to policy degradation.
+    - "In Q-learning: the $\\max$ operator causes systematic overestimation
+      since $\\mathbb{E}[\\max_a Q(s,a)] \\geq \\max_a \\mathbb{E}[Q(s,a)]$."
+    - "In actor-critic: the critic can overfit to limited data in early
+      training."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Value function overestimation leading to policy degradation. In Q-learning: the $\max$ operator causes systematic overestimation since $\mathbb{E}[\max_a Q(s,a)] \geq \max_a \mathbb{E}[Q(s,a)]$. In actor-critic: the critic can overfit to limited data in early training. Fix: double Q-learning ($Q_{\text{target}}(s', \arg\max_{a'} Q(s',a'))$), target networks with slow update ($\tau = 0.005$), large replay buffers, proper normalization.
+
+## Interview-ready answer
+
+Value functions are the backbone of most RL algorithms. $V^\pi(s)$ and $Q^\pi(s,a)$ estimate expected returns, and the advantage $A = Q - V$ drives policy updates. In practice, GAE with $\lambda = 0.95$ provides the best bias-variance trade-off for advantage computation: $\hat{A}^{\text{GAE}} = \sum (\gamma\lambda)^l \delta_l$. Key implementation details: normalize advantages per batch ($\hat{A} \leftarrow (\hat{A} - \mu)/\sigma$), use separate target networks with Polyak averaging ($\theta' \leftarrow \tau\theta + (1-\tau)\theta'$) for stability, and consider shared vs separate actor-critic architectures based on the task complexity.

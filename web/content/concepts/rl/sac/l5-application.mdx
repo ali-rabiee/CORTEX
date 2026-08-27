@@ -1,0 +1,24 @@
+---
+concept: sac
+level: 5
+status: seed
+recall:
+  prompt: How does Soft Actor-Critic (SAC) fail in practice, and how would you
+    present it in an interview?
+  keyPoints:
+    - "Q-function overestimation: despite the double-Q trick $\\min(Q_{\\phi_1},
+      Q_{\\phi_2})$, value estimates can still diverge in complex environments."
+    - "Symptoms: $Q$-values grow unbounded, policy degrades suddenly."
+    - "Fix: increase target network update period ($\\tau = 0.005$), add reward
+      scaling $r' = r / \\sigma_r$, use layer normalization in critics."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Q-function overestimation: despite the double-Q trick $\min(Q_{\phi_1}, Q_{\phi_2})$, value estimates can still diverge in complex environments. Symptoms: $Q$-values grow unbounded, policy degrades suddenly. Fix: increase target network update period ($\tau = 0.005$), add reward scaling $r' = r / \sigma_r$, use layer normalization in critics.
+
+## Interview-ready answer
+
+SAC maximizes both reward and entropy via the objective $J = \mathbb{E}[\sum \gamma^t (r + \alpha H(\pi))]$, which prevents premature convergence and provides natural exploration. The key innovation is the automatic temperature parameter $\alpha$ that adapts the entropy-reward trade-off by solving a constrained optimization targeting entropy $\bar{H} = -\dim(\mathcal{A})$. Being off-policy with a replay buffer gives SAC much better sample efficiency than PPO. For robot learning where real data is expensive, SAC is often preferred. The trade-off: it can exploit simulator artifacts stored in the replay buffer during sim2real transfer.

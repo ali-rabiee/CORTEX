@@ -1,0 +1,14 @@
+id: representation_learning
+title: Visual Representation Learning for Robotics
+domain: foundation_models
+summary: Raw pixels contain too much irrelevant information (shadows, textures,
+  lighting) and not enough task-relevant structure (object pose, contact state).
+tags:
+  - foundation_models
+  - perception
+difficulty: 3
+importance: 4
+related_concept_ids:
+  - visuomotor_policy
+  - behavior_cloning
+  - vlm_models

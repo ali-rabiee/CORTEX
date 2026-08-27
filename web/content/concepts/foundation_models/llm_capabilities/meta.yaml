@@ -1,0 +1,13 @@
+id: llm_capabilities
+title: LLM Capabilities and Limitations for Robotics
+domain: foundation_models
+summary: An LLM is like a brilliant colleague who has read every robotics paper
+  but has never touched a real robot.
+tags:
+  - foundation_models
+difficulty: 2
+importance: 4
+related_concept_ids:
+  - task_planning
+  - language_grounding
+  - in_context_learning

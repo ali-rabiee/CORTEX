@@ -1,0 +1,26 @@
+---
+concept: overfitting_underfitting
+level: 1
+status: seed
+recall:
+  prompt: "Explain Overfitting and Underfitting — Bias-Variance Tradeoff and Model
+    Capacity in plain language: what is it, and why does it matter?"
+  keyPoints:
+    - Underfitting is like trying to describe a city with one sentence — too
+      simple to capture reality.
+    - Overfitting is like memorizing every street name without understanding the
+      layout — perfect on the training city but useless in a new one.
+    - "The bias-variance tradeoff says: simple models are consistently wrong
+      (high bias, low variance), complex models are right on average but wildly
+      inconsistent (low bias, high variance)."
+check: []
+papers: []
+---
+
+## Intuition
+
+Underfitting is like trying to describe a city with one sentence — too simple to capture reality. Overfitting is like memorizing every street name without understanding the layout — perfect on the training city but useless in a new one. The bias-variance tradeoff says: simple models are consistently wrong (high bias, low variance), complex models are right on average but wildly inconsistent (low bias, high variance). Modern deep learning partially escapes this tradeoff — double descent shows that very large overparameterized models can generalize well despite interpolating training data.
+
+## In practice
+
+Training a grasp success predictor on 5K demonstrations. A linear model achieves 65% train / 63% test accuracy (underfitting — cannot capture nonlinear grasp geometry). A 4-layer MLP with 1024 hidden units achieves 99% train / 71% test (overfitting). Solutions: (1) data augmentation (random crops, color jitter) brings test to 79%, (2) adding dropout $p = 0.3$ brings test to 82%, (3) collecting 50K demonstrations brings test to 90%, (4) using a pre-trained ViT with frozen backbone and linear probe achieves 88% test with only 5K examples — reducing effective model capacity to match data size.

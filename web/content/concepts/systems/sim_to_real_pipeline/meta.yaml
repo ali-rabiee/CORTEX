@@ -1,0 +1,15 @@
+id: sim_to_real_pipeline
+title: End-to-End ML Pipeline for Robotics
+domain: systems
+summary: Building a robot policy is like building a factory assembly line — the
+  final product (deployed policy) is only as good as every step in the pipeline.
+tags:
+  - systems
+  - robot_learning
+difficulty: 3
+importance: 4
+related_concept_ids:
+  - experiment_tracking
+  - dataset_curation
+  - evaluation_methodology
+  - deployment_thinking

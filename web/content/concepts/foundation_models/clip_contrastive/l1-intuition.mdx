@@ -1,0 +1,26 @@
+---
+concept: clip_contrastive
+level: 1
+status: seed
+recall:
+  prompt: "Explain CLIP and Contrastive Learning for Vision-Language Alignment in
+    plain language: what is it, and why does it matter?"
+  keyPoints:
+    - CLIP learns to place images and their matching text descriptions close
+      together in a shared vector space, while pushing non-matching pairs apart.
+    - After training, you can classify an image without any labeled examples —
+      just compute which text description ('a photo of a dog,' 'a photo of a
+      cat') is closest to the image in embedding space.
+    - For robotics, this means a robot can understand novel objects by their
+      text descriptions without ever having been trained on them specifically.
+check: []
+papers: []
+---
+
+## Intuition
+
+CLIP learns to place images and their matching text descriptions close together in a shared vector space, while pushing non-matching pairs apart. After training, you can classify an image without any labeled examples — just compute which text description ('a photo of a dog,' 'a photo of a cat') is closest to the image in embedding space. For robotics, this means a robot can understand novel objects by their text descriptions without ever having been trained on them specifically.
+
+## In practice
+
+CLIP for robot reward shaping: given a language goal 'place the red block on the blue block,' compute CLIP similarity $r_t = \cos(f_I(o_t), f_T(\text{goal}))$ as a dense reward signal for RL. As the robot's observation $o_t$ becomes more aligned with the goal description, the reward increases. This replaces hand-crafted reward functions. SigLIP (improved CLIP variant) is used in PaLI-X and RT-2 as the vision encoder. For open-vocabulary object detection: CLIP embeddings enable robots to find objects described in natural language without retraining the detector (OWL-ViT, Grounding DINO).

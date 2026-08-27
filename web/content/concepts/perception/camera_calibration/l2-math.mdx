@@ -1,0 +1,25 @@
+---
+concept: camera_calibration
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Camera Calibration and Hand-Eye
+    Calibration, including the key equations.
+  keyPoints:
+    - "Intrinsic calibration: focal lengths $(f_x, f_y)$, principal point $(c_x,
+      c_y)$, distortion coefficients $(k_1, k_2, p_1, p_2, k_3)$."
+    - "The projection model maps 3D to pixel: $$\\begin{bmatrix} u \\\\ v
+      \\end{bmatrix} = \\begin{bmatrix} f_x & 0 & c_x \\\\ 0 & f_y & c_y
+      \\end{bmatrix} \\begin{bmatrix} X/Z \\\\ Y/Z \\\\ 1 \\end{bmatrix}$$
+      Extrinsic calibration: transformation $T \\in SE(3)$ between camera frame
+      and world/robot frame."
+    - "Hand-eye calibration: $AX = XB$ problem to find the fixed transform $X$
+      between camera and robot end-effector (eye-in-hand) or camera and robot
+      base (eye-to-hand)."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Intrinsic calibration: focal lengths $(f_x, f_y)$, principal point $(c_x, c_y)$, distortion coefficients $(k_1, k_2, p_1, p_2, k_3)$. The projection model maps 3D to pixel: $$\begin{bmatrix} u \\ v \end{bmatrix} = \begin{bmatrix} f_x & 0 & c_x \\ 0 & f_y & c_y \end{bmatrix} \begin{bmatrix} X/Z \\ Y/Z \\ 1 \end{bmatrix}$$ Extrinsic calibration: transformation $T \in SE(3)$ between camera frame and world/robot frame. Hand-eye calibration: $AX = XB$ problem to find the fixed transform $X$ between camera and robot end-effector (eye-in-hand) or camera and robot base (eye-to-hand).

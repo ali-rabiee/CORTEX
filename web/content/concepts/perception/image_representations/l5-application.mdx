@@ -1,0 +1,26 @@
+---
+concept: image_representations
+level: 5
+status: seed
+recall:
+  prompt: How does Image Representations for Robotics fail in practice, and how
+    would you present it in an interview?
+  keyPoints:
+    - "Representation mismatch: using CLIP (trained on internet images) for
+      fine-grained manipulation tasks like connector insertion — the features
+      don't capture sub-millimeter spatial details."
+    - Using raw pixels when data is limited leads to overfitting to visual
+      distractors (background color, lighting).
+    - Frozen pretrained features may miss domain-specific cues (robot gripper
+      state, cable deformation).
+check: []
+papers: []
+---
+
+## Failure modes
+
+Representation mismatch: using CLIP (trained on internet images) for fine-grained manipulation tasks like connector insertion — the features don't capture sub-millimeter spatial details. Using raw pixels when data is limited leads to overfitting to visual distractors (background color, lighting). Frozen pretrained features may miss domain-specific cues (robot gripper state, cable deformation). Symptoms: policy works in one visual setting but fails with changed backgrounds/lighting. Fix: match representation granularity to task precision, fine-tune last few layers of the backbone on in-domain data, add task-specific auxiliary features.
+
+## Interview-ready answer
+
+The choice of visual representation is one of the highest-leverage decisions in robot learning. My default stack: DINOv2 features for manipulation (they provide excellent dense correspondences and are robust to viewpoint/instance changes), CLIP for language-conditioned tasks, and task-specific keypoints for high-precision assembly. Key insight: pretrained foundation model features (DINO, CLIP, R3M) dramatically improve sample efficiency — you get invariances for free that would take thousands of demonstrations to learn from pixels. The practical recipe: freeze the backbone, extract intermediate features (not just the [CLS] token), optionally reduce dimensionality with PCA, concatenate with proprioception, and train a lightweight policy head. Fine-tuning the backbone helps when the domain gap is large (e.g., endoscopic surgery), but risks catastrophic forgetting.

@@ -1,0 +1,25 @@
+---
+concept: mdp
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Markov Decision Process (MDP), including
+    the key equations.
+  keyPoints:
+    - "An MDP is the formal mathematical framework for sequential decision
+      making, defined by the tuple $(\\mathcal{S}, \\mathcal{A}, P, R,
+      \\gamma)$: state space $\\mathcal{S}$, action space $\\mathcal{A}$,
+      transition dynamics $P(s'|s,a): \\mathcal{S} \\times \\mathcal{A} \\times
+      \\mathcal{S} \\to [0,1]$, reward function $R(s,a,s'): \\mathcal{S} \\times
+      \\mathcal{A} \\times \\mathcal{S} \\to \\mathbb{R}$, and discount factor
+      $\\gamma \\in [0,1)$."
+    - The Markov property states that $P(s_{t+1}|s_t, a_t, s_{t-1}, a_{t-1},
+      \ldots) = P(s_{t+1}|s_t, a_t)$ — the future is conditionally independent
+      of the past given the present state and action.
+check: []
+papers: []
+---
+
+## Formal definition
+
+An MDP is the formal mathematical framework for sequential decision making, defined by the tuple $(\mathcal{S}, \mathcal{A}, P, R, \gamma)$: state space $\mathcal{S}$, action space $\mathcal{A}$, transition dynamics $P(s'|s,a): \mathcal{S} \times \mathcal{A} \times \mathcal{S} \to [0,1]$, reward function $R(s,a,s'): \mathcal{S} \times \mathcal{A} \times \mathcal{S} \to \mathbb{R}$, and discount factor $\gamma \in [0,1)$. The Markov property states that $P(s_{t+1}|s_t, a_t, s_{t-1}, a_{t-1}, \ldots) = P(s_{t+1}|s_t, a_t)$ — the future is conditionally independent of the past given the present state and action.

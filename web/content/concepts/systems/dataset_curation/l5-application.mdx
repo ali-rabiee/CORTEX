@@ -1,0 +1,26 @@
+---
+concept: dataset_curation
+level: 5
+status: seed
+recall:
+  prompt: How does Dataset Curation for Robot Learning fail in practice, and how
+    would you present it in an interview?
+  keyPoints:
+    - "Distribution mismatch: training data collected in one setting (single
+      table, good lighting) but deployed in another (different table height,
+      variable lighting)."
+    - Covariate shift causes policy failure on out-of-distribution observations.
+    - "Also: demonstrator inconsistency — multiple operators with different
+      styles create conflicting multi-modal data that confuses unimodal
+      policies."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Distribution mismatch: training data collected in one setting (single table, good lighting) but deployed in another (different table height, variable lighting). Covariate shift causes policy failure on out-of-distribution observations. Also: demonstrator inconsistency — multiple operators with different styles create conflicting multi-modal data that confuses unimodal policies. Symptoms: policy works in the training environment but fails in deployment; policy exhibits hesitant or averaged behavior. Fix: collect data across deployment conditions, standardize operator instructions, use multi-modal policy architectures (diffusion) for multi-operator data, track and visualize data distribution coverage.
+
+## Interview-ready answer
+
+Dataset curation is arguably the highest-leverage activity in robot learning — more impactful than architecture search or hyperparameter tuning. My curation pipeline: (1) define coverage requirements upfront (task variations, object diversity, approach directions), (2) collect with quality checks in the loop (real-time visualization, automated anomaly detection), (3) post-collection filtering (success verification, kinematic feasibility, statistical outlier removal), (4) balance analysis and targeted augmentation for underrepresented regions, (5) version everything with DVC. Key insight: invest time in understanding your data distribution before training. I always plot action distributions, state-space coverage, and per-task statistics. A common mistake: collecting 1000 demos of the easy case and 10 of the hard case — the policy will only learn the easy case.

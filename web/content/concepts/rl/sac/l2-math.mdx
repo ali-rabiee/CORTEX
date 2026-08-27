@@ -1,0 +1,24 @@
+---
+concept: sac
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Soft Actor-Critic (SAC), including the
+    key equations.
+  keyPoints:
+    - "SAC is an off-policy actor-critic algorithm that maximizes a trade-off
+      between expected return and entropy: $$J(\\pi) = \\mathbb{E}_{\\tau \\sim
+      \\pi}\\left[\\sum_{t=0}^{T} \\gamma^t \\bigl(r(s_t, a_t) + \\alpha\\,
+      H(\\pi(\\cdot|s_t))\\bigr)\\right]$$ It uses two Q-networks with clipped
+      double-Q ($Q = \\min(Q_{\\phi_1}, Q_{\\phi_2})$), and automatic
+      temperature $\\alpha$ tuning via the dual objective: $$\\alpha^* =
+      \\arg\\min_\\alpha \\; \\mathbb{E}_{a \\sim \\pi}[-\\alpha \\log \\pi(a|s)
+      - \\alpha \\bar{H}]$$ where $\\bar{H}$ is the target entropy (typically
+      $-\\dim(\\mathcal{A})$)."
+check: []
+papers: []
+---
+
+## Formal definition
+
+SAC is an off-policy actor-critic algorithm that maximizes a trade-off between expected return and entropy: $$J(\pi) = \mathbb{E}_{\tau \sim \pi}\left[\sum_{t=0}^{T} \gamma^t \bigl(r(s_t, a_t) + \alpha\, H(\pi(\cdot|s_t))\bigr)\right]$$ It uses two Q-networks with clipped double-Q ($Q = \min(Q_{\phi_1}, Q_{\phi_2})$), and automatic temperature $\alpha$ tuning via the dual objective: $$\alpha^* = \arg\min_\alpha \; \mathbb{E}_{a \sim \pi}[-\alpha \log \pi(a|s) - \alpha \bar{H}]$$ where $\bar{H}$ is the target entropy (typically $-\dim(\mathcal{A})$).

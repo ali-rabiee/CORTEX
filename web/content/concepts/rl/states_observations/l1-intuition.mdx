@@ -1,0 +1,23 @@
+---
+concept: states_observations
+level: 1
+status: seed
+recall:
+  prompt: "Explain States and Observations in plain language: what is it, and why
+    does it matter?"
+  keyPoints:
+    - State is 'ground truth' — the full physics of the world.
+    - Observation is what your sensors actually give you.
+    - A robot arm's true state includes all joint angles, velocities, and the
+      exact pose of every object.
+check: []
+papers: []
+---
+
+## Intuition
+
+State is 'ground truth' — the full physics of the world. Observation is what your sensors actually give you. A robot arm's true state includes all joint angles, velocities, and the exact pose of every object. But its observation might be a single RGB camera image — it can't see behind objects, can't directly measure velocities, and has noise. The gap between state and observation is the core challenge of real-world RL. In simulation, you often have access to the full state (privileged information); in the real world, you almost never do.
+
+## In practice
+
+A manipulation task with a Franka Panda robot: full state $s = (q \in \mathbb{R}^7, \dot{q} \in \mathbb{R}^7, x_{\text{obj}} \in SE(3), v_{\text{obj}} \in \mathbb{R}^6, f_{\text{contact}} \in \mathbb{R}^6)$ — 33 dimensions. Observation options: (1) proprioception only: $(q, \dot{q}) \in \mathbb{R}^{14}$ — can't see objects; (2) proprioception + object pose from perception: $\mathbb{R}^{14+7}$ — noisy pose estimates; (3) raw images: $o \in \mathbb{R}^{H \times W \times 3}$ — partial observability. Common approach: train with privileged state in sim, distill to observation-based policy. Frame stacking ($k=3$ frames) helps recover velocity information from position-only observations.

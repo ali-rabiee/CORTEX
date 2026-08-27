@@ -1,0 +1,16 @@
+id: rewards_returns
+title: Rewards and Returns
+domain: rl
+summary: The reward is the RL agent's only source of information about what's
+  good — it's the 'grade' for each moment.
+tags:
+  - rl
+  - ml_fundamentals
+difficulty: 1
+importance: 5
+related_concept_ids:
+  - mdp
+  - reward_shaping
+  - value_functions
+  - bellman_equations
+  - exploration

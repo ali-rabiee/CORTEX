@@ -1,0 +1,24 @@
+---
+concept: actions_action_spaces
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Actions and Action Spaces, including the
+    key equations.
+  keyPoints:
+    - The action space $\mathcal{A}$ defines the set of actions available to the
+      agent.
+    - Discrete action spaces $\mathcal{A} = \{a_1, a_2, \ldots, a_n\}$ have
+      finitely many choices; the policy is a categorical distribution $\pi(a|s)
+      \in \Delta^{|\mathcal{A}|-1}$.
+    - "Continuous action spaces $\\mathcal{A} \\subseteq \\mathbb{R}^d$ require
+      the policy to output parameters of a continuous distribution, typically
+      Gaussian: $\\pi(a|s) = \\mathcal{N}(\\mu_\\theta(s),
+      \\Sigma_\\theta(s))$."
+check: []
+papers: []
+---
+
+## Formal definition
+
+The action space $\mathcal{A}$ defines the set of actions available to the agent. Discrete action spaces $\mathcal{A} = \{a_1, a_2, \ldots, a_n\}$ have finitely many choices; the policy is a categorical distribution $\pi(a|s) \in \Delta^{|\mathcal{A}|-1}$. Continuous action spaces $\mathcal{A} \subseteq \mathbb{R}^d$ require the policy to output parameters of a continuous distribution, typically Gaussian: $\pi(a|s) = \mathcal{N}(\mu_\theta(s), \Sigma_\theta(s))$. Multi-dimensional actions $a \in \mathbb{R}^d$ are usually factored as independent dimensions: $\pi(a|s) = \prod_{i=1}^{d} \pi_i(a_i|s)$. Actions are often clipped or squashed via $\tanh$ to enforce bounds: $a = \tanh(\mu + \sigma \cdot \epsilon), \; \epsilon \sim \mathcal{N}(0, I)$.

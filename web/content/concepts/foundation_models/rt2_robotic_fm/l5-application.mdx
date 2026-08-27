@@ -1,0 +1,25 @@
+---
+concept: rt2_robotic_fm
+level: 5
+status: seed
+recall:
+  prompt: How does RT-2 and Robotic Foundation Models fail in practice, and how
+    would you present it in an interview?
+  keyPoints:
+    - "Inference latency: RT-2 at 55B parameters requires ~1-2 seconds per
+      action on high-end GPUs — too slow for reactive control."
+    - The model 'thinks' like a language model, generating tokens one at a time.
+    - "Embodiment gap: fine-tuned on one robot (e.g., Google's Everyday Robot),
+      performance degrades on different kinematic structures without additional
+      fine-tuning."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Inference latency: RT-2 at 55B parameters requires ~1-2 seconds per action on high-end GPUs — too slow for reactive control. The model 'thinks' like a language model, generating tokens one at a time. Embodiment gap: fine-tuned on one robot (e.g., Google's Everyday Robot), performance degrades on different kinematic structures without additional fine-tuning. Data imbalance: internet pre-training data vastly outweighs robot data, so the model may 'forget' robot-specific skills during continued web pre-training or exhibit text-mode behaviors (e.g., describing the action instead of executing it). Symptoms: slow control loop, failure on new robot hardware, occasional text output instead of action tokens. Fix: model distillation (RT-2-X to smaller models), cross-embodiment datasets (Open X-Embodiment), action head specialization (diffusion/flow heads instead of autoregressive token generation).
+
+## Interview-ready answer
+
+RT-2 demonstrated that internet-scale pre-training transfers to robotics in a meaningful way — enabling novel object manipulation, semantic reasoning, and language-conditioned control from a single model. The key insight: VLMs already understand the visual and semantic world; fine-tuning on robot data teaches them to act in it. The practical challenges: (1) latency — 55B parameter models are too slow for real-time control, motivating smaller models like Octo (93M) and OpenVLA (7B), (2) embodiment generalization — Open X-Embodiment dataset addresses this with data from 22 robots, (3) action representation — tokenized actions (RT-2) vs. continuous action heads (Octo's diffusion, $\pi_0$'s flow matching) is an active design choice. My view: the field is converging on moderate-sized VLAs (1-10B) with continuous action heads, pre-trained on cross-embodiment data and fine-tuned per robot. This balances generalization, speed, and precision.

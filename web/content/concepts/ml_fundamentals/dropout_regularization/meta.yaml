@@ -1,0 +1,14 @@
+id: dropout_regularization
+title: Dropout Regularization — Preventing Co-adaptation
+domain: ml_fundamentals
+summary: Dropout forces each neuron to be useful on its own, preventing groups
+  of neurons from co-adapting to memorize training examples.
+tags:
+  - ml_fundamentals
+difficulty: 2
+importance: 4
+related_concept_ids:
+  - overfitting_underfitting
+  - batch_normalization
+  - cross_entropy_loss
+  - transformer_architecture

@@ -1,0 +1,24 @@
+---
+concept: safety_monitoring
+level: 1
+status: seed
+recall:
+  prompt: "Explain Runtime Safety Monitoring for Robot Systems in plain language:
+    what is it, and why does it matter?"
+  keyPoints:
+    - "A self-driving car has multiple safety systems: lane departure warning,
+      automatic braking, airbags."
+    - Robot systems need the same layered approach.
+    - The learned policy is like the driver — usually good, but can make
+      mistakes.
+check: []
+papers: []
+---
+
+## Intuition
+
+A self-driving car has multiple safety systems: lane departure warning, automatic braking, airbags. Robot systems need the same layered approach. The learned policy is like the driver — usually good, but can make mistakes. Safety monitoring is the set of guardrails that prevent those mistakes from causing damage: hard limits the policy can never exceed, soft limits that trigger caution, and anomaly detection that flags when something unexpected is happening.
+
+## In practice
+
+Safety stack for a collaborative robot manipulation system: Layer 1 (hardware, $< 1\,\text{ms}$): joint torque limits, e-stop circuit. Layer 2 (real-time controller, $< 5\,\text{ms}$): workspace bounds check $\mathbf{p}_{\text{ee}} \in \mathcal{W}$, velocity scaling near limits ($v_{\text{scale}} = \min(1, d_{\text{boundary}} / d_{\text{margin}})$), collision checking against known geometry. Layer 3 (policy level, $< 50\,\text{ms}$): action clipping to kinematically feasible set, confidence-based speed scaling ($v \propto \text{confidence}$). Layer 4 (high-level, $< 1\,\text{s}$): learned anomaly detector (autoencoder on observation history, trigger when reconstruction error $\|o - \hat{o}\| > \epsilon_{\text{anomaly}}$), task progress monitoring (detect if stuck or regressing). Each layer has a defined response: Layer 1 = hard stop, Layer 2 = velocity reduction + alert, Layer 3 = conservative fallback behavior, Layer 4 = pause and request human review.

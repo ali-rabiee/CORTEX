@@ -1,0 +1,24 @@
+---
+concept: latency_optimization
+level: 1
+status: seed
+recall:
+  prompt: "Explain Inference Latency Optimization for Robot Control in plain
+    language: what is it, and why does it matter?"
+  keyPoints:
+    - A robot reaching for a moving object can't wait 500ms for a diffusion
+      model to generate an action.
+    - Latency directly limits control bandwidth — at 100ms latency, you can only
+      correct 10 times per second.
+    - Every millisecond matters for reactive, contact-rich tasks.
+check: []
+papers: []
+---
+
+## Intuition
+
+A robot reaching for a moving object can't wait 500ms for a diffusion model to generate an action. Latency directly limits control bandwidth — at 100ms latency, you can only correct 10 times per second. Every millisecond matters for reactive, contact-rich tasks.
+
+## In practice
+
+Optimizing a diffusion policy: original (100 denoising steps, FP32) $\rightarrow$ 1.5s per action. Step 1: DDIM ($T=10$ steps) $\rightarrow$ 150ms. Step 2: FP16 inference $\rightarrow$ 100ms. Step 3: TensorRT compilation $\rightarrow$ 60ms. Step 4: async pipeline (predict next chunk while executing current) $\rightarrow$ effective 30ms latency. Total: $50\times$ speedup.

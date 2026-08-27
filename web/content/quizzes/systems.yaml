@@ -1,0 +1,221 @@
+domain: systems
+questions:
+  - id: sys_q1
+    question: "A deployed robot policy's success rate gradually drops from 95% to
+      70% over several weeks without any code changes. The most likely cause
+      is:"
+    options:
+      - Model weights degrading over time
+      - Hardware wear affecting motor precision
+      - Environmental drift — lighting, camera calibration, or object
+        positioning has changed
+      - Memory leak in the inference server
+    correct_answer: 2
+    explanation: "Silent environmental drift is the most common cause of gradual
+      performance degradation. Camera calibration shifts with temperature
+      changes, lighting varies seasonally, object inventories change. The policy
+      was never robust to these variations. Fix: continuous monitoring with
+      automated alerts, periodic recalibration, and training with more
+      environmental variation."
+    concept_ids:
+      - deployment_thinking
+      - evaluation_methodology
+    difficulty: 2
+    tags:
+      - systems
+  - id: sys_q2
+    question: "When optimizing a diffusion policy for real-time robot control, the
+      correct optimization order is:"
+    options:
+      - Quantization → fewer steps → TensorRT
+      - Fewer denoising steps (DDIM) → FP16 → TensorRT compilation → async
+        pipeline
+      - TensorRT → quantization → fewer steps
+      - Async pipeline → fewer steps → quantization
+    correct_answer: 1
+    explanation: "Start with the highest-impact, safest optimization: reducing
+      denoising steps with DDIM (10x speedup, minimal quality loss). Then
+      numerical precision reduction (FP16, ~2x speedup). Then compilation
+      (TensorRT, ~1.5x). Finally, architectural optimization with async pipeline
+      (overlap inference with execution). Each step should be validated against
+      the full evaluation suite before proceeding."
+    concept_ids:
+      - latency_optimization
+      - diffusion_policy
+    difficulty: 3
+    tags:
+      - systems
+  - id: sys_q3
+    question: "The most critical requirement for ML experiment reproducibility is:"
+    options:
+      - Using the same GPU hardware
+      - Logging every hyperparameter, code version, data version, and environment
+      - Running experiments sequentially
+      - Using only deterministic operations
+    correct_answer: 1
+    explanation: "Complete logging is the foundation — without knowing the exact
+      configuration, no amount of deterministic hardware can reproduce results.
+      You need: git commit hash, pip freeze / conda env export, data version
+      (DVC hash), all hyperparameters, and random seeds. GPU determinism helps
+      but is secondary to knowing what was actually run."
+    concept_ids:
+      - experiment_tracking
+    difficulty: 2
+    tags:
+      - systems
+  - id: sys_q4
+    question: "A robot manipulation system needs to run a diffusion policy at 20Hz
+      (50ms per inference). The current model takes 200ms. The correct first
+      optimization step is:"
+    options:
+      - Switch to a completely different algorithm
+      - Reduce denoising steps (DDIM with fewer steps) — highest impact with
+        minimal quality loss
+      - Buy a faster GPU
+      - Reduce input image resolution
+    correct_answer: 1
+    explanation: Reducing denoising steps from 100 to 10 with DDIM typically gives
+      ~10x speedup with <5% quality degradation. This addresses the dominant
+      cost (iterative denoising) directly. Further optimizations (FP16,
+      TensorRT) can stack on top. Buying hardware or changing algorithms are
+      higher-cost interventions to try only after algorithmic optimization is
+      exhausted.
+    concept_ids:
+      - latency_optimization
+      - diffusion_policy
+    difficulty: 2
+    tags:
+      - systems
+  - id: sys_q5
+    question: In a layered safety architecture for robots, why should hardware-level
+      safety (e-stops, torque limits) be independent from software?
+    options:
+      - It's cheaper to implement
+      - Software can crash or hang — hardware safety must function even when the
+        control software is unresponsive
+      - It reduces latency
+      - It makes debugging easier
+    correct_answer: 1
+    explanation: Hardware safety (torque limits in motor drivers, physical e-stop
+      circuits) operates at the electrical level, independent of any software
+      stack. If the control computer crashes, hangs, or sends garbage commands,
+      hardware limits still prevent dangerous forces or velocities. This
+      defense-in-depth principle ensures that no single software failure can
+      cause physical harm.
+    concept_ids:
+      - safety_monitoring
+      - deployment_thinking
+    difficulty: 2
+    tags:
+      - systems
+  - id: sys_q6
+    question: "When curating a robot demonstration dataset, balanced coverage across
+      task variations matters more than total dataset size because:"
+    options:
+      - It reduces storage costs
+      - A policy will only learn behavior for conditions well-represented in the
+        training data — rare conditions with few demos will fail
+      - Balanced data trains faster
+      - It simplifies the data pipeline
+    correct_answer: 1
+    explanation: If 95% of demos show grasping from the right and 5% from the left,
+      the policy essentially ignores left-side grasps. The total size (1000
+      demos) sounds impressive, but there are effectively only 50 left-side
+      demos. A smaller but balanced dataset (200 demos, 100 per side) would
+      produce a more capable policy. Always check per-condition sample counts,
+      not just totals.
+    concept_ids:
+      - dataset_curation
+      - evaluation_methodology
+    difficulty: 2
+    tags:
+      - systems
+  - id: sys_q7
+    question: "Model serving for a deployed robot policy should use a separate
+      inference process (not inline with the control loop) because:"
+    options:
+      - It's easier to debug
+      - It allows independent scaling, GPU management, and model hot-swapping
+        without stopping the robot
+      - It reduces memory usage
+      - It's required by ROS
+    correct_answer: 1
+    explanation: "Separating inference into its own service (e.g., gRPC server with
+      TensorRT) enables: model updates without restarting the control loop, GPU
+      resource management independent of the real-time controller, fallback to a
+      simpler model if inference fails, and monitoring inference latency
+      independently. The control loop runs at a fixed rate regardless of model
+      serving state."
+    concept_ids:
+      - deployment_thinking
+      - latency_optimization
+    difficulty: 3
+    tags:
+      - systems
+  - id: sys_q8
+    question: An ablation study systematically removes or changes one component at a
+      time to measure its contribution. Which ablation would be MOST informative
+      for a diffusion policy system?
+    options:
+      - Testing with different random seeds
+      - "Comparing performance with and without: (a) action chunking, (b)
+        pre-trained visual encoder, (c) data augmentation"
+      - Running for different numbers of training epochs
+      - Testing on different hardware
+    correct_answer: 1
+    explanation: Informative ablations isolate the contribution of key design
+      choices. Removing action chunking tests whether temporal structure
+      matters, replacing the pre-trained encoder with random init tests transfer
+      learning value, and removing augmentation tests robustness. Each tells you
+      something actionable. Seed variation measures noise, not design impact;
+      epoch sweeps show training dynamics, not component value.
+    concept_ids:
+      - evaluation_methodology
+      - experiment_tracking
+    difficulty: 2
+    tags:
+      - systems
+  - id: sys_q9
+    question: "Isaac Gym can train RL policies orders of magnitude faster than
+      MuJoCo primarily because:"
+    options:
+      - It uses better physics algorithms
+      - It runs thousands of parallel environments on the GPU, avoiding CPU-GPU
+        data transfer bottlenecks
+      - It has more accurate contact models
+      - It supports more robot types
+    correct_answer: 1
+    explanation: "Isaac Gym keeps the entire simulation and RL pipeline on the GPU:
+      environment stepping, observation collection, policy inference, and
+      gradient computation all happen in GPU memory. This eliminates the CPU→GPU
+      data transfer bottleneck that limits CPU-based simulators like MuJoCo.
+      With 4096+ parallel environments on a single A100, training throughput
+      reaches 10B+ steps/hour vs millions/hour on CPU."
+    concept_ids:
+      - sim_environments
+      - latency_optimization
+    difficulty: 2
+    tags:
+      - systems
+  - id: sys_q10
+    question: "In ROS2, using BEST_EFFORT QoS for high-frequency sensor topics
+      (cameras at 30Hz) instead of RELIABLE is preferred because:"
+    options:
+      - It uses less memory
+      - BEST_EFFORT drops messages rather than retransmitting, preventing queue
+        buildup and latency when subscribers can't keep up
+      - It's more secure
+      - It supports larger message sizes
+    correct_answer: 1
+    explanation: RELIABLE QoS guarantees delivery via retransmission, which
+      introduces latency and can cause message queue buildup when the subscriber
+      is slower than the publisher. For sensor data, a stale frame retransmitted
+      100ms late is worse than dropping it and using the next fresh frame.
+      BEST_EFFORT delivers what it can, keeping latency minimal — critical for
+      real-time robot control.
+    concept_ids:
+      - ros_middleware
+      - latency_optimization
+    difficulty: 2
+    tags:
+      - systems

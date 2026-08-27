@@ -1,0 +1,16 @@
+id: contact_rich_manipulation
+title: Contact-Rich Manipulation
+domain: robot_learning
+summary: "Imagine threading a needle: you can't just plan a trajectory in free
+  space — you must feel the needle against the fabric, adjust force and angle
+  based on tactile feedback, and maintain precise force control while moving."
+tags:
+  - robot_learning
+  - systems
+difficulty: 4
+importance: 5
+related_concept_ids:
+  - sim2real_transfer
+  - behavior_cloning
+  - dagger
+  - domain_randomization

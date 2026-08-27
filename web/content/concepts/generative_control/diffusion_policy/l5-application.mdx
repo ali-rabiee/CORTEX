@@ -1,0 +1,23 @@
+---
+concept: diffusion_policy
+level: 5
+status: seed
+recall:
+  prompt: How does Diffusion Policy fail in practice, and how would you present it
+    in an interview?
+  keyPoints:
+    - "Inference too slow for reactive control: full DDPM requires $T = 100$+
+      denoising steps per action chunk."
+    - With DDIM acceleration, still 10-20 steps needed.
+    - "Symptoms: robot moves in stop-and-go pattern due to inference latency."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Inference too slow for reactive control: full DDPM requires $T = 100$+ denoising steps per action chunk. With DDIM acceleration, still 10-20 steps needed. Symptoms: robot moves in stop-and-go pattern due to inference latency. Fix: use DDIM with fewer steps (10), consistency distillation, or single-step generators. Also: noise schedule $\{\beta_t\}$ tuning is critical — wrong schedule produces either conservative (too low $\beta$) or jittery (too high $\beta$) actions.
+
+## Interview-ready answer
+
+Diffusion policies are the state-of-the-art for learning multi-modal manipulation behaviors. The key advantage: they naturally represent multiple valid action modes without mode averaging. Architecture: observation encoder $\rightarrow$ conditioning $\rightarrow$ U-Net denoising network predicting $\boldsymbol{\epsilon}_\theta(\mathbf{a}^t, t, \mathbf{o})$ $\rightarrow$ action chunks. In practice: DDIM with 10 steps is fast enough for 10Hz control. Combine with action chunking (predict 16 steps) for temporal consistency. The main trade-off vs BC: higher quality but slower inference and harder to train. I see diffusion policies as the default for manipulation tasks with multi-modal behavior (assembly, tool use, bimanual).

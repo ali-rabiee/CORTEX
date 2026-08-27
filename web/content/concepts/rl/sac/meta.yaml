@@ -1,0 +1,13 @@
+id: sac
+title: Soft Actor-Critic (SAC)
+domain: rl
+summary: SAC is like a policy that's rewarded for being both good and creative.
+tags:
+  - rl
+difficulty: 3
+importance: 5
+related_concept_ids:
+  - ppo_clipping
+  - off_policy_learning
+  - entropy_regularization
+  - replay_buffer

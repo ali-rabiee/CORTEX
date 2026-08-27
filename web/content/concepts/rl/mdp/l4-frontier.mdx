@@ -1,0 +1,97 @@
+---
+concept: mdp
+level: 4
+status: final
+recall:
+  prompt: "How has the field's relationship to the MDP formalism shifted in the 2020s? Name the three directions that bend or sidestep it."
+  keyPoints:
+    - "World models (DreamerV3, TD-MPC2): learn P and R from pixels, then plan/learn inside the learned MDP"
+    - "RL as sequence modeling (Decision Transformer): drop Bellman backups entirely, condition a transformer on return-to-go"
+    - "Generative interactive environments (Genie): learn an action-controllable environment itself from video — the MDP becomes a learned artifact"
+check:
+  - id: mdp_l4_c1
+    prompt: "Decision Transformer reframes RL as sequence modeling. What part of the MDP toolkit does it abandon?"
+    options:
+      - "The reward signal"
+      - "Bellman backups / dynamic programming — it never bootstraps a value function, instead autoregressively predicting actions conditioned on desired return-to-go"
+      - "The Markov assumption on states"
+      - "Discounting"
+    answer: 1
+    explanation: "DT treats (return-to-go, state, action) tokens as a sequence and trains with supervised next-token loss. No TD targets, no bootstrapping, no max operator — which sidesteps deadly-triad instability but inherits offline data's return coverage limits."
+  - id: mdp_l4_c2
+    prompt: "DreamerV3's headline result relevant to the MDP abstraction is that..."
+    options:
+      - "model-free RL is always better than model-based"
+      - "one set of hyperparameters learns a latent world model and policy across 150+ tasks from pixels — treating the learned latent MDP, not the raw observation space, as the decision process"
+      - "it requires task-specific tuning of gamma"
+      - "it proves the Markov property holds for camera images"
+    answer: 1
+    explanation: "DreamerV3 learns dynamics in a discrete latent space (RSSM) and trains the actor-critic purely in imagination. The practical message: when observations aren't Markov, learn a latent state that is, then do RL there."
+papers:
+  - key: hafner2023dreamerv3
+    title: "Mastering Diverse Domains through World Models (DreamerV3)"
+    authors: "Hafner, Pasukonis, Ba, Lillicrap"
+    venue: "arXiv / Nature 2025"
+    year: 2023
+    arxiv: "2301.04104"
+    takeaway: "Learns the MDP (latent dynamics + reward) from pixels and trains entirely in imagination; one config solves 150+ tasks, including Minecraft diamonds from scratch. The strongest argument that 'learn the MDP, then solve it' scales."
+  - key: chen2021decisiontransformer
+    title: "Decision Transformer: Reinforcement Learning via Sequence Modeling"
+    authors: "Chen, Lu, Rajeswaran, et al."
+    venue: "NeurIPS"
+    year: 2021
+    arxiv: "2106.01345"
+    takeaway: "Replaces dynamic programming with return-conditioned autoregressive action prediction. Opened the 'RL as supervised sequence modeling' lane that VLA robot policies now drive in."
+  - key: hansen2024tdmpc2
+    title: "TD-MPC2: Scalable, Robust World Models for Continuous Control"
+    authors: "Hansen, Su, Wang"
+    venue: "ICLR"
+    year: 2024
+    arxiv: "2310.16828"
+    takeaway: "Decoder-free latent world model + short-horizon MPC + TD value learning; one 317M-param agent controls 80 continuous-control tasks. The model-based counterpart to multi-task policies in robotics."
+  - key: bruce2024genie
+    title: "Genie: Generative Interactive Environments"
+    authors: "Bruce, Dennis, et al. (Google DeepMind)"
+    venue: "ICML"
+    year: 2024
+    arxiv: "2402.15391"
+    takeaway: "Learns an action-controllable video environment from unlabeled internet gameplay — inferring latent actions with no action labels. The environment itself becomes generative; a path to unlimited training MDPs for embodied agents."
+  - key: levine2020offline
+    title: "Offline Reinforcement Learning: Tutorial, Review, and Perspectives on Open Problems"
+    authors: "Levine, Kumar, Tucker, Fu"
+    venue: "arXiv"
+    year: 2020
+    arxiv: "2005.01643"
+    takeaway: "The reference survey for what changes when you can't interact with the MDP at all — distribution shift becomes the central enemy. Frames the constraints every robot-learning-from-logs effort lives under."
+---
+
+## The formalism is stable; its role is shifting
+
+Nobody has replaced the MDP — every 2024-26 system still bottoms out in
+states, actions, and rewards. What changed is **where the MDP comes from**:
+
+1. **Learned, latent MDPs.** When observations are pixels, the winning move
+   is to learn a compact Markov state and do RL there.
+2. **MDP-free control of MDP problems.** Sequence models solve the decision
+   problem with supervised learning, trading Bellman machinery for data
+   coverage assumptions.
+3. **Generated MDPs.** Foundation world models generate the environment
+   itself, promising unlimited interactive training worlds.
+
+<PaperGrid>
+  <PaperCard refKey="hafner2023dreamerv3" />
+  <PaperCard refKey="hansen2024tdmpc2" />
+  <PaperCard refKey="chen2021decisiontransformer" />
+  <PaperCard refKey="bruce2024genie" />
+  <PaperCard refKey="levine2020offline" />
+</PaperGrid>
+
+<KeyIdea>
+
+Interview-ready synthesis: "The MDP hasn't been displaced — it's been
+*relocated*. DreamerV3 and TD-MPC2 learn it latently; Decision Transformer
+ignores its dynamic-programming structure but still assumes its causality;
+Genie generates it outright. Knowing exactly which MDP assumption each
+approach keeps or drops is the fastest way to predict where it will break."
+
+</KeyIdea>

@@ -1,0 +1,29 @@
+---
+concept: embodied_memory
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Memory and State Tracking in Embodied
+    Agents, including the key equations.
+  keyPoints:
+    - Mechanisms for embodied agents to maintain, retrieve, and reason over
+      information across time horizons longer than the model's context window.
+    - "Types: (1) Working memory: the transformer's context window, holding the
+      current observation and recent history — limited to $L$ tokens ($L \\in
+      [4K, 128K]$). (2) Episodic memory: a retrieval-augmented store of past
+      experiences $\\mathcal{M} = \\{(o_i, a_i, r_i, t_i)\\}$, indexed by
+      embedding similarity: $\\text{retrieve}(o_t) = \\arg\\max_{m \\in
+      \\mathcal{M}} \\cos(\\phi(o_t), \\phi(m))$. (3) Semantic memory:
+      structured knowledge (scene graphs, object databases) updated
+      incrementally."
+    - "Retrieval-augmented generation (RAG) for embodied agents: encode current
+      observation $\\rightarrow$ retrieve relevant past experiences
+      $\\rightarrow$ inject into context $\\rightarrow$ condition action
+      generation."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Mechanisms for embodied agents to maintain, retrieve, and reason over information across time horizons longer than the model's context window. Types: (1) Working memory: the transformer's context window, holding the current observation and recent history — limited to $L$ tokens ($L \in [4K, 128K]$). (2) Episodic memory: a retrieval-augmented store of past experiences $\mathcal{M} = \{(o_i, a_i, r_i, t_i)\}$, indexed by embedding similarity: $\text{retrieve}(o_t) = \arg\max_{m \in \mathcal{M}} \cos(\phi(o_t), \phi(m))$. (3) Semantic memory: structured knowledge (scene graphs, object databases) updated incrementally. Retrieval-augmented generation (RAG) for embodied agents: encode current observation $\rightarrow$ retrieve relevant past experiences $\rightarrow$ inject into context $\rightarrow$ condition action generation.

@@ -1,0 +1,26 @@
+---
+concept: contact_rich_manipulation
+level: 5
+status: seed
+recall:
+  prompt: How does Contact-Rich Manipulation fail in practice, and how would you
+    present it in an interview?
+  keyPoints:
+    - "Sim2real gap is worst for contact-rich tasks because simulators poorly
+      model: (1) contact patch geometry (point contact vs. distributed), (2)
+      stick-slip friction transitions, (3) deformable object dynamics, (4)
+      force-torque sensor noise and bias."
+    - "The gap in contact forces can be orders of magnitude: $\\|F_{\\text{sim}}
+      - F_{\\text{real}}\\| \\gg 0$."
+    - "Symptoms: policy jams, applies excessive force, or oscillates at contact."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Sim2real gap is worst for contact-rich tasks because simulators poorly model: (1) contact patch geometry (point contact vs. distributed), (2) stick-slip friction transitions, (3) deformable object dynamics, (4) force-torque sensor noise and bias. The gap in contact forces can be orders of magnitude: $\|F_{\text{sim}} - F_{\text{real}}\| \gg 0$. Symptoms: policy jams, applies excessive force, or oscillates at contact. Fix: use compliant control as the base layer (impedance/admittance control with gains $K_p, K_d$), add tactile sensing, collect real-world corrections via DAgger, and use low-frequency control ($\leq 20$ Hz) so contact transients are filtered.
+
+## Interview-ready answer
+
+Contact-rich manipulation is the frontier challenge in robot learning because contact dynamics are discontinuous ($\phi(q) = 0$ boundary), hard to simulate, and require tight coupling of perception and force control. My approach: (1) Use impedance control $F = K_p e + K_d \dot{e}$ as the compliant base layer for safety and passivity, (2) Learn a residual policy on top that handles task strategy, conditioned on force-torque observations $f \in \mathbb{R}^6$, (3) Train in sim with domain randomization on contact parameters ($\mu, K_{\text{contact}}, \text{damping}$), then refine with real-world DAgger. Tactile sensing (e.g., GelSight providing contact geometry at $\sim$30 Hz) is a game-changer for tasks where vision is occluded during contact. The key insight: don't try to learn contact dynamics end-to-end — let classical compliance handle the physics, and let learning handle the strategy.

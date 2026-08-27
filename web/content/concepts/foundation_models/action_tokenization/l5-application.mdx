@@ -1,0 +1,25 @@
+---
+concept: action_tokenization
+level: 5
+status: seed
+recall:
+  prompt: How does Action Tokenization for Foundation Models fail in practice, and
+    how would you present it in an interview?
+  keyPoints:
+    - "Discretization error: with $B = 256$ bins over a range of $[-1, 1]$,
+      resolution is $\\sim 0.008$ per bin."
+    - For high-precision tasks (peg insertion with 0.5mm tolerance over 50cm
+      range), this gives $\sim 0.4$mm precision — marginal.
+    - "Bin boundary effects: actions near bin edges oscillate between adjacent
+      bins across timesteps, causing jittery motion."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Discretization error: with $B = 256$ bins over a range of $[-1, 1]$, resolution is $\sim 0.008$ per bin. For high-precision tasks (peg insertion with 0.5mm tolerance over 50cm range), this gives $\sim 0.4$mm precision — marginal. Bin boundary effects: actions near bin edges oscillate between adjacent bins across timesteps, causing jittery motion. Vocabulary explosion: $B$ bins $\times$ $d$ dimensions = $B^d$ possible action combinations for joint prediction, making modeling harder. Symptoms: jittery robot motion, inability to achieve sub-millimeter precision, mode collapse in action prediction. Fix: increase bin count for precision-critical dimensions, use residual action prediction (coarse bin + continuous offset), switch to continuous action heads for precision tasks, use action chunking to amortize discretization noise over time.
+
+## Interview-ready answer
+
+Action tokenization is the key design choice that enables language model architectures to generate robot actions. The trade-off is precision vs. modeling simplicity. RT-2's approach — 256 bins per dimension — is simple and works for most manipulation tasks, but hits precision limits for fine assembly. The alternative: continuous action heads (diffusion in Octo, flow matching in $\pi_0$) avoid discretization entirely but lose the elegance of unified token prediction. VQ-VAE codebooks offer a middle ground — learned discretization that adapts to the action distribution. In practice, I choose based on the task: tokenization for high-level manipulation where 1mm precision suffices, continuous heads for precision assembly or contact-rich tasks. The trend is moving toward continuous action heads as they scale better and avoid discretization artifacts.

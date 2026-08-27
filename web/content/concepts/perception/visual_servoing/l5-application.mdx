@@ -1,0 +1,26 @@
+---
+concept: visual_servoing
+level: 5
+status: seed
+recall:
+  prompt: How does Visual Servoing fail in practice, and how would you present it
+    in an interview?
+  keyPoints:
+    - "IBVS local minima: for large rotations ($> 90°$) around the optical axis,
+      IBVS can produce retreating motions where the camera backs away before
+      approaching, or get stuck in local minima where features converge in image
+      space but the 3D trajectory is infeasible."
+    - "The interaction matrix is depth-dependent: incorrect depth estimates
+      cause incorrect velocity commands."
+    - Feature tracking loss breaks the control loop entirely.
+check: []
+papers: []
+---
+
+## Failure modes
+
+IBVS local minima: for large rotations ($> 90°$) around the optical axis, IBVS can produce retreating motions where the camera backs away before approaching, or get stuck in local minima where features converge in image space but the 3D trajectory is infeasible. The interaction matrix is depth-dependent: incorrect depth estimates cause incorrect velocity commands. Feature tracking loss breaks the control loop entirely. Symptoms: oscillation near the target, unexpected camera retreat, slow/no convergence. Fix: use hybrid IBVS/PBVS (2.5D visual servoing) that controls translation in image space and rotation in Cartesian space; use adaptive gain $\lambda(\|\mathbf{e}\|)$ that decreases near convergence; implement feature re-detection with fallback to open-loop motion.
+
+## Interview-ready answer
+
+Visual servoing provides closed-loop precision that open-loop methods can't match — essential for tasks like insertion, alignment, and tracking moving objects. IBVS is my preferred approach for the final approach phase because it's robust to calibration errors (errors in camera intrinsics/extrinsics only affect convergence rate, not the final position). The practical setup: eye-in-hand camera, track keypoints or edges, run at sensor framerate (30-60 Hz). Key design decisions: (1) feature selection — points are simple but need tracking, moments are more robust; (2) depth estimation — use coarse depth for the interaction matrix, IBVS is tolerant of errors; (3) gain scheduling — high gain far from target, low gain for precision near target. For modern approaches, I combine classical IBVS for the final $\sim 5\,\text{cm}$ with learned visuomotor policies for the gross approach, getting both generalization and precision.

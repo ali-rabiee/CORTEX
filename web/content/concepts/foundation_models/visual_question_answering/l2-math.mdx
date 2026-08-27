@@ -1,0 +1,25 @@
+---
+concept: visual_question_answering
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Visual Question Answering for Robotics,
+    including the key equations.
+  keyPoints:
+    - VQA systems take an image $I$ and a natural language question $q$ and
+      produce an answer $a = f_\theta(I, q)$.
+    - "Modern VQA uses VLM architectures: visual tokens $z_I = \\text{ViT}(I)$
+      are projected and concatenated with question tokens $z_q$, then processed
+      by a language model to generate the answer autoregressively: $P(a | I, q)
+      = \\prod_t P_\\theta(a_t | a_{<t}, z_I, z_q)$."
+    - "For robotics, VQA enables querying scene properties: spatial reasoning
+      ('is the gripper above the cup?'), object attributes ('what color is the
+      leftmost block?'), state estimation ('is the drawer open or closed?'), and
+      affordance queries ('can the robot reach the bottle?')."
+check: []
+papers: []
+---
+
+## Formal definition
+
+VQA systems take an image $I$ and a natural language question $q$ and produce an answer $a = f_\theta(I, q)$. Modern VQA uses VLM architectures: visual tokens $z_I = \text{ViT}(I)$ are projected and concatenated with question tokens $z_q$, then processed by a language model to generate the answer autoregressively: $P(a | I, q) = \prod_t P_\theta(a_t | a_{<t}, z_I, z_q)$. For robotics, VQA enables querying scene properties: spatial reasoning ('is the gripper above the cup?'), object attributes ('what color is the leftmost block?'), state estimation ('is the drawer open or closed?'), and affordance queries ('can the robot reach the bottle?').

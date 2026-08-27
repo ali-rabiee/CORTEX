@@ -1,0 +1,237 @@
+domain: perception
+questions:
+  - id: percep_q1
+    question: "PointNet achieves permutation invariance over point clouds by:"
+    options:
+      - Sorting points by distance before processing
+      - Using per-point MLPs followed by a symmetric aggregation function (max
+        pooling)
+      - Converting to a regular voxel grid
+      - Using graph neural networks on nearest neighbors
+    correct_answer: 1
+    explanation: PointNet processes each point independently through shared MLPs,
+      then applies max pooling — a symmetric function — across all points to
+      produce a global feature. Since max pooling gives the same result
+      regardless of input order, the output is permutation-invariant. This is
+      more elegant than sorting (which requires defining an ordering) and avoids
+      voxelization overhead.
+    concept_ids:
+      - point_cloud_processing
+    difficulty: 2
+    tags:
+      - perception
+  - id: percep_q2
+    question: "For 6D pose estimation, the 6D continuous rotation representation
+      (Zhou et al.) is preferred over quaternions because:"
+    options:
+      - It's more compact (fewer parameters)
+      - It avoids the discontinuity problem that makes quaternions hard to learn
+        with neural networks
+      - It's faster to compute
+      - It handles symmetries automatically
+    correct_answer: 1
+    explanation: Quaternions have antipodal equivalence (q and -q represent the same
+      rotation), creating a discontinuity in the representation space that makes
+      learning difficult. The 6D continuous representation (first two columns of
+      the rotation matrix) provides a continuous, unique mapping without
+      discontinuities. It's actually larger (6 values vs 4) but much easier to
+      learn.
+    concept_ids:
+      - pose_estimation_6d
+    difficulty: 3
+    tags:
+      - perception
+  - id: percep_q3
+    question: "During hand-eye calibration, insufficient diversity in calibration
+      poses primarily leads to:"
+    options:
+      - Incorrect intrinsic parameters
+      - Accurate calibration in the sampled region but large errors elsewhere
+      - Complete calibration failure
+      - Slow convergence of the solver
+    correct_answer: 1
+    explanation: The AX=XB solver needs diverse pose pairs to fully constrain the
+      6-DOF transform. If all poses are from similar angles/positions, the
+      rotation component is poorly constrained. The calibration appears
+      successful (low residual in the sampled region) but generalization is
+      poor. This is why the recommendation is 15-20 poses from diverse
+      orientations.
+    concept_ids:
+      - camera_calibration
+    difficulty: 2
+    tags:
+      - perception
+  - id: percep_q4
+    question: "Structured light depth sensors (like RealSense D400 series) fail on
+      transparent and reflective surfaces because:"
+    options:
+      - The IR emitter is too weak
+      - The projected pattern is absorbed or specularly reflected, returning no
+        usable signal to the IR camera
+      - The sensor's framerate is too low
+      - Transparent objects are outside the depth range
+    correct_answer: 1
+    explanation: "Structured light projects an IR dot pattern onto the scene and
+      measures displacement to compute depth. Transparent objects pass the IR
+      through (no reflection back), and specular/reflective surfaces bounce IR
+      in unpredictable directions rather than back to the camera. This produces
+      depth holes or noise. Solutions: RGB-D fusion, polarization cameras, or
+      learning-based depth completion."
+    concept_ids:
+      - rgb_depth_sensing
+      - camera_calibration
+    difficulty: 2
+    tags:
+      - perception
+  - id: percep_q5
+    question: "Spatial softmax in visuomotor policy encoders is preferred over
+      global average pooling because:"
+    options:
+      - It's faster to compute
+      - It preserves 2D spatial coordinates of features, which are critical for
+        manipulation tasks
+      - It produces smaller feature vectors
+      - It's more robust to lighting changes
+    correct_answer: 1
+    explanation: Spatial softmax computes expected 2D coordinates (x_c, y_c) for
+      each feature channel, outputting where the network is attending. This
+      preserves the spatial structure critical for manipulation — knowing that a
+      grasp target is at pixel (120, 340) vs (250, 100) matters. Global average
+      pooling collapses all spatial information into a single scalar per
+      channel.
+    concept_ids:
+      - image_representations
+      - visuomotor_policy
+    difficulty: 3
+    tags:
+      - perception
+      - robot_learning
+  - id: percep_q6
+    question: "Open-vocabulary detection (e.g., Grounding DINO) differs from
+      traditional object detection (YOLO) in that:"
+    options:
+      - It's faster at inference
+      - It can detect objects described by arbitrary text queries, not just
+        fixed training categories
+      - It produces more accurate bounding boxes
+      - It works with lower-resolution images
+    correct_answer: 1
+    explanation: "Traditional detectors like YOLO are closed-vocabulary — they can
+      only detect the N object classes they were trained on (e.g., COCO's 80
+      classes). Open-vocabulary detectors use CLIP-style vision-language
+      alignment to detect objects described by free-form text: 'the red
+      screwdriver next to the tape.' This is transformative for robotics where
+      the object set changes across deployments."
+    concept_ids:
+      - open_vocabulary_detection
+      - object_detection
+    difficulty: 2
+    tags:
+      - perception
+      - foundation_models
+  - id: percep_q7
+    question: "Semantic segmentation classifies every pixel, while instance
+      segmentation additionally:"
+    options:
+      - Predicts depth for each pixel
+      - "Distinguishes between individual instances of the same class (e.g., cup
+        #1 vs cup #2)"
+      - Identifies affordances for each object
+      - Predicts 3D coordinates
+    correct_answer: 1
+    explanation: "Semantic segmentation labels each pixel with a class (chair,
+      table, cup) but two cups touching appear as one blob. Instance
+      segmentation assigns each pixel both a class and an instance ID,
+      distinguishing between individual objects even of the same class. Panoptic
+      segmentation combines both: instance segmentation for 'things' (countable
+      objects) and semantic for 'stuff' (sky, floor)."
+    concept_ids:
+      - object_segmentation
+      - semantic_segmentation
+    difficulty: 1
+    tags:
+      - perception
+  - id: percep_q8
+    question: "Visual servoing uses image features to control robot motion.
+      Image-Based Visual Servoing (IBVS) controls directly in image space, which
+      avoids:"
+    options:
+      - The need for a camera
+      - The need for accurate camera calibration and 3D pose estimation
+      - The need for a robot controller
+      - The need for feature detection
+    correct_answer: 1
+    explanation: "IBVS defines error in image coordinates (e.g., pixel position of a
+      feature vs its target position) and uses the image Jacobian to compute
+      robot velocities. Since everything is in 2D image space, it doesn't need
+      the camera extrinsics, 3D object model, or depth estimation that
+      Position-Based Visual Servoing (PBVS) requires. The tradeoff: IBVS can
+      have non-intuitive 3D trajectories."
+    concept_ids:
+      - visual_servoing
+    difficulty: 3
+    tags:
+      - perception
+  - id: percep_q9
+    question: "PointNet++ improves over PointNet by:"
+    options:
+      - Processing more points
+      - Hierarchically grouping local neighborhoods to capture local geometric
+        structure
+      - Using voxelization instead of raw points
+      - Adding temporal information
+    correct_answer: 1
+    explanation: "PointNet applies per-point MLPs followed by global max pooling,
+      which captures global features but loses local structure. PointNet++ adds
+      hierarchical set abstraction: it groups points into local neighborhoods
+      (ball query), applies PointNet locally, then repeats at coarser scales.
+      This captures fine-grained local geometry (surface normals, curvature)
+      that PointNet misses."
+    concept_ids:
+      - point_cloud_processing
+    difficulty: 2
+    tags:
+      - perception
+  - id: percep_q10
+    question: "Affordance prediction differs from object detection in that it
+      identifies:"
+    options:
+      - Where objects are located
+      - What actions can be performed on objects or regions (e.g., graspable,
+        pushable, sittable)
+      - Object class labels
+      - 3D object dimensions
+    correct_answer: 1
+    explanation: "Affordance prediction answers 'what can I do with this?' rather
+      than 'what is this?'. It predicts action possibilities: graspable regions
+      on a mug handle, pushable surfaces on a drawer, or pourability of a
+      container. This is more useful for robot manipulation than knowing 'this
+      is a mug' — it directly informs what actions to take and where."
+    concept_ids:
+      - affordance_prediction
+    difficulty: 2
+    tags:
+      - perception
+  - id: percep_q11
+    question: "Keypoint-based manipulation (e.g., transporter networks) represents
+      scenes as sparse keypoints rather than dense features because:"
+    options:
+      - Keypoints are easier to detect
+      - They provide a compact, generalizable representation where spatial
+        relationships between keypoints define the task, enabling transfer
+        across object instances
+      - They require less memory
+      - They work better with RGB cameras
+    correct_answer: 1
+    explanation: "Sparse keypoints define the task-relevant geometry: the handle
+      attachment points, the insertion hole center, the grasp points. Since the
+      task is defined by relative keypoint positions (not texture/appearance),
+      the same policy works for different object instances with similar keypoint
+      structures. Transporter networks learn to match keypoint configurations
+      between current and goal states."
+    concept_ids:
+      - keypoint_manipulation
+    difficulty: 3
+    tags:
+      - perception
+      - robot_learning

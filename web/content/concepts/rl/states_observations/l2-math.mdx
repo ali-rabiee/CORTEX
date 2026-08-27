@@ -1,0 +1,21 @@
+---
+concept: states_observations
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of States and Observations, including the
+    key equations.
+  keyPoints:
+    - The state $s_t \in \mathcal{S}$ is a complete description of the
+      environment at time $t$ satisfying the Markov property.
+    - "An observation $o_t \\in \\mathcal{O}$ is what the agent actually
+      perceives, which may be a partial or noisy function of the state: $o_t =
+      O(s_t, \\epsilon)$."
+    - When $o_t = s_t$, the problem is fully observable (MDP).
+check: []
+papers: []
+---
+
+## Formal definition
+
+The state $s_t \in \mathcal{S}$ is a complete description of the environment at time $t$ satisfying the Markov property. An observation $o_t \in \mathcal{O}$ is what the agent actually perceives, which may be a partial or noisy function of the state: $o_t = O(s_t, \epsilon)$. When $o_t = s_t$, the problem is fully observable (MDP). When $o_t \neq s_t$, the problem is a Partially Observable MDP (POMDP), formally $(\mathcal{S}, \mathcal{A}, P, R, \gamma, \mathcal{O}, O)$. In a POMDP, the optimal policy depends on the belief state $b_t = P(s_t | o_1, a_1, \ldots, o_t)$, the posterior distribution over states given the observation history.

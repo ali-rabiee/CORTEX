@@ -1,0 +1,23 @@
+---
+concept: curriculum_learning
+level: 1
+status: seed
+recall:
+  prompt: "Explain Curriculum Learning in RL in plain language: what is it, and
+    why does it matter?"
+  keyPoints:
+    - "Teaching a child to swim: you don't throw them into the deep end."
+    - Start with floating, then paddling in shallow water, then the deep end.
+    - Curriculum learning applies this to RL — start with easy versions of the
+      task and gradually increase difficulty.
+check: []
+papers: []
+---
+
+## Intuition
+
+Teaching a child to swim: you don't throw them into the deep end. Start with floating, then paddling in shallow water, then the deep end. Curriculum learning applies this to RL — start with easy versions of the task and gradually increase difficulty. The key challenge: designing the curriculum. Too easy for too long wastes training time; too hard too fast causes the policy to fail completely and learn nothing. Automatic curricula (like goal-conditioned HER with frontier sampling) let the agent find its own 'zone of proximal development' — tasks that are challenging but achievable given current skill.
+
+## In practice
+
+Training a dexterous hand to manipulate objects: (1) Manual curriculum: phase 1 (0-1M steps) — grasp stationary object, phase 2 (1-3M steps) — lift to target height, phase 3 (3-5M steps) — reorient to target orientation. (2) Automatic curriculum (OpenAI Rubik's cube approach, ADR): start with tight domain randomization bounds, expand when success rate $> 80\%$, contract when $< 20\%$. Parameters randomized: object size, friction, gravity, observation noise. (3) Goal-conditioned with hindsight: sample goals from a mixture of $\alpha$ final goals and $(1-\alpha)$ intermediate goals achieved in recent trajectories, with $\alpha$ increasing from 0.2 to 0.8 over training.

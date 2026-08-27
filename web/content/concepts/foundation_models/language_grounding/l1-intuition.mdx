@@ -1,0 +1,24 @@
+---
+concept: language_grounding
+level: 1
+status: seed
+recall:
+  prompt: "Explain Language Grounding in Robotics in plain language: what is it,
+    and why does it matter?"
+  keyPoints:
+    - When a human says 'pick up the heavy one,' the robot needs to connect
+      'heavy' (language) to a physical property it can estimate, identify which
+      object is heaviest, and plan a grasp.
+    - Grounding is the bridge between abstract language and concrete physical
+      reality.
+check: []
+papers: []
+---
+
+## Intuition
+
+When a human says 'pick up the heavy one,' the robot needs to connect 'heavy' (language) to a physical property it can estimate, identify which object is heaviest, and plan a grasp. Grounding is the bridge between abstract language and concrete physical reality.
+
+## In practice
+
+SayCan (Google): LLM proposes candidate actions in natural language, a learned affordance model $p(\text{feasible} | a, s)$ scores which actions are physically feasible given current state $s$. Combined score: $p(a | l) \cdot p(\text{feasible} | a, s)$ selects the best feasible action. LLM says 'pick up the sponge,' affordance model checks 'is a sponge visible and reachable?' $\rightarrow$ combined score selects the best feasible action.

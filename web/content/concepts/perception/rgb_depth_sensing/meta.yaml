@@ -1,0 +1,13 @@
+id: rgb_depth_sensing
+title: RGB and Depth Sensing for Robotics
+domain: perception
+summary: A robot's eyes come in many flavors.
+tags:
+  - perception
+  - systems
+difficulty: 1
+importance: 4
+related_concept_ids:
+  - depth_estimation
+  - camera_calibration
+  - point_cloud_processing

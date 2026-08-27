@@ -1,0 +1,24 @@
+---
+concept: adam_optimizer
+level: 5
+status: seed
+recall:
+  prompt: How does Adam Optimizer — Adaptive Learning Rates with Momentum fail in
+    practice, and how would you present it in an interview?
+  keyPoints:
+    - Adam can converge to sharp minima with poor generalization.
+    - The adaptive learning rate effectively reduces the learning rate for
+      frequently-updated parameters, which can be suboptimal.
+    - "Symptoms: training loss is very low but validation loss is high relative
+      to SGD+momentum on the same architecture."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Adam can converge to sharp minima with poor generalization. The adaptive learning rate effectively reduces the learning rate for frequently-updated parameters, which can be suboptimal. Symptoms: training loss is very low but validation loss is high relative to SGD+momentum on the same architecture. Fixes: use AdamW (decoupled weight decay) instead of Adam with L2, increase weight decay to $10^{-2}$, use learning rate warmup (linear for 1-5% of training), and cosine annealing schedule. For transformers, $\beta_2 = 0.95$ can be more stable than $0.999$ during early training.
+
+## Interview-ready answer
+
+Adam combines momentum ($\beta_1$) for gradient direction smoothing with RMSProp-style ($\beta_2$) adaptive per-parameter learning rates. The bias correction terms $1/(1 - \beta^t)$ are essential early in training when the moving averages are still warming up. In practice, I almost always use AdamW (decoupled weight decay) with cosine schedule and linear warmup. Key differences from SGD: Adam converges faster but SGD+momentum can find flatter minima with better generalization, which is why some vision training still uses SGD. For transformers and diffusion models, AdamW with $\alpha = 10^{-4}$, $\beta_1 = 0.9$, $\beta_2 = 0.95$, and weight decay $0.01$-$0.1$ is the standard recipe.

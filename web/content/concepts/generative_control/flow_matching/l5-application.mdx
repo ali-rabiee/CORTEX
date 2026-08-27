@@ -1,0 +1,26 @@
+---
+concept: flow_matching
+level: 5
+status: seed
+recall:
+  prompt: How does Flow Matching for Action Generation fail in practice, and how
+    would you present it in an interview?
+  keyPoints:
+    - "ODE solver instability: the learned vector field $v_\\theta$ may have
+      regions where the flow is poorly defined (large Lipschitz constant),
+      causing numerical issues."
+    - "Symptoms: occasional action jumps or NaN outputs."
+    - "Fix: use adaptive ODE solvers (Dopri5), train with flow regularization
+      $\\mathcal{L}_{\\text{reg}} = \\mathbb{E}[\\|\\nabla_\\mathbf{x}
+      v_\\theta\\|^2]$, clip extreme vector field values during inference."
+check: []
+papers: []
+---
+
+## Failure modes
+
+ODE solver instability: the learned vector field $v_\theta$ may have regions where the flow is poorly defined (large Lipschitz constant), causing numerical issues. Symptoms: occasional action jumps or NaN outputs. Fix: use adaptive ODE solvers (Dopri5), train with flow regularization $\mathcal{L}_{\text{reg}} = \mathbb{E}[\|\nabla_\mathbf{x} v_\theta\|^2]$, clip extreme vector field values during inference.
+
+## Interview-ready answer
+
+Flow matching is emerging as a cleaner alternative to diffusion for robot action generation. The advantage: simpler training objective (regress to the conditional vector field $v_\theta(\mathbf{x}_t, t) \approx \mathbf{x}_1 - \mathbf{x}_0$), faster inference (5-10 ODE steps vs 20-100 diffusion steps), and no noise schedule to tune. $\pi_0$ from Physical Intelligence shows this works at scale for multi-task robot control. Compared to diffusion policies, flow matching offers similar multimodality with simpler training and faster inference. I expect flow matching to become the default generative approach for robot control.

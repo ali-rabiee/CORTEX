@@ -1,0 +1,24 @@
+---
+concept: bellman_equations
+level: 5
+status: seed
+recall:
+  prompt: How does Bellman Equations fail in practice, and how would you present
+    it in an interview?
+  keyPoints:
+    - "The deadly triad: combining function approximation + bootstrapping +
+      off-policy learning can cause divergence."
+    - The Bellman update with neural networks is not a true contraction in
+      function space — value estimates can grow unbounded.
+    - "Symptoms: Q-values diverge to $\\pm 10^6$, loss spikes, policy collapses."
+check: []
+papers: []
+---
+
+## Failure modes
+
+The deadly triad: combining function approximation + bootstrapping + off-policy learning can cause divergence. The Bellman update with neural networks is not a true contraction in function space — value estimates can grow unbounded. Symptoms: Q-values diverge to $\pm 10^6$, loss spikes, policy collapses. Also: the $\max$ operator in the Bellman optimality equation causes systematic overestimation ($\mathbb{E}[\max_a Q] \geq \max_a \mathbb{E}[Q]$). Fix: target networks (slow Polyak update $\bar{\phi} \leftarrow \tau \phi + (1-\tau)\bar{\phi}$ with $\tau = 0.005$), double Q-learning (decouple selection and evaluation), and clipped double-Q ($\min(Q_1, Q_2)$).
+
+## Interview-ready answer
+
+The Bellman equations are the theoretical core of RL. The evaluation equation $V^\pi(s) = \mathbb{E}[R + \gamma V^\pi(s')]$ enables policy evaluation; the optimality equation $V^*(s) = \max_a [R + \gamma V^*(s')]$ enables planning and Q-learning. In practice, we approximate these with neural networks, creating a semi-gradient update (the target $r + \gamma V(s')$ is treated as fixed, not differentiated through). The key challenges are: (1) the deadly triad — function approximation + bootstrapping + off-policy can diverge; mitigated by target networks and double Q-learning; (2) overestimation from the $\max$ operator — addressed by clipped double-Q ($\min(Q_1, Q_2)$) in SAC/TD3; (3) distributional shift in offline RL — the Bellman backup queries $Q$ for unseen actions. These issues motivate every major algorithmic innovation from DQN to SAC.

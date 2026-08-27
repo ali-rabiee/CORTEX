@@ -1,0 +1,23 @@
+---
+concept: replay_buffer
+level: 5
+status: seed
+recall:
+  prompt: How does Experience Replay fail in practice, and how would you present
+    it in an interview?
+  keyPoints:
+    - "Stale data: if the buffer is too large relative to training progress,
+      most samples are from a much older policy, increasing off-policy error."
+    - If too small, the buffer loses diversity.
+    - "Symptoms: training instability, Q-values oscillating."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Stale data: if the buffer is too large relative to training progress, most samples are from a much older policy, increasing off-policy error. If too small, the buffer loses diversity. Symptoms: training instability, Q-values oscillating. Fix: tune buffer size relative to total training steps — rule of thumb: $|\mathcal{B}| \leq 10 \times T_{\text{total}}$ env steps. PER pitfalls: high-priority samples dominate training, causing overfitting to a few transitions. Fix: use importance sampling correction with $\beta$ annealed from 0.4 to 1.0. Also: replay buffers break on-policy methods — never use with PPO/TRPO, which require fresh rollouts.
+
+## Interview-ready answer
+
+Experience replay is a fundamental component of off-policy RL. It serves three purposes: (1) breaks temporal correlations in training data, (2) enables data reuse for sample efficiency, (3) allows off-policy learning with older data. Standard implementation: circular buffer with $|\mathcal{B}| = 10^6$, uniform sampling of minibatches $B = 256$. Key extensions: PER weights samples by $|\delta|^\alpha$ for faster learning on surprising transitions; HER relabels goals for sparse-reward tasks; high-UTD methods like REDQ/DroQ use replay ratio $\geq 10$ with Q-ensembles to extract more value from each sample. The replay ratio is a critical hyperparameter — higher values improve sample efficiency but risk overfitting to stale data without proper stabilization. For robotics where real data is expensive, maximizing the replay ratio with stable critics is essential.

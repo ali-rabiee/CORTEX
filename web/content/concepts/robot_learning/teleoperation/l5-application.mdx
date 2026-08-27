@@ -1,0 +1,26 @@
+---
+concept: teleoperation
+level: 5
+status: seed
+recall:
+  prompt: How does Teleoperation for Data Collection fail in practice, and how
+    would you present it in an interview?
+  keyPoints:
+    - "Action space mismatch: human controller has different kinematics than the
+      robot, causing unnatural demonstrations (e.g., VR hand tracking mapped to
+      a parallel-jaw gripper)."
+    - High latency in the teleoperation loop causes the operator to overshoot,
+      producing jerky trajectories.
+    - Operator fatigue over long collection sessions degrades demonstration
+      quality.
+check: []
+papers: []
+---
+
+## Failure modes
+
+Action space mismatch: human controller has different kinematics than the robot, causing unnatural demonstrations (e.g., VR hand tracking mapped to a parallel-jaw gripper). High latency in the teleoperation loop causes the operator to overshoot, producing jerky trajectories. Operator fatigue over long collection sessions degrades demonstration quality. Symptoms: high variance in demo quality, some demos have sudden jerky motions, policy learns erratic behavior. Fix: match control interfaces to robot morphology (ALOHA approach), minimize loop latency, limit session duration, filter/review demos post-collection.
+
+## Interview-ready answer
+
+Teleoperation quality directly determines imitation learning success. My hierarchy of teleoperation methods: (1) kinematic mirroring (ALOHA-style leader-follower, best for bimanual), (2) VR controllers (good for single-arm, flexible), (3) kinesthetic teaching (good for short motions, intuitive), (4) keyboard/spacemouse (last resort, limited dexterity). Key engineering considerations: action space mapping (Cartesian vs joint), control latency (\<20ms target), recording frequency (50Hz typical), and operator training. I always do a data quality audit after collection: visualize action distributions, check for outliers, and discard demos with anomalous kinematics.

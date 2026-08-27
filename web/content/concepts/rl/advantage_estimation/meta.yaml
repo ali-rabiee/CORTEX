@@ -1,0 +1,13 @@
+id: advantage_estimation
+title: Generalized Advantage Estimation (GAE)
+domain: rl
+summary: Imagine estimating how good a chess move was.
+tags:
+  - rl
+difficulty: 3
+importance: 5
+related_concept_ids:
+  - value_functions
+  - policy_gradients
+  - ppo_clipping
+  - temporal_difference

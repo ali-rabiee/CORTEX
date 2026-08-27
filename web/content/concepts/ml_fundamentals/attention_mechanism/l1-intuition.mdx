@@ -1,0 +1,25 @@
+---
+concept: attention_mechanism
+level: 1
+status: seed
+recall:
+  prompt: "Explain Attention Mechanism — Scaled Dot-Product Attention with Q/K/V
+    in plain language: what is it, and why does it matter?"
+  keyPoints:
+    - Attention is a soft dictionary lookup.
+    - The query asks 'what am I looking for?', keys advertise 'what do I
+      contain?', and values hold 'what do I deliver?'.
+    - The dot product $QK^T$ measures relevance, softmax converts it to a
+      probability distribution over keys, and the output is the expected value
+      under that distribution.
+check: []
+papers: []
+---
+
+## Intuition
+
+Attention is a soft dictionary lookup. The query asks 'what am I looking for?', keys advertise 'what do I contain?', and values hold 'what do I deliver?'. The dot product $QK^T$ measures relevance, softmax converts it to a probability distribution over keys, and the output is the expected value under that distribution. The $\sqrt{d_k}$ scaling keeps the softmax temperature reasonable — without it, high-dimensional dot products would produce near-one-hot distributions that kill gradient flow.
+
+## In practice
+
+In a robotic manipulation transformer policy, cross-attention between robot state queries ($Q$ from proprioception) and visual keys/values ($K, V$ from ViT features) enables the policy to selectively attend to task-relevant image regions. With $d_k = 64$ and 8 heads, each head learns different spatial attention patterns — one might focus on the gripper, another on the target object. Attention weights are directly interpretable: visualizing them reveals which image patches drive each action dimension.

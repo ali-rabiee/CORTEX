@@ -1,0 +1,28 @@
+---
+concept: exploration
+level: 5
+status: seed
+recall:
+  prompt: How does Exploration-Exploitation Tradeoff fail in practice, and how
+    would you present it in an interview?
+  keyPoints:
+    - "The 'noisy TV problem': curiosity-based methods can get stuck watching
+      inherently unpredictable stimuli (stochastic environment elements) because
+      prediction error is always high."
+    - "Symptoms: agent repeatedly interacts with stochastic objects instead of
+      progressing toward the goal."
+    - "Fix: use RND instead of forward prediction (random features are
+      deterministic, so stochastic elements don't produce persistent bonus), or
+      combine intrinsic + extrinsic rewards with decaying
+      $\\beta_{\\text{int}}$."
+check: []
+papers: []
+---
+
+## Failure modes
+
+The 'noisy TV problem': curiosity-based methods can get stuck watching inherently unpredictable stimuli (stochastic environment elements) because prediction error is always high. Symptoms: agent repeatedly interacts with stochastic objects instead of progressing toward the goal. Fix: use RND instead of forward prediction (random features are deterministic, so stochastic elements don't produce persistent bonus), or combine intrinsic + extrinsic rewards with decaying $\beta_{\text{int}}$. Another failure: insufficient exploration in offline RL leads to poor coverage of $\mathcal{D}$, making downstream offline policy learning brittle.
+
+## Interview-ready answer
+
+Exploration is the fundamental challenge in RL, especially for robotics where the action space $\mathcal{A} \subseteq \mathbb{R}^n$ is continuous and high-dimensional. Simple methods like $\epsilon$-greedy fail because random actions are almost never useful. The practical hierarchy: (1) entropy regularization (SAC's $\alpha H(\pi)$) provides implicit exploration cheaply; (2) curiosity/intrinsic motivation (RND, ICM) provides directed exploration toward novel states; (3) posterior sampling / Thompson Sampling provides Bayes-optimal exploration but is computationally expensive. For robotics, I rely heavily on SAC's entropy bonus as a baseline and add count-based or curiosity bonuses for hard-exploration tasks. The key insight: exploration and exploitation aren't separate phases — they should be balanced continuously, which is exactly what the maximum entropy framework achieves with $J = \mathbb{E}[\sum r + \alpha H(\pi)]$.

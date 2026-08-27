@@ -1,0 +1,25 @@
+---
+concept: advantage_estimation
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Generalized Advantage Estimation (GAE),
+    including the key equations.
+  keyPoints:
+    - "GAE provides a family of advantage estimators parameterized by $\\lambda
+      \\in [0,1]$ that interpolate between high-bias/low-variance (TD residual,
+      $\\lambda=0$) and low-bias/high-variance (Monte Carlo, $\\lambda=1$):
+      $$\\hat{A}_t^{\\text{GAE}(\\gamma,\\lambda)} = \\sum_{l=0}^{\\infty}
+      (\\gamma\\lambda)^l \\delta_{t+l}, \\quad \\text{where} \\quad \\delta_t =
+      r_t + \\gamma V_\\phi(s_{t+1}) - V_\\phi(s_t)$$ This is the
+      exponentially-weighted average of $n$-step advantage estimators
+      $\\hat{A}_t^{(n)}$."
+    - The bias comes from the value function approximation error $V_\phi \neq
+      V^\pi$; the variance from summing stochastic rewards over long horizons.
+check: []
+papers: []
+---
+
+## Formal definition
+
+GAE provides a family of advantage estimators parameterized by $\lambda \in [0,1]$ that interpolate between high-bias/low-variance (TD residual, $\lambda=0$) and low-bias/high-variance (Monte Carlo, $\lambda=1$): $$\hat{A}_t^{\text{GAE}(\gamma,\lambda)} = \sum_{l=0}^{\infty} (\gamma\lambda)^l \delta_{t+l}, \quad \text{where} \quad \delta_t = r_t + \gamma V_\phi(s_{t+1}) - V_\phi(s_t)$$ This is the exponentially-weighted average of $n$-step advantage estimators $\hat{A}_t^{(n)}$. The bias comes from the value function approximation error $V_\phi \neq V^\pi$; the variance from summing stochastic rewards over long horizons.

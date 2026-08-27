@@ -1,0 +1,26 @@
+---
+concept: gae
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Generalized Advantage Estimation (GAE) —
+    Formal Treatment, including the key equations.
+  keyPoints:
+    - "GAE defines a family of advantage estimators indexed by $\\lambda \\in
+      [0,1]$: $$\\hat{A}_t^{\\text{GAE}(\\gamma,\\lambda)} = \\sum_{l=0}^{T-t-1}
+      (\\gamma\\lambda)^l \\delta_{t+l}, \\quad \\delta_t = r_t + \\gamma
+      V_\\phi(s_{t+1}) - V_\\phi(s_t)$$ This can be shown to equal the
+      exponentially-weighted average of $n$-step advantage estimators:
+      $\\hat{A}_t^{\\text{GAE}} = (1-\\lambda) \\sum_{n=1}^{\\infty}
+      \\lambda^{n-1} \\hat{A}_t^{(n)}$ where $\\hat{A}_t^{(n)} = -V_\\phi(s_t) +
+      \\sum_{k=0}^{n-1} \\gamma^k r_{t+k} + \\gamma^n V_\\phi(s_{t+n})$."
+    - The bias of GAE is $O(\epsilon_{V} / (1 - \gamma\lambda))$ where
+      $\epsilon_V = \max_s |V_\phi(s) - V^\pi(s)|$, and the variance scales as
+      $O(\sigma_r^2 / (1 - \gamma\lambda)^2)$.
+check: []
+papers: []
+---
+
+## Formal definition
+
+GAE defines a family of advantage estimators indexed by $\lambda \in [0,1]$: $$\hat{A}_t^{\text{GAE}(\gamma,\lambda)} = \sum_{l=0}^{T-t-1} (\gamma\lambda)^l \delta_{t+l}, \quad \delta_t = r_t + \gamma V_\phi(s_{t+1}) - V_\phi(s_t)$$ This can be shown to equal the exponentially-weighted average of $n$-step advantage estimators: $\hat{A}_t^{\text{GAE}} = (1-\lambda) \sum_{n=1}^{\infty} \lambda^{n-1} \hat{A}_t^{(n)}$ where $\hat{A}_t^{(n)} = -V_\phi(s_t) + \sum_{k=0}^{n-1} \gamma^k r_{t+k} + \gamma^n V_\phi(s_{t+n})$. The bias of GAE is $O(\epsilon_{V} / (1 - \gamma\lambda))$ where $\epsilon_V = \max_s |V_\phi(s) - V^\pi(s)|$, and the variance scales as $O(\sigma_r^2 / (1 - \gamma\lambda)^2)$.

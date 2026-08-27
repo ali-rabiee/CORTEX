@@ -1,0 +1,27 @@
+---
+concept: curriculum_learning
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Curriculum Learning in RL, including the
+    key equations.
+  keyPoints:
+    - Curriculum learning presents training tasks in a structured order of
+      increasing difficulty to improve learning efficiency and final
+      performance.
+    - Formally, a curriculum is a sequence of task distributions
+      $\{\mathcal{T}_1, \mathcal{T}_2, \ldots, \mathcal{T}_K\}$ where the agent
+      trains on $\mathcal{T}_k$ before $\mathcal{T}_{k+1}$.
+    - "Automatic curriculum methods adapt the task distribution based on the
+      agent's competence: (1) self-paced learning: $\\min_\\theta \\min_{v \\in
+      [0,1]^N} \\sum_i v_i L_i(\\theta) - \\lambda \\sum_i v_i$ (weight down
+      hard tasks); (2) goal-conditioned curricula: sample goals from the
+      frontier of competence; (3) domain randomization as implicit curriculum:
+      $p(\\text{env params}) \\to \\text{wider}$ over training."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Curriculum learning presents training tasks in a structured order of increasing difficulty to improve learning efficiency and final performance. Formally, a curriculum is a sequence of task distributions $\{\mathcal{T}_1, \mathcal{T}_2, \ldots, \mathcal{T}_K\}$ where the agent trains on $\mathcal{T}_k$ before $\mathcal{T}_{k+1}$. Automatic curriculum methods adapt the task distribution based on the agent's competence: (1) self-paced learning: $\min_\theta \min_{v \in [0,1]^N} \sum_i v_i L_i(\theta) - \lambda \sum_i v_i$ (weight down hard tasks); (2) goal-conditioned curricula: sample goals from the frontier of competence; (3) domain randomization as implicit curriculum: $p(\text{env params}) \to \text{wider}$ over training.

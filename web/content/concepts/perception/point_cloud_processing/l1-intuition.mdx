@@ -1,0 +1,24 @@
+---
+concept: point_cloud_processing
+level: 1
+status: seed
+recall:
+  prompt: "Explain Point Cloud Processing for Robotics in plain language: what is
+    it, and why does it matter?"
+  keyPoints:
+    - A point cloud is like a 3D scan made of millions of dots.
+    - Unlike images (ordered grid), points have no fixed order — shuffling them
+      should give the same result.
+    - "PointNet's key trick: process each point independently, then take the max
+      across all points to get a global summary."
+check: []
+papers: []
+---
+
+## Intuition
+
+A point cloud is like a 3D scan made of millions of dots. Unlike images (ordered grid), points have no fixed order — shuffling them should give the same result. PointNet's key trick: process each point independently, then take the max across all points to get a global summary. Like asking each witness for their observation, then taking the most extreme/notable one.
+
+## In practice
+
+Grasping pipeline: RGB-D camera $\rightarrow$ point cloud $\rightarrow$ PointNet++ segmentation $\rightarrow$ per-object point clusters $\rightarrow$ GraspNet grasp pose prediction $\rightarrow$ execution. Preprocessing: voxel downsampling ($0.005\,\text{m}$ voxel), RANSAC plane removal (table), statistical outlier removal. Typical scene: $\sim 10^5$ points after downsampling.

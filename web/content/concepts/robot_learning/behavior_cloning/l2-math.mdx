@@ -1,0 +1,23 @@
+---
+concept: behavior_cloning
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Behavior Cloning (BC), including the key
+    equations.
+  keyPoints:
+    - "Supervised learning on expert demonstrations: learn $\\pi_\\theta(a|s)$
+      directly from $(s_i, a_i)$ pairs collected by an expert $\\pi^*$."
+    - "The objective is: $$\\mathcal{L}_{\\text{BC}}(\\theta) =
+      \\mathbb{E}_{(s,a) \\sim \\mathcal{D}_{\\text{expert}}} \\left[ \\|
+      \\pi_\\theta(s) - a \\|^2 \\right]$$ Simple and effective when
+      demonstrations are plentiful and the state space is well-covered."
+    - "Suffers from compounding errors due to covariate shift: training on
+      $d_{\\pi^*}(s)$ but executing under $d_{\\pi_\\theta}(s)$."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Supervised learning on expert demonstrations: learn $\pi_\theta(a|s)$ directly from $(s_i, a_i)$ pairs collected by an expert $\pi^*$. The objective is: $$\mathcal{L}_{\text{BC}}(\theta) = \mathbb{E}_{(s,a) \sim \mathcal{D}_{\text{expert}}} \left[ \| \pi_\theta(s) - a \|^2 \right]$$ Simple and effective when demonstrations are plentiful and the state space is well-covered. Suffers from compounding errors due to covariate shift: training on $d_{\pi^*}(s)$ but executing under $d_{\pi_\theta}(s)$.

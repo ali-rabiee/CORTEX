@@ -1,0 +1,27 @@
+---
+concept: action_generation
+level: 5
+status: seed
+recall:
+  prompt: How does Action Generation with Generative Models fail in practice, and
+    how would you present it in an interview?
+  keyPoints:
+    - "Temporal inconsistency at chunk boundaries: if the replanning frequency
+      is too low or the observation changes significantly between chunks,
+      successive action chunks may be discontinuous, causing jerky motion."
+    - "Action drift: small errors in early actions of a chunk compound by the
+      end, pushing the robot off-trajectory."
+    - "Observation staleness: conditioning on observation from the start of the
+      chunk, but the world changes during chunk execution (other moving objects,
+      deformable materials)."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Temporal inconsistency at chunk boundaries: if the replanning frequency is too low or the observation changes significantly between chunks, successive action chunks may be discontinuous, causing jerky motion. Action drift: small errors in early actions of a chunk compound by the end, pushing the robot off-trajectory. Observation staleness: conditioning on observation from the start of the chunk, but the world changes during chunk execution (other moving objects, deformable materials). Symptoms: jerky transitions every $H_e$ steps, robot overshoots targets, performance degrades on dynamic tasks. Fix: increase chunk overlap (execute fewer steps per chunk), use observation re-encoding at chunk boundaries, apply temporal smoothing (exponential blending of overlapping chunk regions: $a_t^{\text{blend}} = \lambda a_t^{\text{new}} + (1-\lambda) a_t^{\text{old}}$), add proprioceptive feedback within the chunk execution loop.
+
+## Interview-ready answer
+
+Action generation with generative models is the current state-of-the-art for learning manipulation policies from demonstrations. The key design decisions: (1) action horizon $H$ — longer chunks give temporal coherence but less reactivity, typically 8-32 steps; (2) execution horizon $H_e < H$ — execute fewer steps than predicted, then replan for reactivity, typically $H_e = H/2$; (3) observation conditioning — cross-attention is most expressive but FiLM is faster and sufficient for many tasks; (4) denoising steps — 10 DDIM steps is the practical sweet spot for quality vs. speed. The architecture that works: temporal U-Net with FiLM observation conditioning, predicting 16-step chunks, executing 8, replanning at 10Hz. This handles multimodal action distributions (diffusion's key advantage over BC), provides temporal smoothness (chunking), and maintains reactivity (replanning). For deployment, consistency distillation can reduce to 1-2 denoising steps for 20Hz+ control.

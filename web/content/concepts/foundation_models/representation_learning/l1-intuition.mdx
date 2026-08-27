@@ -1,0 +1,25 @@
+---
+concept: representation_learning
+level: 1
+status: seed
+recall:
+  prompt: "Explain Visual Representation Learning for Robotics in plain language:
+    what is it, and why does it matter?"
+  keyPoints:
+    - Raw pixels contain too much irrelevant information (shadows, textures,
+      lighting) and not enough task-relevant structure (object pose, contact
+      state).
+    - Representation learning compresses images into a feature space where
+      'similar' means 'similar for the task' — two images of a cup in different
+      lighting should have similar features if the cup is in the same pose.
+check: []
+papers: []
+---
+
+## Intuition
+
+Raw pixels contain too much irrelevant information (shadows, textures, lighting) and not enough task-relevant structure (object pose, contact state). Representation learning compresses images into a feature space where 'similar' means 'similar for the task' — two images of a cup in different lighting should have similar features if the cup is in the same pose.
+
+## In practice
+
+R3M: pre-trained on Ego4D human video data with time-contrastive + language-alignment objectives. Fine-tune a manipulation policy with R3M features instead of raw pixels: $\sim 10\times$ fewer demonstrations needed. DINOv2 features also work well as frozen encoders for manipulation with just a linear probe $\hat{a} = W \phi(I) + b$.

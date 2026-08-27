@@ -1,0 +1,25 @@
+---
+concept: backpropagation
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Backpropagation — Chain Rule on
+    Computational Graphs, including the key equations.
+  keyPoints:
+    - Backpropagation computes the gradient $\nabla_\theta L$ of a scalar loss
+      $L$ with respect to all parameters $\theta$ by recursive application of
+      the chain rule on the computational graph.
+    - "For a composition $L = f_n \\circ f_{n-1} \\circ \\cdots \\circ f_1(x)$,
+      the gradient is: $$\\frac{\\partial L}{\\partial \\theta_i} =
+      \\frac{\\partial L}{\\partial f_n} \\cdot \\frac{\\partial f_n}{\\partial
+      f_{n-1}} \\cdots \\frac{\\partial f_{i+1}}{\\partial f_i} \\cdot
+      \\frac{\\partial f_i}{\\partial \\theta_i}$$ This reverse-mode automatic
+      differentiation has $O(n)$ cost for $n$ parameters, compared to $O(n^2)$
+      for forward-mode when computing full Jacobians."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Backpropagation computes the gradient $\nabla_\theta L$ of a scalar loss $L$ with respect to all parameters $\theta$ by recursive application of the chain rule on the computational graph. For a composition $L = f_n \circ f_{n-1} \circ \cdots \circ f_1(x)$, the gradient is: $$\frac{\partial L}{\partial \theta_i} = \frac{\partial L}{\partial f_n} \cdot \frac{\partial f_n}{\partial f_{n-1}} \cdots \frac{\partial f_{i+1}}{\partial f_i} \cdot \frac{\partial f_i}{\partial \theta_i}$$ This reverse-mode automatic differentiation has $O(n)$ cost for $n$ parameters, compared to $O(n^2)$ for forward-mode when computing full Jacobians.

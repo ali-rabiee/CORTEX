@@ -1,0 +1,100 @@
+---
+concept: policy_gradients
+level: 4
+status: final
+recall:
+  prompt: "Map the policy-gradient family tree from REINFORCE to today: which papers fixed variance, which fixed scale, and what role do PGs play in the foundation-model era?"
+  keyPoints:
+    - "REINFORCE (1992) → A3C/A2C added learned baselines + parallel actors → PPO made reuse safe; GAE unified the bias-variance dial"
+    - "IMPALA decoupled acting from learning with V-trace off-policy correction — the blueprint for distributed RL at scale"
+    - "Today PGs optimize LLMs (RLHF/GRPO-style objectives) and sim-to-real locomotion; pure PG research focuses on stability and parallel scale, not new estimators"
+check:
+  - id: pg_l4_c1
+    prompt: "IMPALA's V-trace exists because..."
+    options:
+      - "policy gradients cannot use GPUs otherwise"
+      - "with thousands of distributed actors, trajectories arrive under slightly stale policies; V-trace applies truncated importance weights so the central learner's value and policy updates stay approximately on-policy"
+      - "it eliminates the need for a value function"
+      - "REINFORCE diverges on Atari"
+    answer: 1
+    explanation: "Actor-learner architectures trade strict on-policyness for throughput. V-trace clips importance ratios (ρ̄, c̄) to bound both bias and variance of the off-policy correction — making 'almost on-policy at datacenter scale' workable."
+  - id: pg_l4_c2
+    prompt: "In modern LLM post-training, GRPO-style methods differ from classic PPO-RLHF mainly by..."
+    options:
+      - "using second-order updates"
+      - "dropping the learned critic and computing advantages from group-relative reward statistics across multiple sampled responses to the same prompt"
+      - "removing the KL penalty entirely in all variants"
+      - "training the reward model and policy jointly end-to-end"
+    answer: 1
+    explanation: "A value network over text is expensive and noisy; sampling K responses per prompt and normalizing rewards within the group gives a critic-free advantage estimate. It's REINFORCE-with-baseline reborn at LLM scale — evidence the old estimator family still evolves."
+papers:
+  - key: williams1992reinforce
+    title: "Simple Statistical Gradient-Following Algorithms for Connectionist Reinforcement Learning (REINFORCE)"
+    authors: "Williams"
+    venue: "Machine Learning"
+    year: 1992
+    url: "https://link.springer.com/article/10.1007/BF00992696"
+    takeaway: "The original score-function estimator: ∇J = E[∇log π · G]. Every modern policy optimizer is a variance-reduction scheme bolted onto this identity."
+  - key: mnih2016a3c
+    title: "Asynchronous Methods for Deep Reinforcement Learning (A3C)"
+    authors: "Mnih, Badia, Mirza, et al."
+    venue: "ICML"
+    year: 2016
+    arxiv: "1602.01783"
+    takeaway: "Parallel actors + learned baseline (advantage actor-critic) made policy gradients work on Atari from pixels without replay buffers; its synchronous sibling A2C became the standard baseline."
+  - key: espeholt2018impala
+    title: "IMPALA: Scalable Distributed Deep-RL with Importance Weighted Actor-Learner Architectures"
+    authors: "Espeholt, Soyer, Munos, et al."
+    venue: "ICML"
+    year: 2018
+    arxiv: "1802.01561"
+    takeaway: "Decouples acting from learning across thousands of CPUs with V-trace off-policy correction — the architecture pattern behind most large-scale RL systems since."
+  - key: schulman2017ppo
+    title: "Proximal Policy Optimization Algorithms"
+    authors: "Schulman et al."
+    venue: "arXiv"
+    year: 2017
+    arxiv: "1707.06347"
+    takeaway: "Made batch reuse safe with ratio clipping; the policy-gradient workhorse for sim robotics and RLHF alike."
+  - key: shao2024deepseekmath
+    title: "DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models (GRPO)"
+    authors: "Shao, Wang, Zhu, et al. (DeepSeek)"
+    venue: "arXiv"
+    year: 2024
+    arxiv: "2402.03300"
+    takeaway: "Introduces GRPO: critic-free policy gradients with group-relative advantages, later central to R1-style reasoning training. Policy gradients' newest mass deployment — on tokens, not torques."
+---
+
+## Three eras, one estimator
+
+**Era 1 — make it work (1992–2016).** REINFORCE established the estimator;
+A3C/A2C tamed its variance with learned baselines and parallel rollouts.
+
+**Era 2 — make it scale (2017–2020).** PPO made each batch reusable; IMPALA
+made collection distributed. Together they fixed the two bottlenecks
+(stability, throughput) that kept PGs out of serious applications.
+
+**Era 3 — change the substrate (2022–now).** The biggest policy-gradient
+deployments today optimize *language models*: RLHF with PPO, then
+critic-free group-relative variants (GRPO) for reasoning. In robotics, PGs
+power massively-parallel sim training; in the VLA era they're increasingly
+the *fine-tuning* stage on top of imitation-pretrained policies.
+
+<PaperGrid>
+  <PaperCard refKey="williams1992reinforce" />
+  <PaperCard refKey="mnih2016a3c" />
+  <PaperCard refKey="espeholt2018impala" />
+  <PaperCard refKey="schulman2017ppo" />
+  <PaperCard refKey="shao2024deepseekmath" />
+</PaperGrid>
+
+<KeyIdea>
+
+Interview-ready synthesis: "Policy gradients never got a fundamentally new
+estimator after 1992 — the field's progress is a 30-year campaign of
+variance reduction (baselines, GAE), trust management (TRPO/PPO), and
+systems engineering (A3C, IMPALA). The latest twist, GRPO, even *removes*
+the critic — proof that knowing the variance/bias levers matters more than
+memorizing any single algorithm."
+
+</KeyIdea>

@@ -1,8 +1,29 @@
 # CORTEX — Daily Cognitive Training for Robotics/AI
 
-Flutter + Dart cross-platform app (Linux desktop first, then iOS/Windows). Local-first with SQLite/Drift. Optional Python/FastAPI backend in conda env. Target user: PhD-level robotics/ML researcher preparing for industry.
+Target user: PhD-level robotics/ML researcher preparing for industry.
 
-## Commands
+Three pieces live in this repo:
+- **`web/` — the active one.** Next.js 15 static-export web app with leveled concepts (L1 intuition → L2 math → L3 code → L4 papers → L5 application), SM-2 reviews, and progress in IndexedDB. Deployed to GitHub Pages at <https://ali-rabiee.github.io/CORTEX/>. See `web/README.md` for the content authoring format and gotchas.
+- **`sync/` — the sync Worker.** Cloudflare Worker + D1 holding one end-to-end-encrypted snapshot of progress, so devices stay in step. Optional: the app is fully usable without it. See `sync/README.md`.
+- **`app/` — legacy Flutter desktop app.** Kept as reference; its engine logic and content were ported to `web/`. Don't extend it unless asked.
+
+## Commands (web — primary)
+
+- `cd web && npm run dev` — dev server
+- `cd web && npm run build` — validate content + static export to `web/out/`
+- `cd web && npm test` — engine/persistence unit tests (vitest)
+- `cd web && npm run e2e` — Playwright against the static export (build first)
+- `cd web && npm run validate` — content integrity checks only
+- Requires Node 20+ (Node 22 is symlinked in `~/.local/bin`; system apt node is 18/EOL — don't use it)
+
+## Commands (sync Worker)
+
+- `cd sync && npm run setup` — provision D1 + secret + deploy (idempotent)
+- `cd sync && npm run deploy` — redeploy after editing `src/index.ts`
+- `cd sync && npm run rotate` — change the passphrase
+- `cd sync && npm run tail` — live Worker logs
+
+## Commands (Flutter — legacy)
 
 - `cd app && flutter run -d linux` — run desktop app
 - `cd app && flutter test` — run all tests
@@ -94,7 +115,13 @@ Six topic domains — every concept, quiz, and scenario is tagged with one or mo
 
 ## Important Constraints
 
-- App must work fully offline — no backend dependency for core features
+- App must work fully offline — no backend dependency for core features. Sync is
+  strictly additive: with no Worker configured, everything still works locally.
+- The Pages site is public. Never treat the passphrase gate as access control on
+  content — it protects *synced data*, not the page. Say so plainly in any UI copy.
+- Passphrase crypto is duplicated in `web/src/lib/sync/crypto.ts` and
+  `sync/derive-token.mjs`; a shared test vector pins them together. Change both,
+  or every device loses access at once.
 - Never store API keys in source code
 - All content seeding happens via JSON → Drift migration, not hardcoded
 - Dark mode is the default and primary theme

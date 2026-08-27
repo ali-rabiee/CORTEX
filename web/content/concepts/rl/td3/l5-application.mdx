@@ -1,0 +1,26 @@
+---
+concept: td3
+level: 5
+status: seed
+recall:
+  prompt: How does Twin Delayed DDPG (TD3) fail in practice, and how would you
+    present it in an interview?
+  keyPoints:
+    - "Deterministic policy limitations: TD3's deterministic actor $a =
+      \\pi_\\phi(s)$ relies on additive Gaussian noise for exploration, which is
+      undirected and inefficient in high-dimensional action spaces."
+    - In multimodal tasks (multiple valid solutions), TD3 can only represent one
+      mode.
+    - "Symptoms: TD3 learns a single strategy and fails when that strategy
+      doesn't generalize."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Deterministic policy limitations: TD3's deterministic actor $a = \pi_\phi(s)$ relies on additive Gaussian noise for exploration, which is undirected and inefficient in high-dimensional action spaces. In multimodal tasks (multiple valid solutions), TD3 can only represent one mode. Symptoms: TD3 learns a single strategy and fails when that strategy doesn't generalize. Also: target smoothing noise $\sigma$ too high blurs the Q-landscape, preventing precise control; too low allows Q-peak exploitation. Fix: for multimodal tasks use SAC (stochastic policy covers multiple modes); for exploration-hard tasks add structured exploration (curiosity, HER). TD3's main advantage over SAC is simplicity — no entropy tuning, no $\log \pi$ computation.
+
+## Interview-ready answer
+
+TD3 addresses DDPG's three failure modes: Q-overestimation (clipped double-Q: $\min(Q_1, Q_2)$), premature policy updates (delayed updates every $d=2$ steps), and Q-function exploitation (target smoothing with clipped noise $\sigma=0.2$, $c=0.5$). Compared to SAC: TD3 is simpler (deterministic policy, no entropy tuning) but less robust (exploration via additive noise is undirected, can't represent multimodal action distributions). SAC generally outperforms TD3 on complex manipulation tasks due to entropy-driven exploration, but TD3 is competitive on locomotion and reaching tasks. In practice, the choice depends on the task: multimodal or exploration-heavy tasks favor SAC; simple continuous control where a single strategy suffices favors TD3's simplicity.

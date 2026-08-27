@@ -1,0 +1,25 @@
+---
+concept: multi_task_policy
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Multi-Task and Language-Conditioned
+    Policies, including the key equations.
+  keyPoints:
+    - A single policy $\pi_\theta(a | s, z)$ that performs multiple tasks,
+      conditioned on a task descriptor $z$.
+    - "The descriptor can be: a one-hot task ID, a goal image $s_g$, a language
+      instruction $l$ embedded via a language model $z = \\text{Enc}(l)$, or a
+      task embedding from a learned latent space."
+    - "Language conditioning: $\\pi_\\theta(a | s, \\text{Enc}(l))$ enables
+      open-vocabulary task specification — e.g., 'pick up the red cup' or 'wipe
+      the table.' Architecture: visual encoder + language encoder
+      (CLIP/SentenceBERT) $\\rightarrow$ cross-attention fusion $\\rightarrow$
+      action head."
+check: []
+papers: []
+---
+
+## Formal definition
+
+A single policy $\pi_\theta(a | s, z)$ that performs multiple tasks, conditioned on a task descriptor $z$. The descriptor can be: a one-hot task ID, a goal image $s_g$, a language instruction $l$ embedded via a language model $z = \text{Enc}(l)$, or a task embedding from a learned latent space. Language conditioning: $\pi_\theta(a | s, \text{Enc}(l))$ enables open-vocabulary task specification — e.g., 'pick up the red cup' or 'wipe the table.' Architecture: visual encoder + language encoder (CLIP/SentenceBERT) $\rightarrow$ cross-attention fusion $\rightarrow$ action head.

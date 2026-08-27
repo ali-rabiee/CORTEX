@@ -1,0 +1,26 @@
+---
+concept: multi_task_policy
+level: 1
+status: seed
+recall:
+  prompt: "Explain Multi-Task and Language-Conditioned Policies in plain language:
+    what is it, and why does it matter?"
+  keyPoints:
+    - Instead of training a separate robot brain for every task, train one brain
+      that can follow instructions.
+    - Like a human assistant who can do many things when you tell them what you
+      want.
+    - The language instruction acts as a program that configures the policy's
+      behavior, enabling generalization to new instructions composed from
+      familiar concepts.
+check: []
+papers: []
+---
+
+## Intuition
+
+Instead of training a separate robot brain for every task, train one brain that can follow instructions. Like a human assistant who can do many things when you tell them what you want. The language instruction acts as a program that configures the policy's behavior, enabling generalization to new instructions composed from familiar concepts.
+
+## In practice
+
+RT-2 (Robotics Transformer 2): a 55B parameter VLA that takes image + language instruction and outputs discretized actions. Trained on both internet-scale vision-language data and robot demonstrations. Can follow novel instructions like 'move the apple to the blue cup' even if that exact combination was never demonstrated, because it composes concepts from language understanding. Smaller-scale: a diffusion policy conditioned on CLIP text embeddings, trained on 10 tasks with 50 demos each, generalizes to novel task descriptions at test time.

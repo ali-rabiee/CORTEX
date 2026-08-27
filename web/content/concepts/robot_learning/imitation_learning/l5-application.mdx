@@ -1,0 +1,24 @@
+---
+concept: imitation_learning
+level: 5
+status: seed
+recall:
+  prompt: How does Imitation Learning (Overview) fail in practice, and how would
+    you present it in an interview?
+  keyPoints:
+    - "BC: covariate shift with $\\mathcal{O}(T^2)$ compounding errors."
+    - "IRL: reward ambiguity — many reward functions $r_\\psi$ explain the same
+      demonstrations, making the problem ill-posed without strong priors."
+    - "GAIL: requires online environment interaction and is sample-inefficient
+      ($10^5$-$10^7$ steps)."
+check: []
+papers: []
+---
+
+## Failure modes
+
+BC: covariate shift with $\mathcal{O}(T^2)$ compounding errors. IRL: reward ambiguity — many reward functions $r_\psi$ explain the same demonstrations, making the problem ill-posed without strong priors. GAIL: requires online environment interaction and is sample-inefficient ($10^5$-$10^7$ steps). Multi-modal demonstrations: when experts use different strategies for the same state, unimodal BC (MSE loss) averages modes, producing an action that corresponds to no valid strategy. Fix: use mixture density networks, diffusion policies, or CVAE-based architectures to capture multi-modality.
+
+## Interview-ready answer
+
+Imitation learning is the family of methods for learning from demonstrations. BC is the simplest — minimize $\|\pi_\theta(s) - a^*\|^2$ — but suffers $\mathcal{O}(T^2)$ compounding errors. DAgger fixes this by iteratively collecting expert corrections, reducing error to $\mathcal{O}(T)$. IRL recovers a transferable reward function but is computationally expensive and ill-posed. GAIL matches occupancy measures via adversarial training: $\min_\pi \max_D \mathbb{E}_{\pi}[\log D(s,a)] + \mathbb{E}_{\pi^*}[\log(1-D(s,a))]$. In modern robotics, the dominant approach is BC with expressive policy architectures (diffusion policies, transformers with action chunking) that handle multi-modality and long horizons, often outperforming IRL/GAIL with orders of magnitude less compute.

@@ -1,0 +1,24 @@
+---
+concept: object_segmentation
+level: 5
+status: seed
+recall:
+  prompt: How does Object Segmentation for Manipulation fail in practice, and how
+    would you present it in an interview?
+  keyPoints:
+    - "Under-segmentation in clutter: touching objects merged into one segment."
+    - "Over-segmentation: one object split into multiple segments (especially
+      textured objects)."
+    - "Symptoms: robot attempts to grasp two objects as one, or grasps only part
+      of an object."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Under-segmentation in clutter: touching objects merged into one segment. Over-segmentation: one object split into multiple segments (especially textured objects). Symptoms: robot attempts to grasp two objects as one, or grasps only part of an object. Fix: use RGB-D fusion for segmentation, fine-tune on domain-specific data, add post-processing heuristics (convexity, size bounds).
+
+## Interview-ready answer
+
+Object segmentation is the first step in most manipulation pipelines. SAM has largely solved the general segmentation problem — it produces high-quality masks from minimal prompts (point clicks, bounding boxes). For robotics, the workflow is: SAM for masks $\rightarrow$ combine with depth for 3D reasoning $\rightarrow$ per-object processing. Challenges remain in heavy clutter (touching objects), transparent objects, and real-time performance. For production, I'd fine-tune SAM or use FastSAM for speed, combined with tracking (SAM-Track) for temporal consistency.

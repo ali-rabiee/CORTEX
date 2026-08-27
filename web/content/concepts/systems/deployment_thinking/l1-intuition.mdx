@@ -1,0 +1,23 @@
+---
+concept: deployment_thinking
+level: 1
+status: seed
+recall:
+  prompt: "Explain Deployment Thinking for Robot Systems in plain language: what
+    is it, and why does it matter?"
+  keyPoints:
+    - A research demo runs on an A100 with a human ready to hit the e-stop.
+    - A deployed system runs on an edge GPU 24/7 with no human in the loop.
+    - "Deployment thinking means asking: 'What happens when the model outputs
+      garbage?"
+check: []
+papers: []
+---
+
+## Intuition
+
+A research demo runs on an A100 with a human ready to hit the e-stop. A deployed system runs on an edge GPU 24/7 with no human in the loop. Deployment thinking means asking: 'What happens when the model outputs garbage? What if inference takes 200ms instead of 50ms? What if the camera gets occluded?'
+
+## In practice
+
+Deploying a pick-and-place policy: model distillation from a 300M parameter diffusion model to a 10M student model for edge inference. Add a confidence threshold — if the policy's predicted uncertainty $\hat{\sigma}$ exceeds a bound $\sigma_{\max}$, stop and request human intervention. Monitor: inference latency $p_{99}$, prediction confidence $\mathbb{E}[\hat{\sigma}]$, success rate rolling window (last 100 picks), camera health check (frame rate, exposure).

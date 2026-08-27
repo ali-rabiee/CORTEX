@@ -1,0 +1,16 @@
+id: temporal_difference
+title: Temporal Difference (TD) Learning
+domain: rl
+summary: Monte Carlo waits until the end of an episode to learn — like grading a
+  student only after the final exam.
+tags:
+  - rl
+  - ml_fundamentals
+difficulty: 2
+importance: 4
+related_concept_ids:
+  - bellman_equations
+  - value_functions
+  - advantage_estimation
+  - dqn
+  - rewards_returns

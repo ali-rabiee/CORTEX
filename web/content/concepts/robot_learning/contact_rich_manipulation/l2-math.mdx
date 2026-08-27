@@ -1,0 +1,23 @@
+---
+concept: contact_rich_manipulation
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Contact-Rich Manipulation, including the
+    key equations.
+  keyPoints:
+    - Manipulation tasks involving sustained, complex contact interactions
+      between the robot and objects — e.g., peg insertion, gear meshing, surface
+      wiping, pivoting, in-hand reorientation.
+    - "Contact dynamics are governed by complementarity constraints: $$0 \\leq
+      \\lambda_n \\perp \\phi(q) \\geq 0$$ where $\\lambda_n$ is the normal
+      contact force and $\\phi(q)$ is the signed distance function."
+    - Friction follows Coulomb's law $\|f_t\| \leq \mu \lambda_n$ with the
+      maximum dissipation principle.
+check: []
+papers: []
+---
+
+## Formal definition
+
+Manipulation tasks involving sustained, complex contact interactions between the robot and objects — e.g., peg insertion, gear meshing, surface wiping, pivoting, in-hand reorientation. Contact dynamics are governed by complementarity constraints: $$0 \leq \lambda_n \perp \phi(q) \geq 0$$ where $\lambda_n$ is the normal contact force and $\phi(q)$ is the signed distance function. Friction follows Coulomb's law $\|f_t\| \leq \mu \lambda_n$ with the maximum dissipation principle. These interactions are discontinuous, making contact-rich tasks fundamentally harder to simulate, plan for, and learn.

@@ -1,0 +1,26 @@
+---
+concept: temporal_difference
+level: 1
+status: seed
+recall:
+  prompt: "Explain Temporal Difference (TD) Learning in plain language: what is
+    it, and why does it matter?"
+  keyPoints:
+    - Monte Carlo waits until the end of an episode to learn — like grading a
+      student only after the final exam.
+    - TD learning updates after every step — like giving feedback on every
+      homework assignment, using your current best guess about how the rest of
+      the course will go.
+    - "The TD error $\\delta_t$ is a 'surprise' signal: if $\\delta_t > 0$, the
+      next state was better than expected, so increase $V(s_t)$."
+check: []
+papers: []
+---
+
+## Intuition
+
+Monte Carlo waits until the end of an episode to learn — like grading a student only after the final exam. TD learning updates after every step — like giving feedback on every homework assignment, using your current best guess about how the rest of the course will go. The TD error $\delta_t$ is a 'surprise' signal: if $\delta_t > 0$, the next state was better than expected, so increase $V(s_t)$. If $\delta_t < 0$, it was worse, so decrease $V(s_t)$. Bootstrapping (using $V(s_{t+1})$ in the target) introduces bias but dramatically reduces variance, enabling learning from incomplete episodes.
+
+## In practice
+
+Comparing TD(0) vs Monte Carlo for a robot navigation task with 500-step episodes: Monte Carlo computes $G_t = \sum_{k=0}^{T-t} \gamma^k r_{t+k}$ and updates only at episode end — high variance because $G_t$ includes hundreds of stochastic terms. TD(0) updates at every step using $r_t + \gamma V(s_{t+1})$ — lower variance but biased if $V$ is inaccurate. In practice: TD is preferred for long-horizon or continuing tasks. For actor-critic methods, the TD error $\delta_t$ directly serves as a one-step advantage estimate ($\lambda = 0$ in GAE). $n$-step returns with $n=5$ are a common compromise, used in A3C/A2C with $G_t^{(5)} = \sum_{k=0}^{4} \gamma^k r_{t+k} + \gamma^5 V(s_{t+5})$.

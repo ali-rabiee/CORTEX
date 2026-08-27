@@ -1,0 +1,26 @@
+---
+concept: energy_based_models
+level: 1
+status: seed
+recall:
+  prompt: "Explain Energy-Based Models for Robot Control in plain language: what
+    is it, and why does it matter?"
+  keyPoints:
+    - Instead of directly telling the robot what to do (explicit policy), an EBM
+      defines a landscape over all possible actions — valleys are good actions,
+      mountains are bad ones.
+    - The robot finds good actions by rolling a ball downhill on this landscape
+      (gradient descent).
+    - "The beauty: the landscape can have multiple valleys (multi-modal), and
+      you can combine landscapes by addition (compositionality)."
+check: []
+papers: []
+---
+
+## Intuition
+
+Instead of directly telling the robot what to do (explicit policy), an EBM defines a landscape over all possible actions — valleys are good actions, mountains are bad ones. The robot finds good actions by rolling a ball downhill on this landscape (gradient descent). The beauty: the landscape can have multiple valleys (multi-modal), and you can combine landscapes by addition (compositionality). Want an action that's both safe AND efficient? Just add the two energy functions.
+
+## In practice
+
+Implicit Behavioral Cloning (Florence et al.): instead of regressing $a = f_\theta(o)$, train an energy function $E_\theta(a, o)$ with InfoNCE loss: $\mathcal{L} = -\log \frac{\exp(-E_\theta(a^+, o))}{\exp(-E_\theta(a^+, o)) + \sum_{j=1}^{N_{\text{neg}}} \exp(-E_\theta(a_j^-, o))}$ where $a^+$ is the demonstration action and $a_j^-$ are negative samples. At inference: draw $N = 16384$ uniform action samples, evaluate energy on all, keep top-$k$, refine with Langevin dynamics. Achieves state-of-the-art on precise insertion tasks where multi-modal action distributions matter.

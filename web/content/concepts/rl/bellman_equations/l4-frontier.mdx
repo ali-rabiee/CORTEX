@@ -1,0 +1,101 @@
+---
+concept: bellman_equations
+level: 4
+status: final
+recall:
+  prompt: "What happened to the Bellman equation after 2017? Name the distributional generalization, the deadly-triad empirical work, and the sequence-modeling challenge to it."
+  keyPoints:
+    - "Distributional RL (C51, QR-DQN) backs up the full return distribution, not its mean — same operator, richer object, large empirical gains"
+    - "Deep RL theory/empirics mapped when bootstrap + off-policy + approximation diverges and which stabilizers (target nets, ensembles) help"
+    - "Decision Transformer-style methods drop Bellman backups; offline RL results suggest DP still wins when stitching suboptimal data"
+check:
+  - id: bell_l4_c1
+    prompt: "C51's distributional Bellman backup differs from the standard one in that..."
+    options:
+      - "it propagates a categorical distribution over returns through the backup (shift by r, shrink by γ, project onto fixed atoms) instead of a scalar expectation"
+      - "it removes the discount factor"
+      - "it replaces the max with a softmax"
+      - "it requires on-policy data"
+    answer: 0
+    explanation: "The distributional operator T Z = r + γZ' acts on random variables. C51 represents Z with 51 fixed atoms and projects the shifted-shrunk distribution back onto them; the policy still acts on the mean, yet learning the full distribution improved Atari dramatically — likely a representation-learning effect."
+  - id: bell_l4_c2
+    prompt: "When does return-conditioned supervised learning (Decision Transformer) demonstrably underperform Bellman-based offline RL?"
+    options:
+      - "Never; sequence modeling dominates everywhere"
+      - "When the dataset contains only suboptimal fragments that must be *stitched*: DP can combine the best halves of two mediocre trajectories, while return conditioning can't exceed the returns it has seen"
+      - "Only in discrete action spaces"
+      - "When the context window exceeds the horizon"
+    answer: 1
+    explanation: "Stitching is dynamic programming's signature ability: value backups propagate across trajectory boundaries. Return-conditioned BC interpolates within observed behaviors. Benchmarks with low-return data (e.g. AntMaze) show exactly this split — a standard interview probe on 'is RL just sequence modeling?'"
+papers:
+  - key: bellemare2017c51
+    title: "A Distributional Perspective on Reinforcement Learning (C51)"
+    authors: "Bellemare, Dabney, Munos"
+    venue: "ICML"
+    year: 2017
+    arxiv: "1707.06887"
+    takeaway: "Proves the distributional Bellman operator is a contraction in Wasserstein distance and shows learning return distributions beats learning means on Atari — the equation's biggest conceptual upgrade in decades."
+  - key: dabney2017qrdqn
+    title: "Distributional Reinforcement Learning with Quantile Regression (QR-DQN)"
+    authors: "Dabney, Rowland, Bellemare, Munos"
+    venue: "AAAI"
+    year: 2018
+    arxiv: "1710.10044"
+    takeaway: "Replaces C51's fixed atoms with learned quantiles via quantile-regression loss — cleaner theory, better results, and the foundation for risk-sensitive control via the learned quantiles."
+  - key: vanhasselt2018deadly
+    title: "Deep Reinforcement Learning and the Deadly Triad"
+    authors: "van Hasselt, Doron, Strub, et al."
+    venue: "arXiv"
+    year: 2018
+    arxiv: "1812.02648"
+    takeaway: "Systematically measures when bootstrapping + off-policy + approximation actually diverges in deep Q-learning and finds target networks and multi-step returns are the practical stabilizers — the empirical map of Bellman's failure modes."
+  - key: chen2021decisiontransformer
+    title: "Decision Transformer: Reinforcement Learning via Sequence Modeling"
+    authors: "Chen et al."
+    venue: "NeurIPS"
+    year: 2021
+    arxiv: "2106.01345"
+    takeaway: "The strongest argument that you can skip Bellman entirely — and, via its stitching failures, the cleanest demonstration of what dynamic programming uniquely provides."
+  - key: kumar2020cql
+    title: "Conservative Q-Learning for Offline Reinforcement Learning"
+    authors: "Kumar, Zhou, Tucker, Levine"
+    venue: "NeurIPS"
+    year: 2020
+    arxiv: "2006.04779"
+    takeaway: "Keeps the Bellman backup but penalizes Q on out-of-distribution actions — the canonical fix for the operator's max leaking optimism over actions the dataset never tried."
+---
+
+## The operator survived; its blind spots got named
+
+Post-2017 work on the Bellman equation falls into three buckets:
+
+**Enrich what it backs up.** Distributional RL propagates the whole return
+distribution through the same contraction. It won benchmarks and quietly
+became standard inside agents like Rainbow and modern recommender/risk
+systems.
+
+**Map where it breaks.** The deadly-triad line of work turned folklore
+divergence into measurable conditions, and offline RL (CQL and successors)
+patched the specific failure of `max_a` over unsupported actions.
+
+**Challenge its necessity.** Sequence modeling asked whether backups are
+needed at all; the answer so far — *needed exactly when you must stitch*.
+
+<PaperGrid>
+  <PaperCard refKey="bellemare2017c51" />
+  <PaperCard refKey="dabney2017qrdqn" />
+  <PaperCard refKey="vanhasselt2018deadly" />
+  <PaperCard refKey="kumar2020cql" />
+  <PaperCard refKey="chen2021decisiontransformer" />
+</PaperGrid>
+
+<KeyIdea>
+
+Interview-ready synthesis: "The Bellman equation is still the only mechanism
+we have for *stitching* — combining pieces of different experiences into a
+policy better than any of them. Distributional RL upgraded what it
+propagates, CQL fenced its optimism, and Decision Transformer showed what
+you lose without it. If a 2026 method claims to need no value function, ask
+how it stitches."
+
+</KeyIdea>

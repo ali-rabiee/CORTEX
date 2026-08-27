@@ -1,0 +1,14 @@
+id: semantic_segmentation
+title: Semantic Segmentation
+domain: perception
+summary: Semantic segmentation colors every pixel in an image with its category
+  — floor is blue, table is green, cup is red.
+tags:
+  - perception
+  - ml_fundamentals
+difficulty: 2
+importance: 3
+related_concept_ids:
+  - object_segmentation
+  - object_detection
+  - scene_understanding

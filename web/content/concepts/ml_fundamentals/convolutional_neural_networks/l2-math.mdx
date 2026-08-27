@@ -1,0 +1,23 @@
+---
+concept: convolutional_neural_networks
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Convolutional Neural Networks —
+    Translation Equivariance and Hierarchical Features, including the key
+    equations.
+  keyPoints:
+    - CNNs exploit spatial structure through convolutional layers that apply
+      learnable filters with shared weights across spatial locations.
+    - "A 2D convolution computes: $$(f * k)(i, j) = \\sum_{m} \\sum_{n} f(i+m,
+      j+n) \\cdot k(m, n)$$ Translation equivariance: shifting the input shifts
+      the output by the same amount — $T_\\tau(f * k) = (T_\\tau f) * k$."
+    - Pooling (max or average) provides approximate translation invariance and
+      reduces spatial dimensions.
+check: []
+papers: []
+---
+
+## Formal definition
+
+CNNs exploit spatial structure through convolutional layers that apply learnable filters with shared weights across spatial locations. A 2D convolution computes: $$(f * k)(i, j) = \sum_{m} \sum_{n} f(i+m, j+n) \cdot k(m, n)$$ Translation equivariance: shifting the input shifts the output by the same amount — $T_\tau(f * k) = (T_\tau f) * k$. Pooling (max or average) provides approximate translation invariance and reduces spatial dimensions. The receptive field of a neuron at layer $l$ with kernel size $k$ and stride $s$ grows as $r_l = r_{l-1} + (k_l - 1) \cdot \prod_{i=1}^{l-1} s_i$. Modern architectures stack conv → norm → activation blocks with residual connections.

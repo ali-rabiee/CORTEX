@@ -1,0 +1,118 @@
+---
+concept: offline_rl
+level: 4
+status: final
+recall:
+  prompt: "Map the offline RL landscape 2019-2026: the three method families, the offline-to-online turn, and how the field relates to robot foundation models."
+  keyPoints:
+    - "Families by how they handle the max: policy-constraint (BCQ, TD3+BC), value-pessimism (CQL), in-sample (IQL) — plus return-conditioned sequence modeling outside the Bellman family"
+    - "The field pivoted to offline-to-online: pretrain offline, fine-tune online without the initial performance crash (Cal-QL, RLPD-style)"
+    - "Robot foundation models train BC on demonstration corpora; offline RL ideas re-enter as critics/verifiers and for leveraging failure data (Q-Transformer)"
+check:
+  - id: orl_l4_c1
+    prompt: "Cal-QL addresses the classic failure when fine-tuning a CQL-pretrained policy online, namely..."
+    options:
+      - "the replay buffer overflows"
+      - "conservative pretraining leaves Q-values calibrated BELOW the true returns, so early online updates first 'un-learn' the pessimism — causing a sharp performance dip; Cal-QL calibrates offline Q against a reference (e.g. behavior value) to make fine-tuning monotone"
+      - "online data violates the Markov property"
+      - "the policy entropy collapses on contact"
+    answer: 1
+    explanation: "Pessimism that protects you offline becomes a handicap online: the critic must inflate back to realistic values before improvement resumes, and the policy degrades meanwhile. Calibrated conservatism removes the dip — important on hardware where a dip means broken parts."
+  - id: orl_l4_c2
+    prompt: "Q-Transformer outperforms BC-style training exactly when..."
+    options:
+      - "demonstrations are perfect and plentiful"
+      - "the dataset mixes successes with failures/suboptimal trials — value backups extract signal from failures and stitch partial successes, which return-agnostic imitation discards or imitates"
+      - "the robot has fewer than 7 DoF"
+      - "rewards are dense and shaped"
+    answer: 1
+    explanation: "On demo-only data, BC ≈ offline RL. The gap opens on autonomously-collected mixed-quality data: Bellman machinery is a mechanism for *learning from failure* — the data that robot fleets generate for free."
+papers:
+  - key: levine2020offline
+    title: "Offline RL: Tutorial, Review, and Perspectives on Open Problems"
+    authors: "Levine, Kumar, Tucker, Fu"
+    venue: "arXiv"
+    year: 2020
+    arxiv: "2005.01643"
+    takeaway: "The field-defining survey: names distributional shift as the central problem and organizes the solution space. Still the best onboarding document."
+  - key: fujimoto2018bcq
+    title: "Off-Policy Deep Reinforcement Learning without Exploration (BCQ)"
+    authors: "Fujimoto, Meger, Precup"
+    venue: "ICML"
+    year: 2019
+    arxiv: "1812.02900"
+    takeaway: "First clean demonstration that vanilla off-policy RL fails on fixed datasets and that constraining the argmax to a behavior-cloned action set fixes it — the policy-constraint family's origin."
+  - key: kumar2020cql
+    title: "Conservative Q-Learning for Offline RL (CQL)"
+    authors: "Kumar, Zhou, Tucker, Levine"
+    venue: "NeurIPS"
+    year: 2020
+    arxiv: "2006.04779"
+    takeaway: "The value-pessimism family's flagship: penalize logsumexp Q minus dataset Q. Long the default baseline, and the conservatism mechanism later calibrated for fine-tuning by Cal-QL."
+  - key: kostrikov2021iql
+    title: "Offline Reinforcement Learning with Implicit Q-Learning (IQL)"
+    authors: "Kostrikov, Nair, Levine"
+    venue: "ICLR"
+    year: 2022
+    arxiv: "2110.06169"
+    takeaway: "Expectile-based in-sample learning: no OOD action queries, trivially stable, and the most-used offline RL method in robotics pipelines (often as the RL stage after BC)."
+  - key: nakamoto2023calql
+    title: "Cal-QL: Calibrated Offline RL Pre-Training for Efficient Online Fine-Tuning"
+    authors: "Nakamoto, Zhai, Singh, et al."
+    venue: "NeurIPS"
+    year: 2023
+    arxiv: "2303.05479"
+    takeaway: "Fixes the offline-to-online dip by calibrating conservative Q-values against a reference policy's returns — pretrain pessimistic, fine-tune without the crash."
+  - key: chebotar2023qtransformer
+    title: "Q-Transformer: Scalable Offline RL via Autoregressive Q-Functions"
+    authors: "Chebotar et al."
+    venue: "CoRL"
+    year: 2023
+    arxiv: "2309.10150"
+    takeaway: "Offline Q-learning at robot-foundation scale via per-dimension action tokens; beats RT-1-style BC on mixed-quality data — the existence proof that Bellman methods scale with transformers."
+---
+
+## A field organized by one design decision
+
+Every offline RL method answers: *how do you improve on the dataset without
+trusting Q where the dataset is silent?*
+
+- **Constrain the policy** to stay near behavior (BCQ, TD3+BC) — simple,
+  caps improvement.
+- **Penalize the values** on OOD actions (CQL) — strong offline, overly
+  pessimistic for fine-tuning until Cal-QL.
+- **Stay in-sample** (IQL) — never query OOD; the robotics favorite for its
+  stability.
+
+<PaperGrid>
+  <PaperCard refKey="levine2020offline" />
+  <PaperCard refKey="fujimoto2018bcq" />
+  <PaperCard refKey="kumar2020cql" />
+  <PaperCard refKey="kostrikov2021iql" />
+</PaperGrid>
+
+## The 2023-2026 turn: offline as pretraining, not destination
+
+Pure offline benchmarks saturated; the action moved to **offline-to-online**
+(pretrain on logs, fine-tune on hardware without a dip) and to **scale**
+(can Bellman methods ride the same data flywheel as VLAs?).
+
+<PaperGrid>
+  <PaperCard refKey="nakamoto2023calql" />
+  <PaperCard refKey="chebotar2023qtransformer" />
+</PaperGrid>
+
+Against the backdrop of imitation-based robot foundation models, offline
+RL's enduring claim is narrow but decisive: **it is the only way to convert
+failure logs into policy improvement** — and fleets produce failures for
+free.
+
+<KeyIdea>
+
+Interview-ready synthesis: "Classify any offline RL method by where it gets
+its max — constrained, penalized, or in-sample — and you can predict its
+behavior. The modern stack uses offline RL less as a standalone solution
+and more as the value-aware layer of a pipeline: BC/VLA prior → offline RL
+on mixed logs → calibrated online fine-tuning (Cal-QL/RLPD) on the robot."
+
+</KeyIdea>

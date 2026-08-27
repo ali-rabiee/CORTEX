@@ -1,0 +1,25 @@
+---
+concept: dqn
+level: 1
+status: seed
+recall:
+  prompt: "Explain Deep Q-Network (DQN) in plain language: what is it, and why
+    does it matter?"
+  keyPoints:
+    - DQN was the breakthrough that showed deep RL could work at scale —
+      learning to play Atari from raw pixels.
+    - Before DQN (2013/2015), neural nets + Q-learning was unstable.
+    - "The two key tricks solved this: the replay buffer provides i.i.d.-like
+      minibatches (SGD needs this), and the target network provides a stable
+      regression target (chasing a moving target caused oscillation)."
+check: []
+papers: []
+---
+
+## Intuition
+
+DQN was the breakthrough that showed deep RL could work at scale — learning to play Atari from raw pixels. Before DQN (2013/2015), neural nets + Q-learning was unstable. The two key tricks solved this: the replay buffer provides i.i.d.-like minibatches (SGD needs this), and the target network provides a stable regression target (chasing a moving target caused oscillation). Double DQN fixes the overestimation from $\max$: instead of using the same network to both pick and evaluate the best action (optimistic), use the online network to pick and the target network to evaluate. Dueling architecture recognizes that sometimes knowing 'this state is good' matters more than knowing the value of each action.
+
+## In practice
+
+DQN for Atari Breakout: input $s = 4$ stacked grayscale $84 \times 84$ frames, 3-layer CNN + 2 FC layers, output $Q(s, a)$ for each of $|\mathcal{A}| = 4$ actions. Hyperparameters: $|\mathcal{B}| = 10^6$, batch size $B = 32$, target update every $C = 10000$ steps, $\gamma = 0.99$, $\epsilon$-greedy with $\epsilon$ annealed from 1.0 to 0.1 over 1M frames, learning rate $\alpha = 2.5 \times 10^{-4}$ (Adam). Training: 50M frames $\approx 10$ days on a single GPU. DQN achieves superhuman performance on ~29/49 Atari games. For robotics: DQN is rarely used directly (discrete actions are limiting), but its ideas (replay, target nets) underpin SAC and TD3.

@@ -1,0 +1,26 @@
+---
+concept: safety_monitoring
+level: 5
+status: seed
+recall:
+  prompt: How does Runtime Safety Monitoring for Robot Systems fail in practice,
+    and how would you present it in an interview?
+  keyPoints:
+    - "Safety monitor is too conservative: overly tight bounds cause frequent
+      unnecessary stops, reducing throughput and annoying operators."
+    - "Safety monitor is too permissive: bounds set during benign testing miss
+      edge cases in deployment (e.g., a new obstacle not in the collision
+      model)."
+    - "Latent failure: safety monitor itself fails silently (sensor providing
+      safety data dies)."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Safety monitor is too conservative: overly tight bounds cause frequent unnecessary stops, reducing throughput and annoying operators. Safety monitor is too permissive: bounds set during benign testing miss edge cases in deployment (e.g., a new obstacle not in the collision model). Latent failure: safety monitor itself fails silently (sensor providing safety data dies). Symptoms: either constant false alarms or a real safety incident that monitoring should have caught. Fix: tune safety bounds with deployment data, use redundant sensing for critical monitors, monitor the monitors (watchdog timers, heartbeat checks), conduct regular safety audits with adversarial testing.
+
+## Interview-ready answer
+
+Runtime safety monitoring is non-negotiable for deployed robot systems. I design safety as a layered architecture: hardware limits (always-on, cannot be overridden by software), real-time geometric checks (workspace bounds, collision avoidance at $> 100\,\text{Hz}$), policy-level guards (action feasibility, confidence thresholds), and high-level anomaly detection (learned models that flag out-of-distribution situations). Key design principles: (1) defense in depth — every layer is independent, (2) fail-safe defaults — unknown = stop, (3) monitor the monitors — watchdogs and redundancy, (4) graceful degradation — reduce speed before stopping entirely. The hardest part: tuning thresholds that are safe without being so conservative they prevent useful work. I always start conservative and relax based on operational data, never the other way around.

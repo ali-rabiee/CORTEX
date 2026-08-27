@@ -1,0 +1,13 @@
+id: reward_shaping
+title: Reward Shaping
+domain: rl
+summary: Sparse rewards are like learning to cook with only a pass/fail test at the end.
+tags:
+  - rl
+  - robot_learning
+difficulty: 3
+importance: 4
+related_concept_ids:
+  - sparse_rewards
+  - curriculum_learning
+  - exploration

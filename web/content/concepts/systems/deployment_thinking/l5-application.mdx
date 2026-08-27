@@ -1,0 +1,24 @@
+---
+concept: deployment_thinking
+level: 5
+status: seed
+recall:
+  prompt: How does Deployment Thinking for Robot Systems fail in practice, and how
+    would you present it in an interview?
+  keyPoints:
+    - "Silent failure: the system continues operating but performance degrades
+      without alerting anyone."
+    - "Example: camera calibration drifts over weeks, success rate slowly drops
+      from 95% to 70%."
+    - Nobody notices until production quality complaints.
+check: []
+papers: []
+---
+
+## Failure modes
+
+Silent failure: the system continues operating but performance degrades without alerting anyone. Example: camera calibration drifts over weeks, success rate slowly drops from 95% to 70%. Nobody notices until production quality complaints. Fix: continuous monitoring dashboards, automated performance regression alerts (trigger when success rate drops $> 5\%$ from baseline), periodic recalibration schedules.
+
+## Interview-ready answer
+
+Deployment is where most robot learning projects fail — not because the model is bad, but because the systems around it aren't robust. Key principles: (1) latency budget — know your control loop timing and design inference to fit ($t_{\text{infer}} < t_{\text{budget}}$), (2) failure detection — the system must know when it's failing (confidence estimation, anomaly detection), (3) graceful degradation — when confidence is low, fall back to safer behavior or stop, (4) monitoring — dashboards for success rate, latency, confidence distribution in production, (5) update pipeline — ability to retrain and redeploy without downtime. The question I always ask: 'What happens at 3 AM when nobody is watching?'

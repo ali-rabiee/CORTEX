@@ -1,0 +1,15 @@
+id: energy_based_models
+title: Energy-Based Models for Robot Control
+domain: generative_control
+summary: Instead of directly telling the robot what to do (explicit policy), an
+  EBM defines a landscape over all possible actions — valleys are good actions,
+  mountains are bad ones.
+tags:
+  - generative_control
+  - robot_learning
+difficulty: 4
+importance: 3
+related_concept_ids:
+  - diffusion_policy
+  - multimodal_distributions
+  - behavior_cloning

@@ -1,0 +1,24 @@
+---
+concept: sim_environments
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Simulation Environments for Robot
+    Learning, including the key equations.
+  keyPoints:
+    - Physics simulators used to generate training data and evaluate robot
+      policies before real-world deployment.
+    - "Major platforms: MuJoCo (fast contact dynamics, $\\sim$10M steps/hour on
+      CPU, DeepMind standard), Isaac Gym/Isaac Sim (GPU-accelerated, $\\sim$10B
+      steps/hour on A100, NVIDIA ecosystem), PyBullet (open-source, good for
+      prototyping), Drake (focus on contact-rich manipulation,
+      complementarity-based contact)."
+    - "Key properties: physics fidelity, rendering quality, parallelism, API
+      design, and sim2real gap for target domain."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Physics simulators used to generate training data and evaluate robot policies before real-world deployment. Major platforms: MuJoCo (fast contact dynamics, $\sim$10M steps/hour on CPU, DeepMind standard), Isaac Gym/Isaac Sim (GPU-accelerated, $\sim$10B steps/hour on A100, NVIDIA ecosystem), PyBullet (open-source, good for prototyping), Drake (focus on contact-rich manipulation, complementarity-based contact). Key properties: physics fidelity, rendering quality, parallelism, API design, and sim2real gap for target domain.

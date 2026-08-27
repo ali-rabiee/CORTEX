@@ -1,0 +1,25 @@
+---
+concept: sim_environments
+level: 5
+status: seed
+recall:
+  prompt: How does Simulation Environments for Robot Learning fail in practice,
+    and how would you present it in an interview?
+  keyPoints:
+    - "Sim fidelity mismatch: the simulator's contact model doesn't capture
+      real-world physics for your task."
+    - MuJoCo uses soft contact (spring-damper), which diverges from rigid
+      contact in tasks with hard collisions.
+    - GPU simulators trade accuracy for speed — parallel environments may have
+      slightly different behavior than serial ones.
+check: []
+papers: []
+---
+
+## Failure modes
+
+Sim fidelity mismatch: the simulator's contact model doesn't capture real-world physics for your task. MuJoCo uses soft contact (spring-damper), which diverges from rigid contact in tasks with hard collisions. GPU simulators trade accuracy for speed — parallel environments may have slightly different behavior than serial ones. Symptoms: policy works in sim, fails immediately on real robot. Fix: validate sim behavior against real-robot recordings for your specific task, tune contact parameters to match real force-torque data, use domain randomization to cover sim-real gap.
+
+## Interview-ready answer
+
+Simulator choice depends on the task and scale: Isaac Gym for massively parallel RL training (locomotion, dexterous manipulation), MuJoCo for precise contact-rich tasks and research prototyping, Drake for tasks needing accurate contact mechanics (assembly, insertion). My workflow: prototype in MuJoCo for fast iteration, scale training in Isaac Gym for production, validate in Isaac Sim with realistic rendering for vision policies. Key consideration: always validate your simulator against real-world data for the specific dynamics that matter for your task. No simulator is perfect — but the right sim + domain randomization closes most gaps.

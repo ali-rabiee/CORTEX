@@ -1,0 +1,23 @@
+---
+concept: rewards_returns
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Rewards and Returns, including the key
+    equations.
+  keyPoints:
+    - The reward $r_t = R(s_t, a_t, s_{t+1})$ is the immediate scalar feedback
+      signal at each timestep.
+    - "The (discounted) return from time $t$ is the cumulative discounted sum of
+      future rewards: $$G_t = \\sum_{k=0}^{\\infty} \\gamma^k r_{t+k} = r_t +
+      \\gamma r_{t+1} + \\gamma^2 r_{t+2} + \\cdots$$ where $\\gamma \\in [0,1)$
+      is the discount factor."
+    - "The goal of RL is to find a policy $\\pi^*$ that maximizes the expected
+      return: $\\pi^* = \\arg\\max_\\pi \\mathbb{E}_{\\tau \\sim \\pi}[G_0]$."
+check: []
+papers: []
+---
+
+## Formal definition
+
+The reward $r_t = R(s_t, a_t, s_{t+1})$ is the immediate scalar feedback signal at each timestep. The (discounted) return from time $t$ is the cumulative discounted sum of future rewards: $$G_t = \sum_{k=0}^{\infty} \gamma^k r_{t+k} = r_t + \gamma r_{t+1} + \gamma^2 r_{t+2} + \cdots$$ where $\gamma \in [0,1)$ is the discount factor. The goal of RL is to find a policy $\pi^*$ that maximizes the expected return: $\pi^* = \arg\max_\pi \mathbb{E}_{\tau \sim \pi}[G_0]$. Rewards can be sparse ($r = +1$ only at goal, 0 otherwise) or dense ($r_t = -\|x_t - x_{\text{goal}}\|$). The discount factor determines the effective planning horizon: $T_{\text{eff}} = \frac{1}{1-\gamma}$.

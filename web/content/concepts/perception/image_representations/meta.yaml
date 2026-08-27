@@ -1,0 +1,14 @@
+id: image_representations
+title: Image Representations for Robotics
+domain: perception
+summary: Think of image representations as different ways to summarize what the
+  robot sees.
+tags:
+  - perception
+  - ml_fundamentals
+difficulty: 2
+importance: 4
+related_concept_ids:
+  - object_segmentation
+  - affordance_prediction
+  - open_vocabulary_detection

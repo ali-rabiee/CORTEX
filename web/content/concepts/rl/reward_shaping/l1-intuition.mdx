@@ -1,0 +1,25 @@
+---
+concept: reward_shaping
+level: 1
+status: seed
+recall:
+  prompt: "Explain Reward Shaping in plain language: what is it, and why does it
+    matter?"
+  keyPoints:
+    - Sparse rewards are like learning to cook with only a pass/fail test at the
+      end.
+    - "Reward shaping adds intermediate feedback: 'the sauce smells good'
+      (closer to goal), 'the temperature is right' (subgoal achieved)."
+    - But bad shaping can teach shortcuts — a robot that hovers near the goal
+      without actually reaching it.
+check: []
+papers: []
+---
+
+## Intuition
+
+Sparse rewards are like learning to cook with only a pass/fail test at the end. Reward shaping adds intermediate feedback: 'the sauce smells good' (closer to goal), 'the temperature is right' (subgoal achieved). But bad shaping can teach shortcuts — a robot that hovers near the goal without actually reaching it. The potential-based form $\gamma \Phi(s') - \Phi(s)$ telescopes over a trajectory, leaving only boundary terms, which is why it can't distort the optimal policy.
+
+## In practice
+
+Training a robot to pick and place objects. Sparse reward: $r = +1$ only on successful place. Shaped reward: $r' = r + \Delta d_{\text{goal}} + r_{\text{grasp}} + r_{\text{height}}$. Problem: robot learns to pick up and hold the object (maximizing $r_{\text{grasp}} + r_{\text{height}}$) without placing it. Fix: use potential-based shaping with $\Phi(s) = -\|s_{\text{obj}} - s_{\text{goal}}\|_2$ or curriculum with sparse final reward.

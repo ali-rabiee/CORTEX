@@ -1,0 +1,115 @@
+---
+concept: policy_gradients
+level: 3
+status: final
+recall:
+  prompt: "Write REINFORCE with a baseline in PyTorch: what gets collected, what is the loss tensor, and where do gradients flow (and not flow)?"
+  keyPoints:
+    - "Collect (logp(a_t|s_t), return-to-go G_t) per step; loss = -(logp * (G - baseline).detach()).sum()"
+    - "The weight (G - b) must be detached — gradients flow only through log-prob, never through the return"
+    - "Returns-to-go (not full-episode return) and a baseline are the two free variance reductions"
+check:
+  - id: pg_l3_c1
+    prompt: "In `loss = -(logp * advantage).mean()`, why must `advantage` be detached / computed without grad?"
+    options:
+      - "To save memory"
+      - "The policy gradient theorem scores actions by a *fixed* weight; letting gradients flow through the advantage would optimize the critic's output through the policy loss, which is not the PG estimator and destabilizes both"
+      - "PyTorch raises an error otherwise"
+      - "Because advantages are integers"
+    answer: 1
+    explanation: "∇J = E[∇log π(a|s) · A]. A is a coefficient, not a function being differentiated. If A came from a critic and you skip detach, you backprop the policy objective into the critic — a different (wrong) update that typically collapses training."
+  - id: pg_l3_c2
+    prompt: "Your REINFORCE on CartPole learns, then suddenly collapses to one action and never recovers. The standard fixes are..."
+    options:
+      - "Bigger network and more episodes"
+      - "An entropy bonus to keep the policy stochastic, a smaller learning rate, and a baseline to cut the gradient variance that caused the destructive update"
+      - "Switching the optimizer to SGD"
+      - "Removing the discount factor"
+    answer: 1
+    explanation: "Collapse-then-stuck is the signature of a high-variance gradient step making the policy near-deterministic: log π gradients vanish for the dead action and exploration ends. Entropy regularization, baselines, and conservative step sizes are exactly why PPO/A2C exist."
+---
+
+## REINFORCE in ~50 lines
+
+The simplest policy-gradient agent that actually works. Everything later
+(A2C, PPO) is this file plus variance reduction.
+
+<CodeWalk title="REINFORCE with a running-mean baseline on CartPole">
+
+```python title="reinforce.py"
+import torch
+import torch.nn as nn
+import gymnasium as gym
+from torch.distributions import Categorical
+
+env = gym.make("CartPole-v1")
+policy = nn.Sequential(
+    nn.Linear(4, 128), nn.Tanh(),
+    nn.Linear(128, 2),                       # logits over 2 actions
+)
+opt = torch.optim.Adam(policy.parameters(), lr=1e-3)
+gamma, baseline = 0.99, 0.0
+
+for episode in range(2000):
+    obs, _ = env.reset()
+    logps, rewards = [], []
+    done = False
+    while not done:
+        dist = Categorical(logits=policy(torch.as_tensor(obs)))
+        action = dist.sample()               # stochastic — this IS exploration
+        logps.append(dist.log_prob(action))
+        obs, r, term, trunc, _ = env.step(action.item())
+        rewards.append(r)
+        done = term or trunc
+
+    # Returns-to-go: G_t = r_t + gamma * G_{t+1}
+    G, returns = 0.0, []
+    for r in reversed(rewards):
+        G = r + gamma * G
+        returns.append(G)
+    returns = torch.tensor(returns[::-1])
+
+    baseline = 0.95 * baseline + 0.05 * returns.mean()   # cheap baseline
+    advantage = returns - baseline                        # no grad by construction
+
+    loss = -(torch.stack(logps) * advantage).sum()
+    opt.zero_grad()
+    loss.backward()
+    opt.step()
+```
+
+Three load-bearing details: the action is **sampled** (exploration lives in
+the policy itself); the weight on each `logp` is **return-to-go**, so actions
+aren't credited for rewards that preceded them; and the baseline is
+subtracted **without** participating in the graph.
+
+</CodeWalk>
+
+## The one-line generalization
+
+Every on-policy method is this loss with a better `advantage`:
+
+```python
+loss = -(logp * advantage).mean()      # REINFORCE: advantage = G - b
+                                       # A2C:       advantage = r + γV(s') - V(s)
+                                       # PPO:       same, but ratio-clipped + GAE
+```
+
+<KeyIdea>
+
+`logp * advantage.detach()` is the entire genome of on-policy RL. Memorize
+the gradient-flow picture: ∂loss/∂θ touches only the policy network through
+`logp`; the advantage is a frozen score that says *push this action's
+probability up or down, this hard*.
+
+</KeyIdea>
+
+<Warning>
+
+REINFORCE's gradient variance grows with horizon — on anything harder than
+CartPole, raw REINFORCE needs millions of episodes. That's not a bug to fix
+with tuning; it's the motivation to graduate to actor-critic (learned
+baseline, TD bootstrapping) and GAE. If your "PPO" runs worse than this
+script, you've almost certainly broken advantage normalization or detach.
+
+</Warning>

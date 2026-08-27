@@ -1,0 +1,25 @@
+---
+concept: attention_mechanism
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Attention Mechanism — Scaled Dot-Product
+    Attention with Q/K/V, including the key equations.
+  keyPoints:
+    - "Scaled dot-product attention computes a weighted sum of values $V$ where
+      the weights are determined by the compatibility of queries $Q$ with keys
+      $K$: $$\\text{Attention}(Q, K, V) =
+      \\text{softmax}\\left(\\frac{QK^T}{\\sqrt{d_k}}\\right)V$$ The scaling
+      factor $\\sqrt{d_k}$ prevents the dot products from growing large in
+      magnitude (for large $d_k$, dot products have variance $\\sim d_k$), which
+      would push softmax into saturated regions with vanishing gradients."
+    - "In cross-attention, $Q$ comes from the decoder and $K, V$ from the
+      encoder; in self-attention, all three are projections of the same input:
+      $Q = XW^Q$, $K = XW^K$, $V = XW^V$."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Scaled dot-product attention computes a weighted sum of values $V$ where the weights are determined by the compatibility of queries $Q$ with keys $K$: $$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V$$ The scaling factor $\sqrt{d_k}$ prevents the dot products from growing large in magnitude (for large $d_k$, dot products have variance $\sim d_k$), which would push softmax into saturated regions with vanishing gradients. In cross-attention, $Q$ comes from the decoder and $K, V$ from the encoder; in self-attention, all three are projections of the same input: $Q = XW^Q$, $K = XW^K$, $V = XW^V$.

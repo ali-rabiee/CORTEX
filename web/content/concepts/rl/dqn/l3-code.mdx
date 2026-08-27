@@ -1,0 +1,104 @@
+---
+concept: dqn
+level: 3
+status: final
+recall:
+  prompt: "Implement the DQN update: replay sampling, target computation with a frozen network, and the Double-DQN one-line fix."
+  keyPoints:
+    - "y = r + gamma * (1-done) * max_a Q_target(s', a), all under no_grad"
+    - "Loss is Huber(Q(s,a_taken), y) — gather the taken action's Q, never the max of the online net"
+    - "Double DQN: a* = argmax Q_online(s', .); y uses Q_target(s', a*) — decouples selection from evaluation"
+check:
+  - id: dqn_l3_c1
+    prompt: "In the loss, why `q_net(obs).gather(1, action)` rather than `q_net(obs).max(1)`?"
+    options:
+      - "gather is differentiable, max is not"
+      - "The regression target is for the action actually taken in the replayed transition; maxing the online net would train Q(s,·) toward targets for actions you didn't take, which is not the Q-learning update"
+      - "max would double-count the reward"
+      - "gather is needed for batching only"
+    answer: 1
+    explanation: "Q-learning updates Q(s, a_taken) toward r + γ max_a' Q(s', a'). The max belongs on the *next* state inside the target; the *current* state's Q is indexed by the logged action. Swapping these is a real and surprisingly common bug."
+  - id: dqn_l3_c2
+    prompt: "Double DQN changes exactly one line. Which, and why does it reduce overestimation?"
+    options:
+      - "The replay sampling line; it removes correlated samples"
+      - "The target line: argmax comes from the online net, value from the target net — so noise that inflates a Q-value no longer both selects AND evaluates that action (E[max] > max E)"
+      - "The loss switches from Huber to MSE"
+      - "The target network update frequency"
+    answer: 1
+    explanation: "max_a Q_target picks the most overestimated action by construction (Jensen: E[max] ≥ max E). Using two (de-correlated) estimators for selection vs evaluation cancels much of that bias — measurably better value accuracy on Atari for one line of code."
+---
+
+## The full update, with both classic stabilizers
+
+<CodeWalk title="DQN training step (replay + target network + Double-DQN target)">
+
+```python title="dqn_update.py"
+import torch
+import torch.nn.functional as F
+
+def dqn_update(q_net, q_target, buffer, opt,
+               batch_size=256, gamma=0.99, double=True):
+    obs, action, reward, obs2, done = buffer.sample(batch_size)
+
+    with torch.no_grad():
+        if double:
+            # Double DQN: online net SELECTS, target net EVALUATES.
+            a_star = q_net(obs2).argmax(dim=1, keepdim=True)
+            next_q = q_target(obs2).gather(1, a_star)
+        else:
+            next_q = q_target(obs2).max(dim=1, keepdim=True).values
+        y = reward + gamma * (1.0 - done) * next_q          # (B, 1)
+
+    q_taken = q_net(obs).gather(1, action)                  # Q(s, a_logged)
+    loss = F.smooth_l1_loss(q_taken, y)                     # Huber: robust to outlier TD errors
+
+    opt.zero_grad()
+    loss.backward()
+    torch.nn.utils.clip_grad_norm_(q_net.parameters(), 10.0)
+    opt.step()
+    return loss.item()
+
+# Elsewhere, every C steps (or Polyak every step):
+#   q_target.load_state_dict(q_net.state_dict())
+```
+
+The two stabilizers earn their keep against specific failure modes:
+**replay** breaks the temporal correlation that makes SGD on sequential
+transitions thrash; the **target network** freezes the regression target so
+you're not chasing your own update.
+
+</CodeWalk>
+
+## The acting side
+
+```python title="epsilon_greedy.py"
+def act(q_net, obs, step, eps_start=1.0, eps_end=0.05, eps_decay=50_000):
+    eps = eps_end + (eps_start - eps_end) * max(0, 1 - step / eps_decay)
+    if torch.rand(()) < eps:
+        return env.action_space.sample()
+    with torch.no_grad():
+        return q_net(torch.as_tensor(obs)[None]).argmax(1).item()
+```
+
+Exploration is bolted on (ε-greedy), not part of the learned object — the
+structural contrast with SAC, where the policy's own entropy explores.
+
+<KeyIdea>
+
+DQN = sampled Bellman optimality backup + two patches for the deadly triad
+(replay decorrelates, target nets slow the moving target) + one patch for
+max-bias (Double). Each line of the update exists to counter a named
+instability — be able to say *which*.
+
+</KeyIdea>
+
+<Warning>
+
+Debug order when DQN flatlines: (1) print `Q.mean()` — if it climbs into the
+hundreds on a reward-clipped env, your target/Double logic is wrong;
+(2) check the `(1-done)` mask on truncation vs termination; (3) verify
+replay stores `obs2` *after* the step (off-by-one corrupts every target);
+(4) only then touch hyperparameters.
+
+</Warning>

@@ -1,0 +1,25 @@
+---
+concept: dagger
+level: 5
+status: seed
+recall:
+  prompt: How does DAgger (Dataset Aggregation) fail in practice, and how would
+    you present it in an interview?
+  keyPoints:
+    - "Expert availability: DAgger requires an on-call expert to label
+      $\\pi^*(a|s)$ at arbitrary states, which is expensive for real-robot tasks
+      (human teleoperator must provide corrections in real-time)."
+    - "Expert inconsistency: human experts give noisy, inconsistent labels,
+      especially for states far from the demonstration distribution."
+    - "Symptoms: improvement plateaus or the policy oscillates between rounds."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Expert availability: DAgger requires an on-call expert to label $\pi^*(a|s)$ at arbitrary states, which is expensive for real-robot tasks (human teleoperator must provide corrections in real-time). Expert inconsistency: human experts give noisy, inconsistent labels, especially for states far from the demonstration distribution. Symptoms: improvement plateaus or the policy oscillates between rounds. Fix: use HG-DAgger (human-gated) where the expert only intervenes when needed, or EnsembleDAgger which uses model uncertainty $\text{Var}_{\theta}[\pi_\theta(s)]$ to decide when to query.
+
+## Interview-ready answer
+
+DAgger solves the fundamental covariate shift problem in BC by iteratively collecting expert corrections under the learner's own state distribution. The key theoretical result: it reduces the imitation gap from $\mathcal{O}(T^2 \epsilon)$ to $\mathcal{O}(T \epsilon)$. In practice, the bottleneck is expert availability — you need a human to provide corrections in real-time. Practical variants: HG-DAgger (human intervenes only when policy is about to fail), EnsembleDAgger (query based on epistemic uncertainty), and SafeDAgger (use a safety policy to prevent catastrophic states). For robotics, I typically run 3-5 DAgger rounds with 10-30 corrections each, which often doubles success rate over pure BC.

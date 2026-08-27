@@ -1,0 +1,26 @@
+---
+concept: adam_optimizer
+level: 1
+status: seed
+recall:
+  prompt: "Explain Adam Optimizer — Adaptive Learning Rates with Momentum in plain
+    language: what is it, and why does it matter?"
+  keyPoints:
+    - Adam is like a hiker with a compass (momentum $m_t$ pointing in the
+      average gradient direction) and terrain awareness (variance $v_t$
+      measuring how bumpy each dimension is).
+    - On flat dimensions with consistent gradients, the effective learning rate
+      $\alpha / \sqrt{v}$ is large — take big steps.
+    - On noisy dimensions with erratic gradients, $v$ is large, so steps are
+      small and cautious.
+check: []
+papers: []
+---
+
+## Intuition
+
+Adam is like a hiker with a compass (momentum $m_t$ pointing in the average gradient direction) and terrain awareness (variance $v_t$ measuring how bumpy each dimension is). On flat dimensions with consistent gradients, the effective learning rate $\alpha / \sqrt{v}$ is large — take big steps. On noisy dimensions with erratic gradients, $v$ is large, so steps are small and cautious. Bias correction fixes the cold-start problem: at $t = 1$, the moving averages are biased toward zero since they are initialized at zero.
+
+## In practice
+
+Training a diffusion policy for robot manipulation: Adam with $\alpha = 10^{-4}$, $\beta_1 = 0.9$, $\beta_2 = 0.999$, weight decay $\lambda = 10^{-6}$ (AdamW variant). The model has 50M parameters with vastly different gradient scales across attention layers and convolutional layers. Adam's per-parameter adaptivity handles this heterogeneity without manual learning rate tuning per layer. Using AdamW (decoupled weight decay) instead of L2 regularization ensures the decay does not interact with the adaptive learning rate.

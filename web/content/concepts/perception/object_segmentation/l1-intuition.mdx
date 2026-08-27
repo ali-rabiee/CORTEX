@@ -1,0 +1,25 @@
+---
+concept: object_segmentation
+level: 1
+status: seed
+recall:
+  prompt: "Explain Object Segmentation for Manipulation in plain language: what is
+    it, and why does it matter?"
+  keyPoints:
+    - Before a robot can pick something up, it needs to know which pixels in the
+      image belong to which object.
+    - Segmentation draws those boundaries.
+    - "SAM changed the game: instead of training a custom model for each object
+      category, you can point at or draw a box around anything and get a
+      high-quality mask."
+check: []
+papers: []
+---
+
+## Intuition
+
+Before a robot can pick something up, it needs to know which pixels in the image belong to which object. Segmentation draws those boundaries. SAM changed the game: instead of training a custom model for each object category, you can point at or draw a box around anything and get a high-quality mask.
+
+## In practice
+
+Tabletop manipulation pipeline: RGB image $\rightarrow$ SAM with grid point prompts $\rightarrow$ instance masks $\rightarrow$ depth map + mask $\rightarrow$ per-object point cloud $\rightarrow$ grasp planning. For cluttered scenes: use SAM's 'segment everything' mode, then filter by workspace bounds and minimum area ($> 500$ px).

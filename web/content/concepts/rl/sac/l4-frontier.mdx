@@ -1,0 +1,107 @@
+---
+concept: sac
+level: 4
+status: final
+recall:
+  prompt: "Trace SAC's lineage and its modern role: what did it consolidate, how did sample efficiency get pushed after it, and where does it sit relative to BC/diffusion policies in robot learning now?"
+  keyPoints:
+    - "SAC (2018) consolidated max-entropy RL + twin critics + reparameterization into the robust off-policy default"
+    - "REDQ/DroQ pushed update-to-data ratios 10-20x via critic ensembles/dropout — enabling real-robot training in hours (e.g. walking in 20 minutes)"
+    - "In 2024-26 robot learning, SAC-family RL is mostly the *online fine-tuning* and locomotion workhorse, while imitation (ACT/diffusion/VLA) dominates manipulation pretraining"
+check:
+  - id: sac_l4_c1
+    prompt: "REDQ's key finding about sample-efficient off-policy RL was..."
+    options:
+      - "bigger replay buffers suffice"
+      - "with a randomized ensemble of critics (in-target minimization over a sampled subset), you can take ~20 gradient updates per environment step without divergence — closing much of the model-based sample-efficiency gap, model-free"
+      - "entropy regularization should be removed at high UTD"
+      - "target networks become unnecessary"
+    answer: 1
+    explanation: "Naively raising the update-to-data ratio makes Q-learning's overestimation explode. REDQ's ensemble-min over random critic subsets controls estimation bias at UTD≈20; DroQ later matched it with two dropout critics — these tricks are what made 'RL on real robots in an afternoon' realistic."
+  - id: sac_l4_c2
+    prompt: "Why did manipulation pretraining drift to imitation/diffusion policies while SAC remains standard for locomotion and fine-tuning?"
+    options:
+      - "SAC cannot output high-dimensional actions"
+      - "Manipulation rewards are sparse and hard to specify while demos are cheap to collect, favoring BC-style pretraining; locomotion has dense, simulable rewards where massive online RL shines — and RL returns as the fine-tuning stage on top of imitation policies"
+      - "Diffusion policies are off-policy RL methods"
+      - "Locomotion data cannot be demonstrated"
+    answer: 1
+    explanation: "It's an economics-of-supervision split: reward engineering vs teleoperation. The 2024-26 synthesis (e.g. HIL-SERL-style systems) uses demos to initialize and SAC-like off-policy RL with human interventions to surpass demonstrator performance on real hardware."
+papers:
+  - key: haarnoja2018sac
+    title: "Soft Actor-Critic: Off-Policy Maximum Entropy Deep RL with a Stochastic Actor"
+    authors: "Haarnoja, Zhou, Abbeel, Levine"
+    venue: "ICML"
+    year: 2018
+    arxiv: "1801.01290"
+    takeaway: "The original: maximum-entropy objective + twin critics + reparameterized tanh-Gaussian. Made off-policy continuous control stable enough to be boring."
+  - key: haarnoja2018sacapps
+    title: "Soft Actor-Critic Algorithms and Applications"
+    authors: "Haarnoja et al."
+    venue: "arXiv"
+    year: 2018
+    arxiv: "1812.05905"
+    takeaway: "The version everyone implements: automatic temperature tuning against a target entropy, demonstrated on real quadruped locomotion and dexterous manipulation."
+  - key: chen2021redq
+    title: "Randomized Ensembled Double Q-Learning: Learning Fast Without a Model (REDQ)"
+    authors: "Chen, Wang, Zhou, Ross"
+    venue: "ICLR"
+    year: 2021
+    arxiv: "2101.05982"
+    takeaway: "Critic ensembles with in-target subset-min permit UTD≈20, matching model-based sample efficiency model-free — the recipe behind rapid real-robot RL."
+  - key: smith2022walk
+    title: "A Walk in the Park: Learning to Walk in 20 Minutes With Model-Free Reinforcement Learning"
+    authors: "Smith, Kostrikov, Levine"
+    venue: "RSS (demo track)"
+    year: 2022
+    arxiv: "2208.07860"
+    takeaway: "DroQ-flavored SAC trains a real A1 quadruped to walk outdoors in ~20 minutes of experience — the existence proof that off-policy RL is hardware-practical."
+  - key: luo2024hilserl
+    title: "Precise and Dexterous Robotic Manipulation via Human-in-the-Loop Reinforcement Learning (HIL-SERL)"
+    authors: "Luo, Xu, Wu, Levine, et al."
+    venue: "arXiv"
+    year: 2024
+    arxiv: "2410.21845"
+    takeaway: "Demos + off-policy RL (RLPD-style, SAC lineage) + human interventions reach near-100% success on precise real-world tasks in 1–2.5 hours, beating imitation baselines — the template for RL-finetuning beyond demonstrator skill."
+---
+
+## From algorithm to infrastructure
+
+SAC's 2018 contribution was consolidation: maximum-entropy exploration,
+clipped double-Q, and pathwise gradients in one package that *didn't need
+retuning per task*. The decade since has been about making it cheap enough
+for hardware:
+
+<PaperGrid>
+  <PaperCard refKey="haarnoja2018sac" />
+  <PaperCard refKey="haarnoja2018sacapps" />
+  <PaperCard refKey="chen2021redq" />
+  <PaperCard refKey="smith2022walk" />
+</PaperGrid>
+
+The sample-efficiency line (REDQ → DroQ → RLPD) all attacks the same
+constraint: gradient steps are nearly free, environment steps on a robot are
+not. Controlling Q-estimation bias at high update-to-data ratios is what
+unlocked minutes-scale legged learning and hours-scale manipulation.
+
+## Where it sits in the VLA era
+
+<PaperGrid>
+  <PaperCard refKey="luo2024hilserl" />
+</PaperGrid>
+
+Imitation-first pretraining (ACT, Diffusion Policy, π0-class VLAs) owns
+manipulation breadth, but it plateaus at demonstrator quality. The emerging
+division of labor: **BC/VLA for the prior, SAC-lineage off-policy RL for
+surpassing it** — online, on hardware, with humans correcting failures.
+
+<KeyIdea>
+
+Interview-ready synthesis: "SAC is the diesel engine of continuous control:
+unglamorous, everywhere, hard to kill. Its modern relevance isn't beating
+diffusion policies at imitation — it's that every serious 'RL on real
+robots' result of the last few years (20-minute walking, HIL-SERL's
+near-perfect manipulation) is SAC machinery with better bias control at
+high update ratios."
+
+</KeyIdea>

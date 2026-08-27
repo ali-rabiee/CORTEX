@@ -1,0 +1,15 @@
+id: dqn
+title: Deep Q-Network (DQN)
+domain: rl
+summary: DQN was the breakthrough that showed deep RL could work at scale —
+  learning to play Atari from raw pixels.
+tags:
+  - rl
+difficulty: 2
+importance: 3
+related_concept_ids:
+  - bellman_equations
+  - replay_buffer
+  - off_policy_learning
+  - value_functions
+  - exploration

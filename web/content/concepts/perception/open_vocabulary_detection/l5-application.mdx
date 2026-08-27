@@ -1,0 +1,27 @@
+---
+concept: open_vocabulary_detection
+level: 5
+status: seed
+recall:
+  prompt: How does Open-Vocabulary Detection fail in practice, and how would you
+    present it in an interview?
+  keyPoints:
+    - "Synonym sensitivity: 'cup' vs 'mug' vs 'glass' produce different
+      detection results despite referring to the same object — the text encoder
+      treats them differently."
+    - "Fine-grained attribute failure: 'the large red cup' may not reliably
+      distinguish from 'the small red cup' when size differences are subtle."
+    - "Hallucinated detections: high-confidence boxes on regions that vaguely
+      match the text but aren't the target (e.g., querying 'screw' detects a
+      bolt)."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Synonym sensitivity: 'cup' vs 'mug' vs 'glass' produce different detection results despite referring to the same object — the text encoder treats them differently. Fine-grained attribute failure: 'the large red cup' may not reliably distinguish from 'the small red cup' when size differences are subtle. Hallucinated detections: high-confidence boxes on regions that vaguely match the text but aren't the target (e.g., querying 'screw' detects a bolt). Symptoms: inconsistent detections across phrasings, false positives on visually similar objects. Fix: use multiple synonym queries and take the union, add spatial/size post-filtering, calibrate confidence thresholds per query type, ensemble with SAM for mask quality verification.
+
+## Interview-ready answer
+
+Open-vocabulary detection is transforming robotics perception — it eliminates the need for per-object-class training data. Grounding DINO is my default choice: it combines strong visual features (DINO) with text grounding, achieving zero-shot detection that rivals supervised detectors on seen classes. The practical pipeline for manipulation: parse language instructions into noun phrases, query Grounding DINO for each, apply spatial reasoning to resolve references. Key engineering details: (1) threshold tuning matters — too low gives false positives, too high misses objects; I typically use box threshold $0.3$, text threshold $0.25$; (2) combine with SAM for precise masks after detection; (3) cache results in static scenes for real-time operation. The limitation: these models struggle with fine-grained attributes and spatial relations — 'the left cup' requires post-processing. The trend: models like GLIP and Grounding DINO 1.5 are closing this gap.

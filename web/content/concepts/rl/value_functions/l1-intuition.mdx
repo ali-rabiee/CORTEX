@@ -1,0 +1,25 @@
+---
+concept: value_functions
+level: 1
+status: seed
+recall:
+  prompt: "Explain Value Functions ($V$ and $Q$) in plain language: what is it,
+    and why does it matter?"
+  keyPoints:
+    - $V(s)$ is like knowing the overall quality of a chess position.
+    - $Q(s,a)$ is knowing the quality of a specific move in that position.
+    - "The advantage $A(s,a) = Q(s,a) - V(s)$ tells you: 'was this move better
+      or worse than what you'd normally do here?' It's the signal that drives
+      policy improvement — positive $A > 0$ means 'do more of this,' negative $A
+      < 0$ means 'do less.'"
+check: []
+papers: []
+---
+
+## Intuition
+
+$V(s)$ is like knowing the overall quality of a chess position. $Q(s,a)$ is knowing the quality of a specific move in that position. The advantage $A(s,a) = Q(s,a) - V(s)$ tells you: 'was this move better or worse than what you'd normally do here?' It's the signal that drives policy improvement — positive $A > 0$ means 'do more of this,' negative $A < 0$ means 'do less.'
+
+## In practice
+
+In actor-critic methods for robot locomotion, the critic learns $V_\phi(s)$ and we estimate $\hat{A}$ using GAE: $$\hat{A}_t^{\text{GAE}(\gamma,\lambda)} = \sum_{l=0}^{\infty} (\gamma\lambda)^l \delta_{t+l}, \quad \delta_t = r_t + \gamma V_\phi(s_{t+1}) - V_\phi(s_t)$$ Using $\lambda = 0.95$ gives a good bias-variance trade-off. At $\lambda = 1$, GAE reduces to Monte Carlo returns minus baseline; at $\lambda = 0$, it reduces to the one-step TD residual $\delta_t$. The critic architecture typically shares early layers with the actor in simpler tasks.

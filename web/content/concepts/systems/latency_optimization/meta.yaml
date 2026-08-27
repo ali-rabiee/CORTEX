@@ -1,0 +1,13 @@
+id: latency_optimization
+title: Inference Latency Optimization for Robot Control
+domain: systems
+summary: A robot reaching for a moving object can't wait 500ms for a diffusion
+  model to generate an action.
+tags:
+  - systems
+difficulty: 3
+importance: 4
+related_concept_ids:
+  - diffusion_policy
+  - deployment_thinking
+  - consistency_models

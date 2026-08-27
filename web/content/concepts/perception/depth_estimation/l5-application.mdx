@@ -1,0 +1,26 @@
+---
+concept: depth_estimation
+level: 5
+status: seed
+recall:
+  prompt: How does Depth Estimation for Robotics fail in practice, and how would
+    you present it in an interview?
+  keyPoints:
+    - "Structured light fails on: transparent objects (IR passes through),
+      specular surfaces (IR reflects away), outdoor scenes (IR sunlight
+      interference), thin objects (insufficient pattern coverage)."
+    - "Stereo fails on: textureless regions (no features to match), repetitive
+      patterns (ambiguous matching)."
+    - "Monocular fails on: metric scale (inherent ambiguity without known
+      reference), unusual viewpoints not in training data."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Structured light fails on: transparent objects (IR passes through), specular surfaces (IR reflects away), outdoor scenes (IR sunlight interference), thin objects (insufficient pattern coverage). Stereo fails on: textureless regions (no features to match), repetitive patterns (ambiguous matching). Monocular fails on: metric scale (inherent ambiguity without known reference), unusual viewpoints not in training data. Symptoms: holes in depth maps, flying pixels at edges. Fix: multi-modal fusion (structured light + monocular), temporal filtering, confidence-weighted depth completion.
+
+## Interview-ready answer
+
+Depth estimation is the bridge between 2D perception and 3D robot interaction. In practice, I use a layered approach: structured light sensors (RealSense) provide reliable metric depth for most surfaces. For failure cases (transparent, specular), I fuse with monocular depth estimation (Depth Anything V2) after scale-shift alignment. The key engineering decision is sensor selection: structured light for indoor manipulation ($0.3$-$3\,\text{m}$), stereo for longer range, time-of-flight for outdoor. Monocular models have gotten remarkably good but still lack metric scale without calibration — I use them as a complement to active sensors, not a replacement. For production systems, always monitor depth validity masks and have fallback behaviors for low-confidence regions.

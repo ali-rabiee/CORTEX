@@ -1,0 +1,26 @@
+---
+concept: object_detection
+level: 1
+status: seed
+recall:
+  prompt: "Explain Object Detection for Robotics in plain language: what is it,
+    and why does it matter?"
+  keyPoints:
+    - Object detection answers 'what objects are in this image and where?' with
+      rectangular bounding boxes.
+    - Two-stage detectors are like a careful search — first propose interesting
+      regions, then classify each one.
+    - One-stage detectors like YOLO look at everything simultaneously and
+      predict all boxes in one pass, which is faster but historically less
+      accurate.
+check: []
+papers: []
+---
+
+## Intuition
+
+Object detection answers 'what objects are in this image and where?' with rectangular bounding boxes. Two-stage detectors are like a careful search — first propose interesting regions, then classify each one. One-stage detectors like YOLO look at everything simultaneously and predict all boxes in one pass, which is faster but historically less accurate. Anchor-free methods simplify things further by just predicting object centers and sizes, avoiding the messy hyperparameter tuning of anchor box design.
+
+## In practice
+
+Real-time bin picking with YOLOv8: train YOLOv8-m on 2000 labeled images of parts (bolts, nuts, washers) with augmentations (random rotation, HSV jitter, mosaic). Deploy on Jetson Orin: $640 \times 640$ input, TensorRT FP16 optimization $\rightarrow$ 45 fps. Pipeline: camera capture $\rightarrow$ YOLO detection $\rightarrow$ filter by confidence $> 0.7$ $\rightarrow$ NMS with IoU threshold $0.45$ $\rightarrow$ for each detection, extract depth within bounding box $\rightarrow$ estimate grasp center. For mAP evaluation: mAP@0.5 $= 0.94$, mAP@0.5:0.95 $= 0.71$ — the drop indicates imprecise box boundaries, acceptable for grasp center estimation.

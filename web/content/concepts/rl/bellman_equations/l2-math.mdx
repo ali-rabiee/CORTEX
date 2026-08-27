@@ -1,0 +1,29 @@
+---
+concept: bellman_equations
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Bellman Equations, including the key
+    equations.
+  keyPoints:
+    - The Bellman equations express the recursive relationship between value
+      functions at successive states.
+    - "For policy $\\pi$: $$V^\\pi(s) = \\mathbb{E}_{a \\sim
+      \\pi(\\cdot|s)}\\left[R(s,a) + \\gamma \\mathbb{E}_{s' \\sim
+      P(\\cdot|s,a)}[V^\\pi(s')]\\right]$$ $$Q^\\pi(s,a) = R(s,a) + \\gamma
+      \\mathbb{E}_{s' \\sim P(\\cdot|s,a)}\\left[\\sum_{a'} \\pi(a'|s')
+      Q^\\pi(s', a')\\right]$$ The Bellman optimality equations characterize the
+      optimal value functions: $$V^*(s) = \\max_a \\left[R(s,a) + \\gamma
+      \\mathbb{E}_{s'}[V^*(s')]\\right], \\quad Q^*(s,a) = R(s,a) + \\gamma
+      \\mathbb{E}_{s'}\\left[\\max_{a'} Q^*(s', a')\\right]$$ These are the
+      theoretical foundation for both value iteration ($V_{k+1}(s) = \\max_a [R
+      + \\gamma \\sum_{s'} P(s'|s,a) V_k(s')]$) and Q-learning ($Q(s,a)
+      \\leftarrow Q(s,a) + \\alpha [r + \\gamma \\max_{a'} Q(s',a') -
+      Q(s,a)]$)."
+check: []
+papers: []
+---
+
+## Formal definition
+
+The Bellman equations express the recursive relationship between value functions at successive states. For policy $\pi$: $$V^\pi(s) = \mathbb{E}_{a \sim \pi(\cdot|s)}\left[R(s,a) + \gamma \mathbb{E}_{s' \sim P(\cdot|s,a)}[V^\pi(s')]\right]$$ $$Q^\pi(s,a) = R(s,a) + \gamma \mathbb{E}_{s' \sim P(\cdot|s,a)}\left[\sum_{a'} \pi(a'|s') Q^\pi(s', a')\right]$$ The Bellman optimality equations characterize the optimal value functions: $$V^*(s) = \max_a \left[R(s,a) + \gamma \mathbb{E}_{s'}[V^*(s')]\right], \quad Q^*(s,a) = R(s,a) + \gamma \mathbb{E}_{s'}\left[\max_{a'} Q^*(s', a')\right]$$ These are the theoretical foundation for both value iteration ($V_{k+1}(s) = \max_a [R + \gamma \sum_{s'} P(s'|s,a) V_k(s')]$) and Q-learning ($Q(s,a) \leftarrow Q(s,a) + \alpha [r + \gamma \max_{a'} Q(s',a') - Q(s,a)]$).

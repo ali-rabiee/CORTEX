@@ -1,0 +1,27 @@
+---
+concept: trpo
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Trust Region Policy Optimization (TRPO),
+    including the key equations.
+  keyPoints:
+    - "TRPO maximizes the expected advantage of the new policy over the old,
+      subject to a constraint on how much the policy can change, measured by the
+      KL divergence: $$\\max_\\theta \\; \\mathbb{E}_{s \\sim
+      \\rho_{\\theta_{\\text{old}}},\\, a \\sim
+      \\pi_{\\theta_{\\text{old}}}}\\left[\\frac{\\pi_\\theta(a|s)}{\\pi_{\\the\
+      ta_{\\text{old}}}(a|s)} \\hat{A}(s,a)\\right] \\quad \\text{s.t.} \\quad
+      \\mathbb{E}_s\\left[D_{\\text{KL}}\\!\\left(\\pi_{\\theta_{\\text{old}}}(\
+      \\cdot|s) \\,\\|\\, \\pi_\\theta(\\cdot|s)\\right)\\right] \\leq \\delta$$
+      This is solved approximately using a second-order method: the Fisher
+      Information Matrix $F = \\mathbb{E}[\\nabla \\log \\pi \\, (\\nabla \\log
+      \\pi)^\\top]$ and conjugate gradient to compute the natural gradient step
+      $\\Delta\\theta = F^{-1} g$ where $g = \\nabla_\\theta L$."
+check: []
+papers: []
+---
+
+## Formal definition
+
+TRPO maximizes the expected advantage of the new policy over the old, subject to a constraint on how much the policy can change, measured by the KL divergence: $$\max_\theta \; \mathbb{E}_{s \sim \rho_{\theta_{\text{old}}},\, a \sim \pi_{\theta_{\text{old}}}}\left[\frac{\pi_\theta(a|s)}{\pi_{\theta_{\text{old}}}(a|s)} \hat{A}(s,a)\right] \quad \text{s.t.} \quad \mathbb{E}_s\left[D_{\text{KL}}\!\left(\pi_{\theta_{\text{old}}}(\cdot|s) \,\|\, \pi_\theta(\cdot|s)\right)\right] \leq \delta$$ This is solved approximately using a second-order method: the Fisher Information Matrix $F = \mathbb{E}[\nabla \log \pi \, (\nabla \log \pi)^\top]$ and conjugate gradient to compute the natural gradient step $\Delta\theta = F^{-1} g$ where $g = \nabla_\theta L$.

@@ -1,0 +1,27 @@
+---
+concept: convolutional_neural_networks
+level: 1
+status: seed
+recall:
+  prompt: "Explain Convolutional Neural Networks — Translation Equivariance and
+    Hierarchical Features in plain language: what is it, and why does it
+    matter?"
+  keyPoints:
+    - A CNN is like a hierarchy of pattern detectors.
+    - Early layers detect edges and textures (3x3 local patterns), middle layers
+      combine these into parts (corners, shapes), and deep layers recognize
+      objects (faces, tools).
+    - Weight sharing means the same edge detector works everywhere in the image
+      — you do not need separate parameters for 'edge in top-left' vs 'edge in
+      bottom-right'.
+check: []
+papers: []
+---
+
+## Intuition
+
+A CNN is like a hierarchy of pattern detectors. Early layers detect edges and textures (3x3 local patterns), middle layers combine these into parts (corners, shapes), and deep layers recognize objects (faces, tools). Weight sharing means the same edge detector works everywhere in the image — you do not need separate parameters for 'edge in top-left' vs 'edge in bottom-right'. Pooling progressively summarizes spatial information: 'there is a vertical edge somewhere in this 4x4 region' — providing robustness to small translations, which is critical for recognizing objects regardless of exact pixel position.
+
+## In practice
+
+A robot perception stack using ResNet-34 as backbone: input $640 \times 480 \times 3$ RGB, output $20 \times 15 \times 512$ feature map, then task-specific heads for detection and segmentation. The effective receptive field at the final layer covers $> 400 \times 400$ pixels but is concentrated in the center (effective receptive field is much smaller than theoretical). For real-time inference at 30Hz on embedded GPU (Jetson Orin): use depthwise separable convolutions (MobileNet) reducing FLOPs from 3.6G to 0.3G with minimal accuracy loss. Key: use pre-trained ImageNet weights — training from scratch on robot data alone requires $10\times$ more data.

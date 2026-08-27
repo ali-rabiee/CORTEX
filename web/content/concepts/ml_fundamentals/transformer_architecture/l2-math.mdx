@@ -1,0 +1,23 @@
+---
+concept: transformer_architecture
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Transformer Architecture — Self-Attention
+    and Positional Encoding, including the key equations.
+  keyPoints:
+    - The Transformer processes sequences via stacked self-attention and
+      feed-forward layers, dispensing with recurrence entirely.
+    - "Each layer applies multi-head self-attention: $$\\text{MultiHead}(Q, K,
+      V) = \\text{Concat}(\\text{head}_1, \\ldots, \\text{head}_h) W^O$$ where
+      $\\text{head}_i = \\text{Attention}(XW_i^Q, XW_i^K, XW_i^V)$."
+    - Since attention is permutation-equivariant, positional information is
+      injected via sinusoidal encodings $PE_{(pos, 2i)} = \sin(pos /
+      10000^{2i/d_{\text{model}}})$ or learned embeddings.
+check: []
+papers: []
+---
+
+## Formal definition
+
+The Transformer processes sequences via stacked self-attention and feed-forward layers, dispensing with recurrence entirely. Each layer applies multi-head self-attention: $$\text{MultiHead}(Q, K, V) = \text{Concat}(\text{head}_1, \ldots, \text{head}_h) W^O$$ where $\text{head}_i = \text{Attention}(XW_i^Q, XW_i^K, XW_i^V)$. Since attention is permutation-equivariant, positional information is injected via sinusoidal encodings $PE_{(pos, 2i)} = \sin(pos / 10000^{2i/d_{\text{model}}})$ or learned embeddings. The architecture uses residual connections and layer normalization around each sub-layer: $\text{LayerNorm}(x + \text{SubLayer}(x))$.

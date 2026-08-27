@@ -1,0 +1,14 @@
+id: transformer_attention
+title: Transformer and Attention Mechanisms for Embodied AI
+domain: foundation_models
+summary: Self-attention lets every token in a sequence 'look at' every other
+  token to decide what's relevant.
+tags:
+  - foundation_models
+  - ml_fundamentals
+difficulty: 2
+importance: 5
+related_concept_ids:
+  - vla_models
+  - vlm_models
+  - representation_learning

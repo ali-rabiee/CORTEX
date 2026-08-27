@@ -1,0 +1,15 @@
+id: behavior_cloning
+title: Behavior Cloning (BC)
+domain: robot_learning
+summary: Like learning to drive by watching dashcam footage of a good driver and
+  imitating their steering at each frame.
+tags:
+  - robot_learning
+  - rl
+difficulty: 2
+importance: 5
+related_concept_ids:
+  - imitation_learning
+  - dagger
+  - covariate_shift
+  - offline_rl

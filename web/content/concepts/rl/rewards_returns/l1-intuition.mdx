@@ -1,0 +1,25 @@
+---
+concept: rewards_returns
+level: 1
+status: seed
+recall:
+  prompt: "Explain Rewards and Returns in plain language: what is it, and why does
+    it matter?"
+  keyPoints:
+    - The reward is the RL agent's only source of information about what's good
+      — it's the 'grade' for each moment.
+    - The return $G_t$ aggregates these into a total score for a trajectory.
+    - The discount $\gamma$ says 'a reward now is worth more than the same
+      reward later' — $\gamma = 0.99$ means a reward 100 steps away is worth
+      $0.99^{100} \approx 0.37$ of an immediate reward.
+check: []
+papers: []
+---
+
+## Intuition
+
+The reward is the RL agent's only source of information about what's good — it's the 'grade' for each moment. The return $G_t$ aggregates these into a total score for a trajectory. The discount $\gamma$ says 'a reward now is worth more than the same reward later' — $\gamma = 0.99$ means a reward 100 steps away is worth $0.99^{100} \approx 0.37$ of an immediate reward. Sparse rewards are like getting a grade only at the end of the semester — you have to figure out which actions led to the outcome. Dense rewards are like continuous feedback but risk teaching the wrong thing (reward hacking).
+
+## In practice
+
+Robot block stacking task: Sparse reward: $r = +1$ if block placed within 2cm of goal, $r = 0$ otherwise. With random exploration, probability of success $\approx 10^{-6}$ — effectively impossible to learn. Dense reward: $r = -\|x_{\text{block}} - x_{\text{goal}}\| + 10 \cdot \mathbf{1}_{\text{success}}$. Typical $\gamma$ choices: $\gamma = 0.99$ for 50-200 step manipulation tasks ($T_{\text{eff}} = 100$), $\gamma = 0.995$ for locomotion ($T_{\text{eff}} = 200$), $\gamma = 0.999$ for long-horizon planning ($T_{\text{eff}} = 1000$). Reward normalization: running mean/std normalization $r' = (r - \mu_r) / \sigma_r$ stabilizes training, especially with SAC and PPO.

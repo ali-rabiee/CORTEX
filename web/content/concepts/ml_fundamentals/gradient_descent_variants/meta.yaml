@@ -1,0 +1,14 @@
+id: gradient_descent_variants
+title: Gradient Descent Variants — SGD, Momentum, and Learning Rate Schedules
+domain: ml_fundamentals
+summary: Vanilla SGD is like navigating by the local slope at each step — noisy
+  and slow in ravines.
+tags:
+  - ml_fundamentals
+difficulty: 2
+importance: 5
+related_concept_ids:
+  - adam_optimizer
+  - backpropagation
+  - overfitting_underfitting
+  - batch_normalization

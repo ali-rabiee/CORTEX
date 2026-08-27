@@ -1,0 +1,25 @@
+---
+concept: backpropagation
+level: 5
+status: seed
+recall:
+  prompt: How does Backpropagation — Chain Rule on Computational Graphs fail in
+    practice, and how would you present it in an interview?
+  keyPoints:
+    - "Vanishing gradients in deep networks: the product of many Jacobians with
+      spectral radius $< 1$ causes $\\|\\frac{\\partial L}{\\partial
+      \\theta_1}\\| \\to 0$ exponentially with depth."
+    - "Symptoms: early layers stop learning, loss plateaus with later layers
+      still updating."
+    - Conversely, exploding gradients ($\to \infty$) cause NaN losses.
+check: []
+papers: []
+---
+
+## Failure modes
+
+Vanishing gradients in deep networks: the product of many Jacobians with spectral radius $< 1$ causes $\|\frac{\partial L}{\partial \theta_1}\| \to 0$ exponentially with depth. Symptoms: early layers stop learning, loss plateaus with later layers still updating. Conversely, exploding gradients ($\to \infty$) cause NaN losses. Fixes: residual connections (additive gradient paths), careful initialization (He/Glorot), gradient clipping ($\|g\| \leq c$), and normalization layers.
+
+## Interview-ready answer
+
+Backprop is reverse-mode autodiff on the computational graph — it computes $\nabla_\theta L$ in a single backward pass with cost proportional to the forward pass ($\sim 2\times$ FLOPS). The key insight is that for a scalar output and $n$ parameters, reverse mode is $O(n)$ while forward mode would be $O(n^2)$. In practice, I pay attention to gradient flow: residual connections provide additive gradient highways that mitigate vanishing gradients, and gradient clipping prevents exploding gradients in RNNs and transformers. Mixed-precision training uses FP16 for forward/backward but FP32 for gradient accumulation to avoid underflow.

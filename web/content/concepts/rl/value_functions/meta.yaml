@@ -1,0 +1,12 @@
+id: value_functions
+title: Value Functions ($V$ and $Q$)
+domain: rl
+summary: $V(s)$ is like knowing the overall quality of a chess position.
+tags:
+  - rl
+difficulty: 2
+importance: 5
+related_concept_ids:
+  - policy_gradients
+  - advantage_estimation
+  - temporal_difference

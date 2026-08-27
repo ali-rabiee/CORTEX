@@ -1,0 +1,14 @@
+id: affordance_prediction
+title: Affordance Prediction for Manipulation
+domain: perception
+summary: "When you look at a mug, you instantly know: the handle affords
+  grasping, the rim affords pouring from, the body affords pushing."
+tags:
+  - perception
+  - robot_learning
+difficulty: 4
+importance: 4
+related_concept_ids:
+  - object_segmentation
+  - point_cloud_processing
+  - language_grounding

@@ -1,0 +1,28 @@
+---
+concept: dropout_regularization
+level: 5
+status: seed
+recall:
+  prompt: How does Dropout Regularization — Preventing Co-adaptation fail in
+    practice, and how would you present it in an interview?
+  keyPoints:
+    - Applying dropout in the wrong location or with wrong scaling causes silent
+      performance degradation.
+    - "Common mistakes: (1) forgetting to switch to eval mode at inference
+      (model.eval()), causing continued dropout and degraded performance; (2)
+      using dropout after BatchNorm, which introduces a variance shift between
+      train and eval; (3) using high dropout ($p > 0.5$) in small networks,
+      causing underfitting."
+    - "Symptoms: inexplicable train-eval gap, non-deterministic inference
+      outputs."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Applying dropout in the wrong location or with wrong scaling causes silent performance degradation. Common mistakes: (1) forgetting to switch to eval mode at inference (model.eval()), causing continued dropout and degraded performance; (2) using dropout after BatchNorm, which introduces a variance shift between train and eval; (3) using high dropout ($p > 0.5$) in small networks, causing underfitting. Symptoms: inexplicable train-eval gap, non-deterministic inference outputs. Fix: always verify eval mode, place dropout before normalization layers, and prefer lower $p$ (0.1-0.3) for modern architectures.
+
+## Interview-ready answer
+
+Dropout randomly zeros activations with probability $p$ during training, providing regularization through implicit ensemble averaging. The inverted dropout formulation (scaling by $1/(1-p)$ during training) means no modification is needed at inference. Key practical points: dropout is less common in modern architectures (ResNets, Transformers use other regularization), but MC-Dropout is valuable for uncertainty estimation in safety-critical robotics applications. In transformers, attention dropout ($p = 0.1$) on the attention weights and residual dropout on sub-layer outputs are standard. The interaction between dropout and BatchNorm is subtle — dropout changes activation variance, which interacts with BatchNorm statistics. Generally prefer placing dropout after normalization or using architectures that avoid the interaction.

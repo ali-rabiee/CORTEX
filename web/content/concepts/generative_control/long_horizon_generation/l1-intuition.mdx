@@ -1,0 +1,27 @@
+---
+concept: long_horizon_generation
+level: 1
+status: seed
+recall:
+  prompt: "Explain Long-Horizon Generation and Hierarchical Policies in plain
+    language: what is it, and why does it matter?"
+  keyPoints:
+    - Making a sandwich involves dozens of individual motions over several
+      minutes.
+    - Trying to generate all these actions at once (flat generation) is like
+      writing a whole novel in one pass — the end is incoherent with the
+      beginning.
+    - "Hierarchical generation is like writing an outline first (subgoals: get
+      bread, get peanut butter, spread, assemble), then filling in each section
+      (low-level actions)."
+check: []
+papers: []
+---
+
+## Intuition
+
+Making a sandwich involves dozens of individual motions over several minutes. Trying to generate all these actions at once (flat generation) is like writing a whole novel in one pass — the end is incoherent with the beginning. Hierarchical generation is like writing an outline first (subgoals: get bread, get peanut butter, spread, assemble), then filling in each section (low-level actions). The high-level planner reasons about 'what to do' over the long term, while the low-level controller handles 'how to do it' for each step. Diffusion over trajectories can plan entire paths through space that avoid obstacles and reach goals, like drawing a smooth curve from start to finish while respecting constraints.
+
+## In practice
+
+Diffuser (Janner et al.): trains a diffusion model over full state-action trajectories $\tau \in \mathbb{R}^{T \times (d_s + d_a)}$ for offline RL. Conditions on start state (inpainting $s_0$) and optionally on goal state ($s_T$). At inference, generates a complete trajectory by denoising, then executes the first few actions and replans. Achieves long-horizon planning in maze navigation and block stacking. SuSIE (Black et al.): VLM generates subgoal images ('what should the scene look like after the next step?'), then a goal-conditioned diffusion policy executes toward each subgoal image. This decomposes hour-long tasks into a sequence of 10-30 second subgoal-reaching segments. UniPi: uses video diffusion to generate future observation videos as plans, then extracts actions via an inverse dynamics model.

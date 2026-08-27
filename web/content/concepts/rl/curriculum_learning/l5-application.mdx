@@ -1,0 +1,25 @@
+---
+concept: curriculum_learning
+level: 5
+status: seed
+recall:
+  prompt: How does Curriculum Learning in RL fail in practice, and how would you
+    present it in an interview?
+  keyPoints:
+    - "Catastrophic forgetting: when transitioning between curriculum stages,
+      the agent may lose competence on earlier skills."
+    - In goal-conditioned RL, this manifests as the agent forgetting easy goals
+      once trained on hard ones.
+    - "Symptoms: success rate on easy tasks drops when hard tasks are
+      introduced."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Catastrophic forgetting: when transitioning between curriculum stages, the agent may lose competence on earlier skills. In goal-conditioned RL, this manifests as the agent forgetting easy goals once trained on hard ones. Symptoms: success rate on easy tasks drops when hard tasks are introduced. Fix: maintain a mixture of difficulties (e.g., 30% easy, 50% medium, 20% hard goals), use replay buffers that retain early-stage data, or distill skills into a hierarchical policy. Another failure: curriculum that doesn't transfer — skills learned in stage $k$ are useless for stage $k+1$. This happens when the task decomposition creates artificial subtasks that don't compose. Design curricula so each stage builds on previous skills.
+
+## Interview-ready answer
+
+Curriculum learning is essential for complex robotics tasks where learning from scratch is infeasible. The core principle: present tasks in order of increasing difficulty, matching the agent's current capability. I distinguish three approaches: (1) manual curricula — effective but requires domain expertise and is brittle to task changes; (2) automatic curricula like ADR (Automatic Domain Randomization) — expand parameter ranges when success exceeds a threshold, used in OpenAI's Rubik's cube work; (3) goal-conditioned curricula — sample goals from the frontier of competence using techniques like HER + goal relabeling. The key challenge is catastrophic forgetting at curriculum transitions — I address this by mixing difficulties throughout training rather than hard stage boundaries. For sim2real, curriculum over domain randomization parameters is particularly effective: start with easy physics, gradually add noise, friction variation, and visual randomization.

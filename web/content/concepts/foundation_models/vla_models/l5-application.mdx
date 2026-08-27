@@ -1,0 +1,24 @@
+---
+concept: vla_models
+level: 5
+status: seed
+recall:
+  prompt: How does Vision-Language-Action (VLA) Models fail in practice, and how
+    would you present it in an interview?
+  keyPoints:
+    - "Action space mismatch: VLA trained on one robot's action space (e.g.,
+      7-DOF absolute joint positions) fails on different embodiments."
+    - "Language grounding failure: model correctly identifies objects but maps
+      to wrong physical actions."
+    - "Symptoms: correct object identification but wrong grasp approach."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Action space mismatch: VLA trained on one robot's action space (e.g., 7-DOF absolute joint positions) fails on different embodiments. Language grounding failure: model correctly identifies objects but maps to wrong physical actions. Symptoms: correct object identification but wrong grasp approach. Fix: embodiment-specific fine-tuning, action space normalization ($a_{\text{norm}} = (a - \mu_a) / \sigma_a$), add proprioceptive input $q_t$ to the conditioning.
+
+## Interview-ready answer
+
+VLAs represent the convergence of foundation models and robotics — one model that sees, understands language, and acts. RT-2 showed that VLMs can be fine-tuned into effective robot policies by tokenizing actions. The key challenges: (1) action space generalization across embodiments (solved partially by datasets like Open X-Embodiment), (2) real-time inference (large models are slow — need distillation or efficient architectures), (3) safety (language understanding doesn't guarantee safe physical behavior). I think VLAs will become the default for high-level task policies, with specialized low-level controllers for precision.

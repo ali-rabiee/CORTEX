@@ -1,0 +1,25 @@
+---
+concept: visual_question_answering
+level: 5
+status: seed
+recall:
+  prompt: How does Visual Question Answering for Robotics fail in practice, and
+    how would you present it in an interview?
+  keyPoints:
+    - "Spatial precision: VLMs answer 'the cup is on the left' but cannot
+      reliably provide metric distances ('the cup is 23cm from the edge')."
+    - "Hallucinated answers: VLM confidently answers questions about objects not
+      in the scene, or gives wrong spatial relations."
+    - "Latency: VLM inference (100-500ms per query) is too slow for real-time
+      perception in fast control loops."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Spatial precision: VLMs answer 'the cup is on the left' but cannot reliably provide metric distances ('the cup is 23cm from the edge'). Hallucinated answers: VLM confidently answers questions about objects not in the scene, or gives wrong spatial relations. Latency: VLM inference (100-500ms per query) is too slow for real-time perception in fast control loops. Inconsistency: asking the same question with slight rephrasing yields different answers. Symptoms: robot acts on incorrect scene understanding, makes repeated VQA calls that slow down control. Fix: use VQA for semantic queries only (not metric), validate critical answers with redundant questions, cache VQA results within a time window, combine with classical perception for precision.
+
+## Interview-ready answer
+
+VQA transforms robot perception from fixed-capability modules into a flexible, language-queried system. The key pattern: use VLMs as perception APIs — ask questions about the scene in natural language, get structured answers. Applications: (1) success detection ('is the task complete?'), (2) state estimation ('is the door open?'), (3) spatial reasoning for planning ('what objects are on the table?'). The critical limitation: VQA is semantic, not metric. VLMs can tell you 'the cup is near the edge' but not 'the cup is 5.3cm from the edge.' In practice, I use VQA for high-level scene understanding and task monitoring, combined with classical perception (depth, point clouds, pose estimation) for precise spatial reasoning. This hybrid approach gets the flexibility of language-based perception without sacrificing metric accuracy.

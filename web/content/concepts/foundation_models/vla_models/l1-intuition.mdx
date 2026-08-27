@@ -1,0 +1,25 @@
+---
+concept: vla_models
+level: 1
+status: seed
+recall:
+  prompt: "Explain Vision-Language-Action (VLA) Models in plain language: what is
+    it, and why does it matter?"
+  keyPoints:
+    - "A VLM can look at a scene and answer 'what do you see?' A VLA goes
+      further: 'given what you see and the instruction pick up the red cup, what
+      should the robot do?' It bridges language understanding, visual
+      perception, and physical action in one model."
+    - Like giving a robot both eyes and a brain that understands natural
+      language commands.
+check: []
+papers: []
+---
+
+## Intuition
+
+A VLM can look at a scene and answer 'what do you see?' A VLA goes further: 'given what you see and the instruction pick up the red cup, what should the robot do?' It bridges language understanding, visual perception, and physical action in one model. Like giving a robot both eyes and a brain that understands natural language commands.
+
+## In practice
+
+RT-2: PaLM-E (VLM) fine-tuned on robot demonstration data. Actions tokenized as text tokens (e.g., 'move_x: 0.05, move_y: -0.02'). Trained on 130K episodes from real robots. Can follow novel instructions by combining language understanding with physical grounding. Octo: smaller open-source VLA trained on Open X-Embodiment dataset, uses a transformer backbone with diffusion action head for multimodal action prediction.

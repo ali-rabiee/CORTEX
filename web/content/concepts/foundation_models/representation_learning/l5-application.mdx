@@ -1,0 +1,25 @@
+---
+concept: representation_learning
+level: 5
+status: seed
+recall:
+  prompt: How does Visual Representation Learning for Robotics fail in practice,
+    and how would you present it in an interview?
+  keyPoints:
+    - "Representation doesn't capture task-relevant features: pre-trained on
+      ImageNet (objects in context) but manipulation needs fine-grained spatial
+      features (contact points, precise object pose)."
+    - "Symptoms: features don't discriminate between success/failure states."
+    - "Fix: use robotics-specific pre-training (R3M, Voltron), fine-tune last
+      layers, or train a small task-specific head."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Representation doesn't capture task-relevant features: pre-trained on ImageNet (objects in context) but manipulation needs fine-grained spatial features (contact points, precise object pose). Symptoms: features don't discriminate between success/failure states. Fix: use robotics-specific pre-training (R3M, Voltron), fine-tune last layers, or train a small task-specific head.
+
+## Interview-ready answer
+
+Pre-trained visual representations are a game-changer for sample-efficient robot learning. Instead of learning to see and act from scratch, we use pre-trained encoders (R3M, DINOv2, CLIP) and learn only the policy head. In practice: frozen pre-trained encoder + small MLP policy trained on 50-100 demos works surprisingly well for many manipulation tasks. The choice of pre-training matters: R3M (human video) and Voltron (robot video) capture manipulation-relevant features better than ImageNet-pretrained models. Key trade-off: frozen encoders are sample-efficient but may miss task-specific features; fine-tuning the last few layers helps when you have enough data.

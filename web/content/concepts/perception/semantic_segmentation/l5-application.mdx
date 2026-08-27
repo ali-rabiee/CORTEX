@@ -1,0 +1,27 @@
+---
+concept: semantic_segmentation
+level: 5
+status: seed
+recall:
+  prompt: How does Semantic Segmentation fail in practice, and how would you
+    present it in an interview?
+  keyPoints:
+    - "Class boundary bleeding: soft edges between adjacent classes cause the
+      robot to misestimate surface extents — e.g., table segmentation bleeds
+      onto objects on the table, making the table appear larger than it is."
+    - "Rare class starvation: classes with few pixels (e.g., small objects, door
+      handles) get overwhelmed by the dominant class (floor, wall) during
+      training."
+    - "Symptoms: small objects misclassified as background, fuzzy boundaries
+      between surfaces."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Class boundary bleeding: soft edges between adjacent classes cause the robot to misestimate surface extents — e.g., table segmentation bleeds onto objects on the table, making the table appear larger than it is. Rare class starvation: classes with few pixels (e.g., small objects, door handles) get overwhelmed by the dominant class (floor, wall) during training. Symptoms: small objects misclassified as background, fuzzy boundaries between surfaces. Fix: use boundary-aware losses (e.g., boundary $F_1$ loss), class-balanced sampling or focal loss $\mathcal{L}_{\text{focal}} = -\alpha_t (1 - p_t)^\gamma \log(p_t)$, and CRF post-processing for crisp boundaries.
+
+## Interview-ready answer
+
+Semantic segmentation provides pixel-level scene understanding critical for navigation and manipulation. My go-to: DeepLabV3+ for classical closed-set segmentation (proven, efficient), Mask2Former for state-of-the-art panoptic segmentation. The distinction between semantic, instance, and panoptic matters: semantic groups all chairs as one class, instance separates each chair, panoptic does both plus background 'stuff.' For robotics, panoptic is often what you actually need — you want to know both 'this is floor' (stuff) and 'these are three separate cups' (things). Practical considerations: mIoU is the standard metric but can be misleading with class imbalance — always check per-class IoU. For deployment, use TensorRT or ONNX Runtime; SegFormer gives an excellent speed/accuracy tradeoff on edge devices.

@@ -1,0 +1,27 @@
+---
+concept: rgb_depth_sensing
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of RGB and Depth Sensing for Robotics,
+    including the key equations.
+  keyPoints:
+    - "Sensor modalities for capturing color and geometry: (1) Monocular RGB —
+      single camera, no direct depth, projection $\\mathbf{p} =
+      K[R|\\mathbf{t}]\\mathbf{P}$; (2) Stereo — two cameras with baseline $b$,
+      depth via disparity $d = fb/\\Delta$; (3) Structured light — project known
+      IR dot/stripe pattern, triangulate depth from pattern deformation (Intel
+      RealSense D400 series); (4) Time-of-Flight (ToF) — measure round-trip time
+      of emitted light pulses, $d = c \\cdot t / 2$ (Azure Kinect, RealSense
+      L515); (5) RGB-D cameras — co-registered color + depth streams yielding
+      per-pixel $(R, G, B, d)$ tuples."
+    - Depth maps are 2D arrays $D \in \mathbb{R}^{H \times W}$ where each entry
+      stores metric distance, convertible to 3D via $\mathbf{P} = K^{-1}[u, v,
+      1]^T \cdot D(u,v)$.
+check: []
+papers: []
+---
+
+## Formal definition
+
+Sensor modalities for capturing color and geometry: (1) Monocular RGB — single camera, no direct depth, projection $\mathbf{p} = K[R|\mathbf{t}]\mathbf{P}$; (2) Stereo — two cameras with baseline $b$, depth via disparity $d = fb/\Delta$; (3) Structured light — project known IR dot/stripe pattern, triangulate depth from pattern deformation (Intel RealSense D400 series); (4) Time-of-Flight (ToF) — measure round-trip time of emitted light pulses, $d = c \cdot t / 2$ (Azure Kinect, RealSense L515); (5) RGB-D cameras — co-registered color + depth streams yielding per-pixel $(R, G, B, d)$ tuples. Depth maps are 2D arrays $D \in \mathbb{R}^{H \times W}$ where each entry stores metric distance, convertible to 3D via $\mathbf{P} = K^{-1}[u, v, 1]^T \cdot D(u,v)$.

@@ -1,0 +1,25 @@
+---
+concept: multimodal_distributions
+level: 5
+status: seed
+recall:
+  prompt: How does Multi-Modal Action Distributions fail in practice, and how
+    would you present it in an interview?
+  keyPoints:
+    - "Mode collapse: the model learns only one of multiple valid modes, losing
+      diversity."
+    - "In VAEs: KL term overpowers reconstruction $\\rightarrow$ posterior
+      collapses to prior ($q(z|x) \\approx p(z)$)."
+    - "In diffusion: insufficient model capacity or training $\\rightarrow$
+      converges to dominant mode."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Mode collapse: the model learns only one of multiple valid modes, losing diversity. In VAEs: KL term overpowers reconstruction $\rightarrow$ posterior collapses to prior ($q(z|x) \approx p(z)$). In diffusion: insufficient model capacity or training $\rightarrow$ converges to dominant mode. Symptoms: always takes the same approach despite multiple valid options. Fix: increase model capacity, use $\beta$-VAE scheduling ($\beta: 0 \rightarrow 1$ during training), ensure diverse training data.
+
+## Interview-ready answer
+
+Multi-modal action distributions are the fundamental reason why diffusion/flow matching policies outperform simple BC for manipulation. The problem: many real tasks have multiple valid solutions, and MSE-loss BC averages them into invalid actions. Solutions ranked by expressiveness: (1) Gaussian mixture models $\sum_k \pi_k \mathcal{N}(\mu_k, \Sigma_k)$ — simple but limited modes, (2) CVAEs — flexible but training can be tricky, (3) diffusion/flow matching — most expressive, handle arbitrary distributions. In practice, the choice depends on real-time requirements: GMMs for fast control ($\sim 1000\,\text{Hz}$), diffusion for complex manipulation ($\sim 10\,\text{Hz}$).

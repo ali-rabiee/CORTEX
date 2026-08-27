@@ -1,0 +1,26 @@
+---
+concept: action_tokenization
+level: 1
+status: seed
+recall:
+  prompt: "Explain Action Tokenization for Foundation Models in plain language:
+    what is it, and why does it matter?"
+  keyPoints:
+    - Language models operate on discrete tokens, but robot actions are
+      continuous (joint angles, velocities, end-effector poses).
+    - Action tokenization bridges this gap — like converting analog signals to
+      digital.
+    - Coarse binning (few bins) loses precision but is easier to model; fine
+      binning (many bins) preserves precision but explodes the vocabulary and
+      makes prediction harder.
+check: []
+papers: []
+---
+
+## Intuition
+
+Language models operate on discrete tokens, but robot actions are continuous (joint angles, velocities, end-effector poses). Action tokenization bridges this gap — like converting analog signals to digital. Coarse binning (few bins) loses precision but is easier to model; fine binning (many bins) preserves precision but explodes the vocabulary and makes prediction harder. VQ-VAE codebooks learn a smarter discretization that captures the structure of the action space, putting more bins where actions are dense and fewer where they're sparse.
+
+## In practice
+
+RT-2 tokenization: 7-DOF action (3 translation + 3 rotation + 1 gripper) $\rightarrow$ each dimension uniformly binned into 256 levels $\rightarrow$ 7 action tokens appended to the language model vocabulary. The model generates text tokens for reasoning, then switches to generating action tokens: 'pick up the red cup' $\rightarrow$ reasoning tokens $\rightarrow$ [a_x: 128, a_y: 64, a_z: 200, ...]. Alternative: Octo uses continuous action heads (diffusion/flow) instead of tokenization, avoiding discretization loss entirely. LAPA (Latent Action Pre-training) uses VQ-VAE to learn a compact action codebook from video, then fine-tunes on robot data — the learned codebook captures semantically meaningful action primitives.

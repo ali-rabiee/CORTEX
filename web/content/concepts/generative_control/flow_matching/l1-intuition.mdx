@@ -1,0 +1,25 @@
+---
+concept: flow_matching
+level: 1
+status: seed
+recall:
+  prompt: "Explain Flow Matching for Action Generation in plain language: what is
+    it, and why does it matter?"
+  keyPoints:
+    - Imagine a river that flows from a random starting point to exactly where
+      you need to go.
+    - Flow matching learns the current of this river — given any point in the
+      flow, it tells you which direction to move.
+    - Compared to diffusion (which adds and removes noise), flow matching
+      directly learns the transport map.
+check: []
+papers: []
+---
+
+## Intuition
+
+Imagine a river that flows from a random starting point to exactly where you need to go. Flow matching learns the current of this river — given any point in the flow, it tells you which direction to move. Compared to diffusion (which adds and removes noise), flow matching directly learns the transport map. Simpler math, faster in practice.
+
+## In practice
+
+$\pi_0$ (Physical Intelligence): uses flow matching to generate robot action sequences from observations. Trains on large-scale multi-task robot data. Generates 50-step action chunks using an ODE solver (Euler or Dopri5) with 5-10 integration steps. Achieves real-time control at 15Hz. Architecture: pre-trained VLM backbone $\rightarrow$ flow matching action head conditioned on visual + language tokens.

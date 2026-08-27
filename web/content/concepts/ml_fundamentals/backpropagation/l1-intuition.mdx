@@ -1,0 +1,26 @@
+---
+concept: backpropagation
+level: 1
+status: seed
+recall:
+  prompt: "Explain Backpropagation — Chain Rule on Computational Graphs in plain
+    language: what is it, and why does it matter?"
+  keyPoints:
+    - Think of a factory assembly line where you need to trace a defect back to
+      its source.
+    - Backprop starts from the final output (loss) and propagates blame backward
+      through each stage.
+    - Each node in the computational graph receives a 'blame signal' (gradient
+      from above) and multiplies it by its local Jacobian to pass blame to its
+      inputs.
+check: []
+papers: []
+---
+
+## Intuition
+
+Think of a factory assembly line where you need to trace a defect back to its source. Backprop starts from the final output (loss) and propagates blame backward through each stage. Each node in the computational graph receives a 'blame signal' (gradient from above) and multiplies it by its local Jacobian to pass blame to its inputs. The chain rule ensures credit assignment is exact — every parameter gets precisely the right gradient.
+
+## In practice
+
+In a 3-layer MLP training on MNIST, backprop computes $\frac{\partial L}{\partial W_1}$ by first computing $\frac{\partial L}{\partial a_3}$ (output layer), then $\frac{\partial L}{\partial a_2} = \frac{\partial L}{\partial a_3} \cdot W_3^T \odot \sigma'(z_2)$, and finally $\frac{\partial L}{\partial W_1} = (\frac{\partial L}{\partial a_2})^T \cdot x$. PyTorch's autograd builds this graph dynamically — calling `loss.backward()` traverses the graph in reverse topological order. For a transformer with 125M parameters, one backward pass takes roughly 2x the compute of the forward pass.

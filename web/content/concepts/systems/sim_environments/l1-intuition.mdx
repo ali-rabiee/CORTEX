@@ -1,0 +1,25 @@
+---
+concept: sim_environments
+level: 1
+status: seed
+recall:
+  prompt: "Explain Simulation Environments for Robot Learning in plain language:
+    what is it, and why does it matter?"
+  keyPoints:
+    - A flight simulator for robots.
+    - Before letting a robot learn by crashing into things in the real world
+      (expensive, slow, dangerous), you let it crash millions of times in a
+      virtual world.
+    - The better the simulator matches reality, the better the trained policy
+      transfers.
+check: []
+papers: []
+---
+
+## Intuition
+
+A flight simulator for robots. Before letting a robot learn by crashing into things in the real world (expensive, slow, dangerous), you let it crash millions of times in a virtual world. The better the simulator matches reality, the better the trained policy transfers. GPU simulators like Isaac Gym are like running thousands of flight simulators simultaneously.
+
+## In practice
+
+Training a locomotion policy in Isaac Gym: 4096 parallel environments on a single A100 GPU, each simulating a quadruped robot. PPO training converges in ~30 minutes ($\sim$10^9 steps) vs days on CPU-based simulators. Scene setup: randomized terrain (stairs, slopes, rough ground), domain randomization on friction $\mu$, mass $m$, and motor strength. For manipulation: MuJoCo with dm_control for precise contact modeling, or Isaac Sim with NVIDIA Omniverse for photorealistic rendering (needed for vision-based policies).

@@ -1,0 +1,13 @@
+id: vlm_models
+title: Vision-Language Models (VLMs)
+domain: foundation_models
+summary: A VLM can 'see' and 'talk' about what it sees.
+tags:
+  - foundation_models
+  - perception
+difficulty: 3
+importance: 5
+related_concept_ids:
+  - vla_models
+  - language_grounding
+  - task_planning

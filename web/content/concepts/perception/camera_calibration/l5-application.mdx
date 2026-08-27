@@ -1,0 +1,24 @@
+---
+concept: camera_calibration
+level: 5
+status: seed
+recall:
+  prompt: How does Camera Calibration and Hand-Eye Calibration fail in practice,
+    and how would you present it in an interview?
+  keyPoints:
+    - "Insufficient pose diversity: all calibration poses from similar angles
+      $\\rightarrow$ poorly constrained rotation estimate."
+    - "Symptoms: accurate in calibration region, large errors elsewhere."
+    - "Also: thermal drift changes intrinsics over time, especially for cheap
+      sensors."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Insufficient pose diversity: all calibration poses from similar angles $\rightarrow$ poorly constrained rotation estimate. Symptoms: accurate in calibration region, large errors elsewhere. Also: thermal drift changes intrinsics over time, especially for cheap sensors. Fix: capture from diverse angles/distances, recalibrate after thermal stabilization, use online calibration refinement.
+
+## Interview-ready answer
+
+Camera calibration is foundational for any vision-based robot system. Intrinsic calibration (OpenCV's calibrateCamera) gives you the lens model. The critical piece for robotics is hand-eye calibration — relating the camera to the robot frame. For eye-in-hand: solve $AX = XB$ with diverse poses. For eye-to-hand: similar but the camera is fixed. Key practical details: use at least 15 diverse poses, verify with physical touch tests (not just reprojection error), and recalibrate when the setup changes. The biggest mistake I see: not accounting for the time delay between capturing the image and reading the robot pose.

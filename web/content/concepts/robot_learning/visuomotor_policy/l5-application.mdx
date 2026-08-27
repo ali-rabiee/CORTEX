@@ -1,0 +1,23 @@
+---
+concept: visuomotor_policy
+level: 5
+status: seed
+recall:
+  prompt: How does Visuomotor Policies fail in practice, and how would you present
+    it in an interview?
+  keyPoints:
+    - "Visual overfitting: policy memorizes specific visual features (table
+      texture, lighting) rather than task-relevant structure."
+    - The encoder $f_\phi$ fits spurious correlations in the training visuals.
+    - "Symptoms: works in training environment, fails with any visual change."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Visual overfitting: policy memorizes specific visual features (table texture, lighting) rather than task-relevant structure. The encoder $f_\phi$ fits spurious correlations in the training visuals. Symptoms: works in training environment, fails with any visual change. Fix: aggressive data augmentation (random crops, color jitter, background randomization), use pre-trained frozen vision encoders (R3M, CLIP, DINOv2) so $f_\phi$ is already robust.
+
+## Interview-ready answer
+
+Visuomotor policies $\pi_\theta(a | o_{\text{img}})$ are the standard approach for learning manipulation from images. The key architectural choices: use a pre-trained vision encoder $f_\phi$ (DINOv2 or R3M) rather than training from scratch, add spatial features via spatial softmax (not just global pooling), and apply heavy data augmentation. For sample efficiency, pre-trained encoders are a game-changer — they reduce the demo requirement from thousands to tens. The main risk is visual overfitting, which is addressed by augmentation and domain randomization. In practice, I prefer frozen pre-trained encoders with a lightweight policy head $g_\psi$ for most manipulation tasks.

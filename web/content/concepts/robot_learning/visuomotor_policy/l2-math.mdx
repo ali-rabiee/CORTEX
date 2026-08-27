@@ -1,0 +1,23 @@
+---
+concept: visuomotor_policy
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Visuomotor Policies, including the key
+    equations.
+  keyPoints:
+    - "End-to-end policies $\\pi_\\theta: \\mathcal{O}_{\\text{image}}
+      \\rightarrow \\mathcal{A}$ that map raw visual observations (RGB/RGB-D
+      images) directly to motor commands without hand-designed perception
+      pipelines."
+    - "Typically: CNN/ViT encoder $f_\\phi: \\mathbb{R}^{H \\times W \\times C}
+      \\rightarrow \\mathbb{R}^d$ → spatial features → policy head (MLP or
+      transformer) $g_\\psi: \\mathbb{R}^d \\rightarrow \\mathcal{A}$ →
+      actions."
+check: []
+papers: []
+---
+
+## Formal definition
+
+End-to-end policies $\pi_\theta: \mathcal{O}_{\text{image}} \rightarrow \mathcal{A}$ that map raw visual observations (RGB/RGB-D images) directly to motor commands without hand-designed perception pipelines. Typically: CNN/ViT encoder $f_\phi: \mathbb{R}^{H \times W \times C} \rightarrow \mathbb{R}^d$ → spatial features → policy head (MLP or transformer) $g_\psi: \mathbb{R}^d \rightarrow \mathcal{A}$ → actions.

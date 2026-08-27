@@ -1,0 +1,24 @@
+---
+concept: vlm_models
+level: 1
+status: seed
+recall:
+  prompt: "Explain Vision-Language Models (VLMs) in plain language: what is it,
+    and why does it matter?"
+  keyPoints:
+    - A VLM can 'see' and 'talk' about what it sees.
+    - Show it a robot workspace photo and ask 'what objects are graspable?' and
+      it can reason about the scene.
+    - It's the eyes and reasoning brain, but not the hands — it can plan but not
+      act (that's what VLAs add).
+check: []
+papers: []
+---
+
+## Intuition
+
+A VLM can 'see' and 'talk' about what it sees. Show it a robot workspace photo and ask 'what objects are graspable?' and it can reason about the scene. It's the eyes and reasoning brain, but not the hands — it can plan but not act (that's what VLAs add).
+
+## In practice
+
+Using GPT-4V for robotic task planning: capture workspace image $\rightarrow$ prompt: 'Given this scene, plan the steps to sort objects by color. Output as numbered actions.' $\rightarrow$ parse structured output $\rightarrow$ execute with low-level controller. Works for long-horizon tasks where classical planning fails due to perception complexity.

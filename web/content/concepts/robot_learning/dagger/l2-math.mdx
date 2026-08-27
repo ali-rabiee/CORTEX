@@ -1,0 +1,26 @@
+---
+concept: dagger
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of DAgger (Dataset Aggregation), including
+    the key equations.
+  keyPoints:
+    - An iterative imitation learning algorithm that addresses covariate shift
+      in behavior cloning by aggregating expert-corrected data from the
+      learner's own state distribution.
+    - "At iteration $i$: (1) execute current policy $\\pi_i$ to collect states
+      $\\{s_t\\}$, (2) query the expert $\\pi^*$ for actions at those states,
+      (3) aggregate $\\mathcal{D}_{i+1} = \\mathcal{D}_i \\cup \\{(s_t,
+      \\pi^*(s_t))\\}$, (4) retrain $\\pi_{i+1} = \\arg\\min_\\pi
+      \\mathcal{L}(\\pi, \\mathcal{D}_{i+1})$."
+    - Provably reduces the error bound from $\mathcal{O}(T^2 \epsilon)$ (BC) to
+      $\mathcal{O}(T \epsilon)$ where $\epsilon$ is the single-step error and
+      $T$ is the horizon.
+check: []
+papers: []
+---
+
+## Formal definition
+
+An iterative imitation learning algorithm that addresses covariate shift in behavior cloning by aggregating expert-corrected data from the learner's own state distribution. At iteration $i$: (1) execute current policy $\pi_i$ to collect states $\{s_t\}$, (2) query the expert $\pi^*$ for actions at those states, (3) aggregate $\mathcal{D}_{i+1} = \mathcal{D}_i \cup \{(s_t, \pi^*(s_t))\}$, (4) retrain $\pi_{i+1} = \arg\min_\pi \mathcal{L}(\pi, \mathcal{D}_{i+1})$. Provably reduces the error bound from $\mathcal{O}(T^2 \epsilon)$ (BC) to $\mathcal{O}(T \epsilon)$ where $\epsilon$ is the single-step error and $T$ is the horizon.

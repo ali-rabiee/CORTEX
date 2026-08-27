@@ -1,0 +1,28 @@
+---
+concept: imitation_learning
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Imitation Learning (Overview), including
+    the key equations.
+  keyPoints:
+    - Learning a policy $\pi_\theta(a|s)$ from expert demonstrations
+      $\mathcal{D} = \{\tau_1, \ldots, \tau_N\}$ where $\tau_i = \{(s_0, a_0),
+      \ldots, (s_T, a_T)\}$.
+    - "Two main paradigms: (1) Behavioral cloning — supervised learning
+      minimizing $\\mathcal{L} = \\mathbb{E}_{(s,a) \\sim
+      \\mathcal{D}}[\\ell(\\pi_\\theta(s), a)]$, and (2) Inverse RL (IRL) —
+      recover a reward function $r_\\psi(s,a)$ such that $\\pi^*$ is optimal,
+      then optimize $\\pi_\\theta$ under $r_\\psi$."
+    - "IRL solves: $$\\max_\\psi \\left( \\mathbb{E}_{\\tau \\sim
+      \\pi^*}\\left[\\sum_t r_\\psi(s_t, a_t)\\right] - \\max_\\pi
+      \\mathbb{E}_{\\tau \\sim \\pi}\\left[\\sum_t r_\\psi(s_t, a_t)\\right]
+      \\right)$$ Modern methods also include GAIL, which matches state-action
+      distributions via adversarial training."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Learning a policy $\pi_\theta(a|s)$ from expert demonstrations $\mathcal{D} = \{\tau_1, \ldots, \tau_N\}$ where $\tau_i = \{(s_0, a_0), \ldots, (s_T, a_T)\}$. Two main paradigms: (1) Behavioral cloning — supervised learning minimizing $\mathcal{L} = \mathbb{E}_{(s,a) \sim \mathcal{D}}[\ell(\pi_\theta(s), a)]$, and (2) Inverse RL (IRL) — recover a reward function $r_\psi(s,a)$ such that $\pi^*$ is optimal, then optimize $\pi_\theta$ under $r_\psi$. IRL solves: $$\max_\psi \left( \mathbb{E}_{\tau \sim \pi^*}\left[\sum_t r_\psi(s_t, a_t)\right] - \max_\pi \mathbb{E}_{\tau \sim \pi}\left[\sum_t r_\psi(s_t, a_t)\right] \right)$$ Modern methods also include GAIL, which matches state-action distributions via adversarial training.

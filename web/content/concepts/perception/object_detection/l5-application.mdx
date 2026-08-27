@@ -1,0 +1,26 @@
+---
+concept: object_detection
+level: 5
+status: seed
+recall:
+  prompt: How does Object Detection for Robotics fail in practice, and how would
+    you present it in an interview?
+  keyPoints:
+    - "Small object miss rate: objects $< 32 \\times 32$ pixels are poorly
+      detected because they fall below the effective receptive field at the
+      detection layer."
+    - "Severe occlusion: $> 50\\%$ occluded objects produce low-confidence
+      detections that get suppressed by NMS."
+    - "Dense packing: NMS with standard IoU threshold removes valid detections
+      of touching/overlapping objects."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Small object miss rate: objects $< 32 \times 32$ pixels are poorly detected because they fall below the effective receptive field at the detection layer. Severe occlusion: $> 50\%$ occluded objects produce low-confidence detections that get suppressed by NMS. Dense packing: NMS with standard IoU threshold removes valid detections of touching/overlapping objects. Symptoms: missed detections in cluttered bins, false negatives for small or occluded parts. Fix: use multi-scale feature pyramids (FPN) and train at higher resolution for small objects; use Soft-NMS ($p_j \leftarrow p_j \cdot e^{-\text{IoU}^2/\sigma}$) for dense scenes; add a second-pass detector on missed regions.
+
+## Interview-ready answer
+
+Object detection is a solved problem for many robotics applications — YOLOv8 gives you real-time, accurate detections out of the box. The key decisions: YOLOv8 for speed-critical applications (bin picking, conveyor tracking), Faster R-CNN for accuracy-critical applications (surgical robotics, quality inspection). For deployment: TensorRT quantization on Jetson platform gives 2-4$\times$ speedup. Important nuances: mAP@0.5 is misleading — always report mAP@0.5:0.95 for robotics where localization precision matters. NMS is a bottleneck for dense scenes — consider Soft-NMS or learned NMS. For novel objects, transition to open-vocabulary detection (OWL-ViT, Grounding DINO) rather than retraining. The trend is clear: closed-vocabulary detection is being replaced by foundation model-based approaches.

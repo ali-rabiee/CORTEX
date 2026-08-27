@@ -1,0 +1,14 @@
+id: open_vocabulary_detection
+title: Open-Vocabulary Detection
+domain: perception
+summary: Traditional detectors only find what they were trained on — if you
+  trained on 80 COCO classes, that's all you get.
+tags:
+  - perception
+  - foundation_models
+difficulty: 3
+importance: 4
+related_concept_ids:
+  - object_detection
+  - object_segmentation
+  - image_representations

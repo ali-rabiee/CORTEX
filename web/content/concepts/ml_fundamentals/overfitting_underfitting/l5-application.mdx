@@ -1,0 +1,24 @@
+---
+concept: overfitting_underfitting
+level: 5
+status: seed
+recall:
+  prompt: How does Overfitting and Underfitting — Bias-Variance Tradeoff and Model
+    Capacity fail in practice, and how would you present it in an interview?
+  keyPoints:
+    - "Subtle overfitting in robot learning: policy works in simulation but
+      fails in real world."
+    - The model has overfit to simulation-specific features (perfect textures,
+      exact dynamics).
+    - "Symptoms: sim reward is high but real-world success rate is low."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Subtle overfitting in robot learning: policy works in simulation but fails in real world. The model has overfit to simulation-specific features (perfect textures, exact dynamics). Symptoms: sim reward is high but real-world success rate is low. This is not captured by standard train/val splits if both are from simulation. Root causes: domain gap, limited visual diversity, deterministic dynamics. Fixes: domain randomization (vary textures, lighting, dynamics), sim2real transfer techniques, and validation on real-world data even during sim training.
+
+## Interview-ready answer
+
+The bias-variance tradeoff is the fundamental tension in ML: simple models underfit (high bias), complex models overfit (high variance). The expected error is $\text{Bias}^2 + \text{Variance} + \text{Noise}$. In practice, I diagnose by comparing train vs validation curves: both high = underfitting (increase capacity, train longer, reduce regularization), train low + val high = overfitting (more data, augmentation, regularization, early stopping). Modern deep learning complicates the classical picture — overparameterized networks exhibit double descent where going past the interpolation threshold actually improves generalization. For robotics, the critical insight is that sim2real gap is a form of overfitting to the simulation distribution that cannot be caught by in-distribution validation.

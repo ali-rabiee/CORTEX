@@ -1,0 +1,24 @@
+---
+concept: pose_estimation_6d
+level: 5
+status: seed
+recall:
+  prompt: How does 6D Object Pose Estimation fail in practice, and how would you
+    present it in an interview?
+  keyPoints:
+    - "Symmetry ambiguity: a bowl looks the same from many angles, so multiple
+      rotations are equally correct."
+    - Training with a single ground-truth rotation causes the network to average
+      between valid poses.
+    - "Symptoms: predicted rotation is incorrect but loss is low."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Symmetry ambiguity: a bowl looks the same from many angles, so multiple rotations are equally correct. Training with a single ground-truth rotation causes the network to average between valid poses. Symptoms: predicted rotation is incorrect but loss is low. Fix: use symmetry-aware loss functions (e.g., $\mathcal{L} = \min_{R_s \in \text{Sym}} d(R_{\text{pred}}, R_{\text{gt}} R_s)$), predict distributions over rotations, or use canonical orientation definitions.
+
+## Interview-ready answer
+
+6D pose estimation maps visual observations to $SE(3)$ poses for robotic manipulation. Key design choices: the 6D continuous rotation representation (Zhou et al.) avoids discontinuities of quaternions/Euler angles. For known objects with CAD models, render-and-compare methods (MegaPose, FoundationPose) work well. For novel objects, category-level methods generalize across instances. The main challenges: symmetry (handle with symmetry-aware losses), occlusion (handle with multi-view fusion), and specular/transparent objects (handle with RGB-D fusion or specialized networks).

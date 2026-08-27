@@ -1,0 +1,26 @@
+---
+concept: depth_estimation
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Depth Estimation for Robotics, including
+    the key equations.
+  keyPoints:
+    - Recovering per-pixel depth $d(u,v)$ from visual sensors.
+    - "Three paradigms: (1) Stereo vision — triangulation from two cameras with
+      baseline $b$: $d = \\frac{f \\cdot b}{\\text{disparity}}$; (2) Structured
+      light — project known IR pattern (e.g., RealSense D400), recover depth
+      from pattern deformation; (3) Monocular depth estimation — learn $d =
+      f_\\theta(I)$ from a single RGB image using scale-invariant losses like
+      $\\mathcal{L} = \\frac{1}{n}\\sum_i (\\log d_i - \\log \\hat{d}_i)^2 -
+      \\frac{\\lambda}{n^2}\\left(\\sum_i \\log d_i - \\log
+      \\hat{d}_i\\right)^2$."
+    - Recent foundation models (Depth Anything, ZoeDepth, MiDaS) produce
+      high-quality metric or relative depth from a single image.
+check: []
+papers: []
+---
+
+## Formal definition
+
+Recovering per-pixel depth $d(u,v)$ from visual sensors. Three paradigms: (1) Stereo vision — triangulation from two cameras with baseline $b$: $d = \frac{f \cdot b}{\text{disparity}}$; (2) Structured light — project known IR pattern (e.g., RealSense D400), recover depth from pattern deformation; (3) Monocular depth estimation — learn $d = f_\theta(I)$ from a single RGB image using scale-invariant losses like $\mathcal{L} = \frac{1}{n}\sum_i (\log d_i - \log \hat{d}_i)^2 - \frac{\lambda}{n^2}\left(\sum_i \log d_i - \log \hat{d}_i\right)^2$. Recent foundation models (Depth Anything, ZoeDepth, MiDaS) produce high-quality metric or relative depth from a single image.

@@ -1,0 +1,27 @@
+---
+concept: ppo_clipping
+level: 1
+status: seed
+recall:
+  prompt: "Explain Proximal Policy Optimization (PPO) — Clipping Mechanism in
+    plain language: what is it, and why does it matter?"
+  keyPoints:
+    - Imagine updating your driving strategy after a bad day.
+    - Without clipping, you might overcorrect — go from 'too aggressive' to
+      'refuse to merge.' PPO's clip (typically $\epsilon=0.2$) is a speed limit
+      on how much your policy can change in one update.
+    - The $\min(\cdot)$ ensures you only get the pessimistic (conservative)
+      benefit — if the advantage $\hat{A} > 0$, we cap how much we can increase
+      the action probability; if $\hat{A} < 0$, we cap how much we can decrease
+      it.
+check: []
+papers: []
+---
+
+## Intuition
+
+Imagine updating your driving strategy after a bad day. Without clipping, you might overcorrect — go from 'too aggressive' to 'refuse to merge.' PPO's clip (typically $\epsilon=0.2$) is a speed limit on how much your policy can change in one update. The $\min(\cdot)$ ensures you only get the pessimistic (conservative) benefit — if the advantage $\hat{A} > 0$, we cap how much we can increase the action probability; if $\hat{A} < 0$, we cap how much we can decrease it.
+
+## In practice
+
+Training a robot arm to stack blocks using PPO with $\epsilon=0.2$. After 500K env steps, the policy reliably reaches 85% success. Compare: vanilla policy gradient diverged at 200K steps. Key detail: PPO needs multiple epochs (3-10) per batch, unlike TRPO's single constrained step. Typical hyperparameters: batch size $N=2048$, minibatch size $M=64$, learning rate $\alpha = 3 \times 10^{-4}$.

@@ -1,0 +1,26 @@
+---
+concept: mdp
+level: 1
+status: seed
+recall:
+  prompt: "Explain Markov Decision Process (MDP) in plain language: what is it,
+    and why does it matter?"
+  keyPoints:
+    - An MDP is the 'game board' of RL — it defines the rules.
+    - "The Markov property says: 'the current state tells you everything you
+      need to make an optimal decision; history doesn't help.' Think of chess:
+      the board position (state) is all you need; how you got there is
+      irrelevant."
+    - The discount factor $\gamma$ encodes impatience — $\gamma = 0.99$ values a
+      reward 100 steps away at $0.99^{100} \approx 0.37$ of its face value.
+check: []
+papers: []
+---
+
+## Intuition
+
+An MDP is the 'game board' of RL — it defines the rules. The Markov property says: 'the current state tells you everything you need to make an optimal decision; history doesn't help.' Think of chess: the board position (state) is all you need; how you got there is irrelevant. The discount factor $\gamma$ encodes impatience — $\gamma = 0.99$ values a reward 100 steps away at $0.99^{100} \approx 0.37$ of its face value. Every RL algorithm implicitly or explicitly assumes some form of MDP structure.
+
+## In practice
+
+Formulating a robot reaching task as an MDP: $\mathcal{S} = (q, \dot{q}, x_{\text{goal}}) \in \mathbb{R}^{7+7+3}$ (joint positions, velocities, goal position), $\mathcal{A} = \tau \in \mathbb{R}^7$ (joint torques), $P$ is determined by the physics simulator (MuJoCo, Isaac Gym), $R = -\|x_{\text{ee}} - x_{\text{goal}}\|_2 + r_{\text{success}}$, $\gamma = 0.99$. The Markov property holds because $q, \dot{q}$ fully determine the robot's mechanical state. If we only observe end-effector position (not joint states), the Markov property is violated and we have a POMDP.

@@ -1,0 +1,29 @@
+---
+concept: consistency_models
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Consistency Models for Single-Step Action
+    Generation, including the key equations.
+  keyPoints:
+    - "Consistency models learn a function $f_\\theta(\\mathbf{x}_t, t)$ that
+      maps any point along a diffusion trajectory directly to the clean sample
+      $\\mathbf{x}_0$, enforcing the self-consistency property:
+      $f_\\theta(\\mathbf{x}_t, t) = f_\\theta(\\mathbf{x}_{t'}, t')$ for all
+      $t, t'$ on the same trajectory."
+    - "Can be trained via consistency distillation from a pre-trained diffusion
+      model: $$\\mathcal{L}_{\\text{CD}} = \\mathbb{E}_{t, \\mathbf{x}_0}
+      \\left[ d\\big(f_\\theta(\\mathbf{x}_{t_{n+1}}, t_{n+1}),\\;
+      f_{\\theta^-}(\\hat{\\mathbf{x}}_{t_n}, t_n)\\big) \\right]$$ where
+      $\\hat{\\mathbf{x}}_{t_n}$ is one DDIM step from $\\mathbf{x}_{t_{n+1}}$,
+      $\\theta^-$ is the EMA target, and $d$ is a distance metric (e.g., LPIPS
+      or $L_2$)."
+    - Also trainable from scratch via consistency training (CT) without a
+      teacher model.
+check: []
+papers: []
+---
+
+## Formal definition
+
+Consistency models learn a function $f_\theta(\mathbf{x}_t, t)$ that maps any point along a diffusion trajectory directly to the clean sample $\mathbf{x}_0$, enforcing the self-consistency property: $f_\theta(\mathbf{x}_t, t) = f_\theta(\mathbf{x}_{t'}, t')$ for all $t, t'$ on the same trajectory. Can be trained via consistency distillation from a pre-trained diffusion model: $$\mathcal{L}_{\text{CD}} = \mathbb{E}_{t, \mathbf{x}_0} \left[ d\big(f_\theta(\mathbf{x}_{t_{n+1}}, t_{n+1}),\; f_{\theta^-}(\hat{\mathbf{x}}_{t_n}, t_n)\big) \right]$$ where $\hat{\mathbf{x}}_{t_n}$ is one DDIM step from $\mathbf{x}_{t_{n+1}}$, $\theta^-$ is the EMA target, and $d$ is a distance metric (e.g., LPIPS or $L_2$). Also trainable from scratch via consistency training (CT) without a teacher model.

@@ -1,0 +1,25 @@
+---
+concept: affordance_prediction
+level: 5
+status: seed
+recall:
+  prompt: How does Affordance Prediction for Manipulation fail in practice, and
+    how would you present it in an interview?
+  keyPoints:
+    - "Affordance-action gap: the model correctly predicts that a region is
+      graspable but the downstream controller fails to execute the grasp (e.g.,
+      approach angle not feasible due to clutter)."
+    - "Also: part-level ambiguity — a knife handle affords grasping, but the
+      blade also has high 'grasp affordance' geometrically."
+    - "Symptoms: robot attempts to grasp unsafe or infeasible regions."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Affordance-action gap: the model correctly predicts that a region is graspable but the downstream controller fails to execute the grasp (e.g., approach angle not feasible due to clutter). Also: part-level ambiguity — a knife handle affords grasping, but the blade also has high 'grasp affordance' geometrically. Symptoms: robot attempts to grasp unsafe or infeasible regions. Fix: condition affordance prediction on robot reachability/kinematics, add semantic safety filters, train with contact-aware labels that include approach direction constraints.
+
+## Interview-ready answer
+
+Affordance prediction is a powerful paradigm shift from object recognition to interaction prediction. Instead of a detect-then-plan pipeline, affordances directly answer 'where can I interact and how?' The practical pattern: use a pre-trained visual backbone (DINOv2, CLIP) to extract per-pixel features, then train lightweight affordance heads for each manipulation primitive. This transfers remarkably well to novel objects because affordances correlate with local geometry and semantics, not object identity. Key insight: affordances should be conditioned on the robot's embodiment — what's graspable depends on the gripper. I combine dense affordance maps with kinematic feasibility checking to get actionable predictions.

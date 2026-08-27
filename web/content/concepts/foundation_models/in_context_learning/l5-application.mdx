@@ -1,0 +1,26 @@
+---
+concept: in_context_learning
+level: 5
+status: seed
+recall:
+  prompt: How does In-Context Learning and Few-Shot Prompting for Robotics fail in
+    practice, and how would you present it in an interview?
+  keyPoints:
+    - "Prompt sensitivity: small changes in example formatting or ordering cause
+      drastically different outputs."
+    - "Distribution shift: in-context examples from one environment don't
+      transfer to visually different scenes."
+    - "Brittle code generation: LLM generates syntactically correct but
+      semantically wrong API calls (e.g., wrong coordinate frame, missing
+      collision checks)."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Prompt sensitivity: small changes in example formatting or ordering cause drastically different outputs. Distribution shift: in-context examples from one environment don't transfer to visually different scenes. Brittle code generation: LLM generates syntactically correct but semantically wrong API calls (e.g., wrong coordinate frame, missing collision checks). Symptoms: works perfectly on demo-like scenarios, fails unpredictably on novel ones. Fix: use structured output schemas, validate generated code against a safety checker before execution, include negative examples ('do NOT do X'), and test with diverse prompt variations.
+
+## Interview-ready answer
+
+In-context learning is the fastest way to get foundation models to do new robot tasks — no training, just prompting. The two main patterns: (1) Code as Policies — LLM generates executable code from few-shot examples, great for spatial reasoning and composition; (2) VLA prompting — condition a vision-language-action model on demonstration videos/trajectories. The key advantage: adapt to new tasks in minutes, not hours of training. The key limitation: performance ceiling is lower than fine-tuning, and prompt engineering is fragile. In practice, I use in-context learning for rapid prototyping and task specification, then fine-tune if we need robust production performance. Always validate LLM-generated code in simulation before real execution.

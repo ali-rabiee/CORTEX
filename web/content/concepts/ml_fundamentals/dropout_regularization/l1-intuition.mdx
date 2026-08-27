@@ -1,0 +1,25 @@
+---
+concept: dropout_regularization
+level: 1
+status: seed
+recall:
+  prompt: "Explain Dropout Regularization — Preventing Co-adaptation in plain
+    language: what is it, and why does it matter?"
+  keyPoints:
+    - Dropout forces each neuron to be useful on its own, preventing groups of
+      neurons from co-adapting to memorize training examples.
+    - It is like training a sports team where random players sit out each
+      practice — every player must learn all positions, making the team robust.
+    - "The ensemble interpretation: each forward pass samples a different
+      sub-network, and at test time you implicitly average their predictions."
+check: []
+papers: []
+---
+
+## Intuition
+
+Dropout forces each neuron to be useful on its own, preventing groups of neurons from co-adapting to memorize training examples. It is like training a sports team where random players sit out each practice — every player must learn all positions, making the team robust. The ensemble interpretation: each forward pass samples a different sub-network, and at test time you implicitly average their predictions. MC-Dropout (multiple stochastic forward passes at inference) provides approximate Bayesian uncertainty estimates.
+
+## In practice
+
+In a robotic grasping success predictor (MLP head after a frozen ViT encoder), dropout $p = 0.5$ in the two hidden layers (512-dim) reduces overfitting on a 10K-example dataset. Without dropout, train accuracy reaches 99% but validation saturates at 78%. With dropout, train accuracy is 92% and validation reaches 86%. For uncertainty estimation during deployment, MC-Dropout with 10 forward passes provides calibrated confidence scores — the robot abstains from grasps with high predictive variance.

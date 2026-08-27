@@ -1,0 +1,25 @@
+---
+concept: visual_servoing
+level: 1
+status: seed
+recall:
+  prompt: "Explain Visual Servoing in plain language: what is it, and why does it
+    matter?"
+  keyPoints:
+    - Visual servoing is like driving by looking at the road — you continuously
+      adjust the steering based on what you see.
+    - "IBVS works directly in 'what the camera sees' space: if the target point
+      is at pixel $(300, 200)$ and you want it at $(320, 240)$, compute the
+      velocity to reduce that pixel error."
+    - You never explicitly compute where the object is in 3D.
+check: []
+papers: []
+---
+
+## Intuition
+
+Visual servoing is like driving by looking at the road — you continuously adjust the steering based on what you see. IBVS works directly in 'what the camera sees' space: if the target point is at pixel $(300, 200)$ and you want it at $(320, 240)$, compute the velocity to reduce that pixel error. You never explicitly compute where the object is in 3D. PBVS first figures out the 3D pose from the image, then drives toward the desired 3D pose — more intuitive but requires accurate 3D estimation. The image Jacobian is the key mathematical object: it tells you 'if I move the camera this way, how do the image features change?'
+
+## In practice
+
+IBVS for precision insertion: track 4 corner keypoints of a socket using a wrist-mounted camera. Desired features $\mathbf{s}^* = [(u_1^*, v_1^*), \ldots, (u_4^*, v_4^*)]^T$ recorded from a successful insertion demonstration. Control loop at 30 Hz: detect keypoints $\rightarrow$ compute feature error $\mathbf{e} = \mathbf{s} - \mathbf{s}^*$ $\rightarrow$ estimate interaction matrix $\hat{L}_s$ using current depth estimates $\rightarrow$ compute camera velocity $\mathbf{v} = -0.5 \hat{L}_s^+ \mathbf{e}$ $\rightarrow$ convert to joint velocities via robot Jacobian $\dot{\mathbf{q}} = J^{-1}\mathbf{v}$ $\rightarrow$ send to controller. Convergence: $\|\mathbf{e}\| < 2\,\text{px}$ in $\sim 3\,\text{s}$, sub-mm positioning accuracy.

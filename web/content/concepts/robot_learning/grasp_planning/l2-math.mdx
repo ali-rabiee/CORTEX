@@ -1,0 +1,24 @@
+---
+concept: grasp_planning
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Grasp Planning and Synthesis, including
+    the key equations.
+  keyPoints:
+    - Computing stable grasps $g = (\mathbf{p}, \mathbf{R}, w) \in SE(3) \times
+      \mathbb{R}$ (position, orientation, width) for a robotic gripper on an
+      object.
+    - "Analytical methods check force closure: contact forces $\\{f_i\\}$ can
+      resist any external wrench $w_{\\text{ext}} \\in \\mathbb{R}^6$ via
+      $\\sum_i G_i f_i = w_{\\text{ext}}$ where $G_i$ is the grasp map."
+    - Learned methods (GraspNet, Contact-GraspNet, AnyGrasp) predict grasp poses
+      directly from point clouds $\mathcal{P} \in \mathbb{R}^{N \times 3}$ with
+      associated quality scores $q \in [0, 1]$.
+check: []
+papers: []
+---
+
+## Formal definition
+
+Computing stable grasps $g = (\mathbf{p}, \mathbf{R}, w) \in SE(3) \times \mathbb{R}$ (position, orientation, width) for a robotic gripper on an object. Analytical methods check force closure: contact forces $\{f_i\}$ can resist any external wrench $w_{\text{ext}} \in \mathbb{R}^6$ via $\sum_i G_i f_i = w_{\text{ext}}$ where $G_i$ is the grasp map. Learned methods (GraspNet, Contact-GraspNet, AnyGrasp) predict grasp poses directly from point clouds $\mathcal{P} \in \mathbb{R}^{N \times 3}$ with associated quality scores $q \in [0, 1]$.

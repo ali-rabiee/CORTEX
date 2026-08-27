@@ -1,0 +1,13 @@
+id: object_segmentation
+title: Object Segmentation for Manipulation
+domain: perception
+summary: Before a robot can pick something up, it needs to know which pixels in
+  the image belong to which object.
+tags:
+  - perception
+difficulty: 2
+importance: 4
+related_concept_ids:
+  - point_cloud_processing
+  - pose_estimation_6d
+  - foundation_models_vision

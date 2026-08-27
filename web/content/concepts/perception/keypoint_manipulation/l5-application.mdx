@@ -1,0 +1,26 @@
+---
+concept: keypoint_manipulation
+level: 5
+status: seed
+recall:
+  prompt: How does Keypoint-Based Manipulation fail in practice, and how would you
+    present it in an interview?
+  keyPoints:
+    - "Descriptor aliasing: symmetric or repetitive objects (e.g., a plain
+      cylinder) have ambiguous correspondences — multiple points map to similar
+      descriptors."
+    - Self-occlusion causes tracked keypoints to disappear, breaking the
+      manipulation policy.
+    - Transporter Networks struggle with non-planar tasks (stacking, insertion)
+      because the pick-and-place formulation assumes top-down actions.
+check: []
+papers: []
+---
+
+## Failure modes
+
+Descriptor aliasing: symmetric or repetitive objects (e.g., a plain cylinder) have ambiguous correspondences — multiple points map to similar descriptors. Self-occlusion causes tracked keypoints to disappear, breaking the manipulation policy. Transporter Networks struggle with non-planar tasks (stacking, insertion) because the pick-and-place formulation assumes top-down actions. Symptoms: grasp at wrong symmetric location, place with $180°$ rotation error, policy freezes when keypoint is occluded. Fix: add symmetry-aware descriptor losses, use multi-view correspondence to resolve ambiguities, augment keypoint tracking with prediction during occlusion, extend Transporter to 6-DOF with multi-view inputs.
+
+## Interview-ready answer
+
+Keypoint-based manipulation is remarkably sample-efficient — Transporter Networks solve tabletop rearrangement from just 10 demonstrations. The key insight: by factoring manipulation into 'where to pick' and 'where to place,' you reduce a high-dimensional action space to spatial attention problems. Dense Object Nets provide the correspondence backbone: self-supervised descriptor learning gives you instance-invariant point tracking without manual annotation. In practice, I use this for tasks with clear pick-place structure: kit assembly, sorting, packing. For more complex tasks (cable manipulation, tool use), I combine keypoint detection with parameterized skill primitives. The limitation: vanilla Transporter assumes top-down planar actions. Extensions like EquiAct and multi-view Transporter handle SE(3) actions. Dense descriptors are also excellent for sim-to-real transfer — the descriptor space trained in simulation transfers because it captures geometry, not rendered appearance.

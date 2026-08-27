@@ -1,0 +1,90 @@
+---
+concept: gae
+level: 4
+status: final
+recall:
+  prompt: "Place GAE in the bias-variance literature: what did it unify, what did large-scale studies conclude about it, and what do practitioners use when GAE assumptions break?"
+  keyPoints:
+    - "GAE (2015) unified n-step advantage estimators under one λ dial, enabling PPO-era stability"
+    - "Large-scale studies (Andrychowicz et al.) confirm λ≈0.9-0.95 robust; advantage normalization interacts strongly"
+    - "Off-policy/distributed settings replace it: V-trace (IMPALA) adds clipped importance weights; Retrace bounds off-policy n-step returns"
+check:
+  - id: gae_l4_c1
+    prompt: "V-trace can be viewed as GAE's sibling for the distributed setting because..."
+    options:
+      - "it removes the value function"
+      - "it also forms multi-step value targets from per-step TD errors, but multiplies each by truncated importance ratios so slightly-stale actor data still yields sound targets"
+      - "it sets lambda to zero"
+      - "it requires deterministic policies"
+    answer: 1
+    explanation: "Both are geometric mixtures of TD errors. GAE assumes the data is exactly on-policy; V-trace's clipped ρ and c weights pay a small bias to keep variance bounded when it isn't. Same skeleton, different correction."
+  - id: gae_l4_c2
+    prompt: "The empirical consensus from large on-policy studies about λ is that..."
+    options:
+      - "λ must be annealed from 1 to 0 during training"
+      - "performance is flat in a broad band around 0.9–0.97, but setting λ=1 (pure Monte Carlo) measurably hurts in long-horizon tasks due to gradient variance"
+      - "λ=0 is optimal once the critic converges"
+      - "λ interacts with nothing else in the pipeline"
+    answer: 1
+    explanation: "Andrychowicz et al. swept λ across dozens of environments: the broad-band robustness is why everyone copies 0.95. The known interaction is with advantage normalization and value-loss clipping, not with the surrogate objective."
+papers:
+  - key: schulman2015gae
+    title: "High-Dimensional Continuous Control Using Generalized Advantage Estimation"
+    authors: "Schulman, Moritz, Levine, Jordan, Abbeel"
+    venue: "ICLR"
+    year: 2016
+    arxiv: "1506.02438"
+    takeaway: "Defines GAE(γ, λ) as the exponentially-weighted sum of TD errors and demonstrates 3D locomotion with TRPO — the variance-reduction half of the recipe PPO later inherited."
+  - key: munos2016retrace
+    title: "Safe and Efficient Off-Policy Reinforcement Learning (Retrace(λ))"
+    authors: "Munos, Stepleton, Harutyunyan, Bellemare"
+    venue: "NeurIPS"
+    year: 2016
+    arxiv: "1606.02647"
+    takeaway: "The off-policy answer to λ-returns: truncated per-step importance weights give convergent multi-step targets for arbitrary behavior policies — the theory V-trace builds on."
+  - key: espeholt2018impala
+    title: "IMPALA: Importance Weighted Actor-Learner Architectures (V-trace)"
+    authors: "Espeholt et al."
+    venue: "ICML"
+    year: 2018
+    arxiv: "1802.01561"
+    takeaway: "V-trace: GAE-shaped multi-step targets with clipped importance ratios, enabling thousands of slightly-stale actors to feed one learner."
+  - key: andrychowicz2020what
+    title: "What Matters In On-Policy Reinforcement Learning?"
+    authors: "Andrychowicz et al."
+    venue: "ICLR"
+    year: 2021
+    arxiv: "2006.05990"
+    takeaway: "The definitive sweep: λ≈0.9–0.95 robust across suites; advantage normalization essential; many celebrated tricks irrelevant. Calibrates how much GAE tuning is worth (little)."
+---
+
+## Why this 2015 trick refuses to die
+
+GAE solved the right problem at the right altitude: it made the
+bias-variance trade-off of multi-step credit assignment a *single scalar*,
+orthogonal to the policy optimizer. PPO, IMPALA-style systems, and every
+sim-to-real locomotion pipeline since simply inherited it.
+
+The interesting frontier work is not "better GAE" but **what replaces it
+when its on-policy assumption breaks**:
+
+<PaperGrid>
+  <PaperCard refKey="schulman2015gae" />
+  <PaperCard refKey="munos2016retrace" />
+  <PaperCard refKey="espeholt2018impala" />
+  <PaperCard refKey="andrychowicz2020what" />
+</PaperGrid>
+
+Pattern to internalize: **λ-return → (add importance weights) → Retrace →
+(clip them for systems reasons) → V-trace.** Each step trades a little bias
+for bounded variance under staler data.
+
+<KeyIdea>
+
+Interview-ready synthesis: "GAE is exponential smoothing over TD errors —
+two lines of code that subsume n-step returns. It's untouched since 2015
+because the empirical studies showed λ≈0.95 is flat-optimal, so the research
+moved to its off-policy generalizations (Retrace, V-trace) where the real
+open problems were."
+
+</KeyIdea>

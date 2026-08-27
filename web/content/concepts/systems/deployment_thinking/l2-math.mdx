@@ -1,0 +1,23 @@
+---
+concept: deployment_thinking
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Deployment Thinking for Robot Systems,
+    including the key equations.
+  keyPoints:
+    - "Designing robot learning systems with deployment constraints in mind from
+      day one: inference latency $t_{\\text{infer}} < t_{\\text{budget}}$,
+      compute budget (FLOPS, memory), failure recovery, monitoring, and graceful
+      degradation."
+    - The gap between a research demo and a production robot is mostly systems
+      engineering.
+    - "Key metrics: latency $p_{99}$, throughput, mean time between failures
+      (MTBF), mean time to recovery (MTTR)."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Designing robot learning systems with deployment constraints in mind from day one: inference latency $t_{\text{infer}} < t_{\text{budget}}$, compute budget (FLOPS, memory), failure recovery, monitoring, and graceful degradation. The gap between a research demo and a production robot is mostly systems engineering. Key metrics: latency $p_{99}$, throughput, mean time between failures (MTBF), mean time to recovery (MTTR).

@@ -1,0 +1,113 @@
+---
+concept: mdp
+level: 3
+status: final
+recall:
+  prompt: "Code an MDP from scratch: what five objects do you need, and what does one step of value iteration look like in NumPy?"
+  keyPoints:
+    - "S, A as index sets; P as array (S, A, S) of transition probabilities; R as array (S, A) or (S, A, S); gamma scalar"
+    - "Value iteration backup: V_new = max_a [ R[s,a] + gamma * P[s,a] @ V ] — one line with einsum/matmul"
+    - "Iterate until max|V_new - V| < tol; gamma < 1 guarantees geometric convergence (contraction)"
+check:
+  - id: mdp_l3_c1
+    prompt: "With `P` of shape (S, A, S') and `V` of shape (S',), what does `Q = R + gamma * P @ V` compute, and what shape is it?"
+    options:
+      - "The state-value function, shape (S,)"
+      - "The action-value of every state–action pair under the current V — expected immediate reward plus discounted expected next-state value — shape (S, A)"
+      - "The advantage function, shape (S, A)"
+      - "The stationary distribution, shape (S,)"
+    answer: 1
+    explanation: "P @ V contracts the S' axis: for each (s, a) it computes E_{s'~P(·|s,a)}[V(s')]. Adding R gives the one-step Bellman lookahead Q(s,a), shape (S, A). V.max / argmax over the A axis then gives the greedy backup and policy."
+  - id: mdp_l3_c2
+    prompt: "Your gridworld value iteration stops improving but the greedy policy is clearly wrong near a doorway. The most likely modeling bug is..."
+    options:
+      - "gamma is too large"
+      - "the transition tensor P doesn't sum to 1 over s' for some (s, a) — e.g. wall-bump transitions were dropped instead of redirected to 'stay'"
+      - "value iteration only works for deterministic MDPs"
+      - "the reward array must be negative"
+    answer: 1
+    explanation: "Value iteration is exact given a valid model; broken behavior in a specific region almost always means the model is wrong there. Rows of P(·|s,a) must be probability distributions — a classic bug is losing probability mass on blocked moves. Assert `P.sum(-1) ≈ 1` before debugging the algorithm."
+---
+
+## An MDP is just arrays
+
+Strip away the formalism and an MDP is five Python objects. Making them
+concrete once — by solving a toy problem *exactly* — permanently demystifies
+what every deep RL algorithm is approximating.
+
+<CodeWalk title="A 4×4 gridworld MDP, solved exactly with value iteration">
+
+```python title="gridworld_vi.py"
+import numpy as np
+
+N = 4                       # 4x4 grid -> S = 16 states
+S, A = N * N, 4             # actions: up, right, down, left
+GOAL, PIT = 15, 5
+MOVES = [(-1, 0), (0, 1), (1, 0), (0, -1)]
+
+# --- The model: P (S, A, S') and R (S, A) ----------------------------
+P = np.zeros((S, A, S))
+R = np.full((S, A), -0.04)            # small step cost
+for s in range(S):
+    if s in (GOAL, PIT):
+        P[s, :, s] = 1.0              # absorbing
+        continue
+    r, c = divmod(s, N)
+    for a, (dr, dc) in enumerate(MOVES):
+        nr, nc = r + dr, c + dc
+        s2 = s if not (0 <= nr < N and 0 <= nc < N) else nr * N + nc
+        P[s, a, s2] += 0.8            # intended move
+        for slip in ((a - 1) % 4, (a + 1) % 4):   # 10% slip each side
+            dr2, dc2 = MOVES[slip]
+            nr2, nc2 = r + dr2, c + dc2
+            s3 = s if not (0 <= nr2 < N and 0 <= nc2 < N) else nr2 * N + nc2
+            P[s, a, s3] += 0.1
+R[:, :] += 0.0
+R[[GOAL, PIT], :] = 0.0               # absorbing states pay nothing
+# reaching them pays via the transition INTO them:
+for s in range(S):
+    for a in range(A):
+        R[s, a] += P[s, a, GOAL] * 1.0 + P[s, a, PIT] * -1.0
+
+assert np.allclose(P.sum(-1), 1.0)    # every (s,a) row is a distribution
+
+# --- Value iteration --------------------------------------------------
+gamma, V = 0.99, np.zeros(S)
+for it in range(1000):
+    Q = R + gamma * P @ V             # (S, A): the Bellman lookahead
+    V_new = Q.max(axis=1)
+    if np.abs(V_new - V).max() < 1e-8:
+        break
+    V = V_new
+
+policy = Q.argmax(axis=1)             # greedy policy, exact optimum
+print(f"converged in {it} iterations")
+print(V.reshape(N, N).round(2))
+```
+
+Forty lines, no learning, no neural networks — and it finds the provably
+optimal policy. Every quantity deep RL estimates with samples (`Q`, `V`, the
+greedy policy) is computed here exactly because we *have* `P` and `R`.
+
+</CodeWalk>
+
+<KeyIdea>
+
+RL in one sentence: **the same `Q = R + γ P V` backup, when `P` and `R` are
+unknown and you only get samples from them.** Q-learning replaces the
+expectation `P @ V` with a sampled `r + γ max Q(s', ·)`; policy gradients
+bypass `Q.argmax` with a differentiable policy. The gridworld is the ground
+truth those approximations chase.
+
+</KeyIdea>
+
+<Warning>
+
+The robotics gap: real state spaces are continuous, so `P` is a density you
+can't tabulate, and the Markov property fails the moment you feed raw camera
+frames (partial observability). When something breaks downstream, return to
+this level and ask: *what would the tabular version of my problem look like,
+and which assumption did I just violate — Markov state, known model, or
+discrete enumerability?*
+
+</Warning>

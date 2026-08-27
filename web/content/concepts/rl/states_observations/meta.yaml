@@ -1,0 +1,15 @@
+id: states_observations
+title: States and Observations
+domain: rl
+summary: State is 'ground truth' — the full physics of the world.
+tags:
+  - rl
+  - robot_learning
+  - perception
+difficulty: 1
+importance: 5
+related_concept_ids:
+  - mdp
+  - actions_action_spaces
+  - perception
+  - sim2real

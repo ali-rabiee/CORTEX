@@ -1,0 +1,23 @@
+---
+concept: motion_planning
+level: 1
+status: seed
+recall:
+  prompt: "Explain Motion Planning for Manipulation in plain language: what is it,
+    and why does it matter?"
+  keyPoints:
+    - Imagine navigating a robot arm through a cluttered shelf to grab an object
+      in the back.
+    - You can't just move straight there — you need to weave around obstacles.
+    - RRT is like randomly exploring paths through a maze until one works.
+check: []
+papers: []
+---
+
+## Intuition
+
+Imagine navigating a robot arm through a cluttered shelf to grab an object in the back. You can't just move straight there — you need to weave around obstacles. RRT is like randomly exploring paths through a maze until one works. TrajOpt is like bending a rubber band path until it avoids all obstacles while staying smooth.
+
+## In practice
+
+Pick-and-place in clutter with a 7-DOF Franka arm: use MoveIt with RRT-Connect for fast planning ($< 1$ second), then smooth with time-optimal path parameterization (TOPP-RA). For repeated motions in structured environments, pre-compute a roadmap (PRM) and query it for near-instant planning. For learned policies that output Cartesian targets $\mathbf{x}_{\text{des}} \in SE(3)$, use IK + motion planning as the execution layer.

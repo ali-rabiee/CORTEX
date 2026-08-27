@@ -1,0 +1,23 @@
+---
+concept: cross_entropy_loss
+level: 1
+status: seed
+recall:
+  prompt: "Explain Cross-Entropy Loss — Information-Theoretic Classification
+    Objective in plain language: what is it, and why does it matter?"
+  keyPoints:
+    - Cross-entropy penalizes confident wrong predictions exponentially.
+    - If the true class has predicted probability 0.9, loss is $-\log(0.9) =
+      0.105$.
+    - At 0.1, it is $-\log(0.1) = 2.303$.
+check: []
+papers: []
+---
+
+## Intuition
+
+Cross-entropy penalizes confident wrong predictions exponentially. If the true class has predicted probability 0.9, loss is $-\log(0.9) = 0.105$. At 0.1, it is $-\log(0.1) = 2.303$. At 0.01, it is $-\log(0.01) = 4.605$. This heavy penalty for confident mistakes drives the model to calibrate — aligning predicted probabilities with true frequencies. The connection to KL divergence tells you: minimizing cross-entropy is literally making your model's distribution as close as possible to the true distribution.
+
+## In practice
+
+Object classification for a robotic pick-and-place system: 20 object classes, softmax output from a CNN backbone. Cross-entropy loss with label smoothing ($\alpha = 0.1$): $y_i^{\text{smooth}} = (1 - \alpha) \cdot y_i + \alpha / C$. This prevents the network from becoming overconfident, which is critical for safety — a robot should not be 99.9% confident about a novel object. For imbalanced datasets (e.g., 80% common objects, 20% rare), use focal loss: $L = -(1 - \hat{y}_c)^\gamma \log \hat{y}_c$ with $\gamma = 2$ to down-weight easy examples.

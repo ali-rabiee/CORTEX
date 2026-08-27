@@ -1,0 +1,404 @@
+chapters:
+  - id: ch_1_1
+    world_id: world_1
+    title: The RL Framework
+    description: Agents, environments, states, actions, rewards — the fundamental
+      loop of reinforcement learning.
+    domain_tags:
+      - rl
+    order_index: 0
+    prerequisite_chapter_ids: []
+    concept_ids:
+      - states_observations
+      - actions_action_spaces
+      - rewards_returns
+      - mdp
+  - id: ch_1_2
+    world_id: world_1
+    title: Value and Policy
+    description: Value functions V(s) and Q(s,a), policies, advantage, and the
+      Bellman equations that tie them together.
+    domain_tags:
+      - rl
+    order_index: 1
+    prerequisite_chapter_ids:
+      - ch_1_1
+    concept_ids:
+      - policy_gradients
+      - value_functions
+      - advantage_estimation
+      - bellman_equations
+  - id: ch_1_3
+    world_id: world_1
+    title: Learning to Optimize
+    description: Loss functions, gradient descent, neural networks as function
+      approximators, and generalization.
+    domain_tags:
+      - rl
+      - ml_fundamentals
+    order_index: 2
+    prerequisite_chapter_ids:
+      - ch_1_1
+    concept_ids:
+      - cross_entropy_loss
+      - gradient_descent_variants
+      - adam_optimizer
+      - backpropagation
+      - overfitting_underfitting
+      - dropout_regularization
+      - batch_normalization
+  - id: ch_1_4
+    world_id: world_1
+    title: Probability for RL
+    description: Distributions, expectations, KL divergence, entropy, and log
+      probabilities — the math of stochastic policies.
+    domain_tags:
+      - rl
+      - ml_fundamentals
+    order_index: 3
+    prerequisite_chapter_ids:
+      - ch_1_2
+    concept_ids:
+      - entropy_regularization
+      - exploration
+      - policy_gradients
+  - id: ch_2_1
+    world_id: world_2
+    title: Policy Gradients
+    description: The policy gradient theorem, REINFORCE, baselines, and variance
+      reduction — learning to act by gradient ascent.
+    domain_tags:
+      - rl
+    order_index: 0
+    prerequisite_chapter_ids:
+      - ch_1_2
+      - ch_1_4
+    concept_ids:
+      - policy_gradients
+      - value_functions
+  - id: ch_2_2
+    world_id: world_2
+    title: Actor-Critic Methods
+    description: Combining policy and value learning. TD learning, GAE, and the A2C
+      architecture.
+    domain_tags:
+      - rl
+    order_index: 1
+    prerequisite_chapter_ids:
+      - ch_2_1
+    concept_ids:
+      - value_functions
+      - policy_gradients
+      - temporal_difference
+      - gae
+      - advantage_estimation
+  - id: ch_2_3
+    world_id: world_2
+    title: Stable Training
+    description: Trust regions, TRPO, and PPO — preventing catastrophic policy updates.
+    domain_tags:
+      - rl
+    order_index: 2
+    prerequisite_chapter_ids:
+      - ch_2_2
+    concept_ids:
+      - trpo
+      - ppo_clipping
+      - entropy_regularization
+  - id: ch_2_4
+    world_id: world_2
+    title: Off-Policy Learning
+    description: Replay buffers, DQN, SAC, TD3 — learning from past experience.
+    domain_tags:
+      - rl
+    order_index: 3
+    prerequisite_chapter_ids:
+      - ch_2_2
+    concept_ids:
+      - replay_buffer
+      - off_policy_learning
+      - dqn
+      - sac
+      - entropy_regularization
+      - td3
+      - ppo_clipping
+  - id: ch_2_5
+    world_id: world_2
+    title: Beyond Online RL
+    description: Behavior cloning, DAgger, offline RL, and reward shaping — when
+      interaction is limited.
+    domain_tags:
+      - rl
+      - robot_learning
+    order_index: 4
+    prerequisite_chapter_ids:
+      - ch_2_3
+      - ch_2_4
+    concept_ids:
+      - behavior_cloning
+      - dagger
+      - offline_rl
+      - reward_shaping
+      - curriculum_learning
+  - id: ch_3_1
+    world_id: world_3
+    title: Imitation Learning
+    description: "Learning from demonstrations: behavior cloning, DAgger, and
+      multi-modal imitation."
+    domain_tags:
+      - robot_learning
+    order_index: 0
+    prerequisite_chapter_ids:
+      - ch_2_5
+    concept_ids:
+      - imitation_learning
+      - behavior_cloning
+      - dagger
+      - action_chunking
+      - multimodal_distributions
+  - id: ch_3_2
+    world_id: world_3
+    title: Sim-to-Real Transfer
+    description: Domain randomization, system identification, and closing the reality gap.
+    domain_tags:
+      - robot_learning
+    order_index: 1
+    prerequisite_chapter_ids:
+      - ch_3_1
+    concept_ids:
+      - sim2real_transfer
+      - domain_randomization
+  - id: ch_3_3
+    world_id: world_3
+    title: Manipulation Fundamentals
+    description: Grasping, 6-DOF manipulation, contact-rich control, and
+      perception-to-action pipelines.
+    domain_tags:
+      - robot_learning
+    order_index: 2
+    prerequisite_chapter_ids:
+      - ch_3_1
+    concept_ids:
+      - contact_rich_manipulation
+      - visuomotor_policy
+  - id: ch_3_4
+    world_id: world_3
+    title: Deployment and Robustness
+    description: Safety, latency, failure recovery, and real-world evaluation for
+      robot policies.
+    domain_tags:
+      - robot_learning
+      - systems
+    order_index: 3
+    prerequisite_chapter_ids:
+      - ch_3_2
+      - ch_3_3
+    concept_ids:
+      - safety_monitoring
+      - latency_optimization
+      - deployment_thinking
+  - id: ch_4_1
+    world_id: world_4
+    title: Visual Foundations
+    description: RGB, depth, camera models, calibration, and image representations
+      for robotics.
+    domain_tags:
+      - perception
+    order_index: 0
+    prerequisite_chapter_ids: []
+    concept_ids:
+      - rgb_depth_sensing
+      - camera_calibration
+      - image_representations
+      - convolutional_neural_networks
+      - depth_estimation
+  - id: ch_4_2
+    world_id: world_4
+    title: Detection and Segmentation
+    description: Object detection, semantic/instance segmentation, affordances, and
+      open-vocabulary methods.
+    domain_tags:
+      - perception
+    order_index: 1
+    prerequisite_chapter_ids:
+      - ch_4_1
+    concept_ids:
+      - object_detection
+      - object_segmentation
+      - semantic_segmentation
+      - affordance_prediction
+      - open_vocabulary_detection
+  - id: ch_4_3
+    world_id: world_4
+    title: 3D Understanding
+    description: Point clouds, pose estimation, scene graphs, multi-view fusion.
+    domain_tags:
+      - perception
+    order_index: 2
+    prerequisite_chapter_ids:
+      - ch_4_1
+    concept_ids:
+      - point_cloud_processing
+      - pose_estimation_6d
+      - scene_understanding
+  - id: ch_4_4
+    world_id: world_4
+    title: Perception-to-Action
+    description: Visual servoing, visuomotor policies, spatial action maps, and
+      keypoint-based manipulation.
+    domain_tags:
+      - perception
+      - robot_learning
+    order_index: 3
+    prerequisite_chapter_ids:
+      - ch_4_2
+      - ch_4_3
+    concept_ids:
+      - visual_servoing
+      - visuomotor_policy
+      - keypoint_manipulation
+  - id: ch_5_1
+    world_id: world_5
+    title: Foundation Models Primer
+    description: Transformers, LLMs, tokenization, scaling laws, and emergent capabilities.
+    domain_tags:
+      - foundation_models
+    order_index: 0
+    prerequisite_chapter_ids: []
+    concept_ids:
+      - transformer_architecture
+      - attention_mechanism
+      - llm_capabilities
+      - in_context_learning
+      - representation_learning
+      - action_tokenization
+  - id: ch_5_2
+    world_id: world_5
+    title: Vision-Language Models
+    description: CLIP, visual QA, grounding language in vision, and open-vocabulary
+      perception.
+    domain_tags:
+      - foundation_models
+      - perception
+    order_index: 1
+    prerequisite_chapter_ids:
+      - ch_5_1
+    concept_ids:
+      - clip_contrastive
+      - visual_question_answering
+      - vlm_models
+      - language_grounding
+  - id: ch_5_3
+    world_id: world_5
+    title: Vision-Language-Action Models
+    description: "From VLM to VLA: RT-2, action tokenization, and robotic foundation
+      models."
+    domain_tags:
+      - foundation_models
+      - robot_learning
+    order_index: 2
+    prerequisite_chapter_ids:
+      - ch_5_2
+    concept_ids:
+      - vla_models
+      - action_tokenization
+      - rt2_robotic_fm
+      - representation_learning
+  - id: ch_5_4
+    world_id: world_5
+    title: Embodied Reasoning
+    description: Task planning with LLMs, tool use, memory, grounding, and verification.
+    domain_tags:
+      - foundation_models
+    order_index: 3
+    prerequisite_chapter_ids:
+      - ch_5_2
+    concept_ids:
+      - task_planning
+      - llm_capabilities
+      - tool_use_api
+      - embodied_memory
+      - language_grounding
+  - id: ch_5_5
+    world_id: world_5
+    title: Generative Policies
+    description: Diffusion models, diffusion policy, multimodal action prediction,
+      and long-horizon generation.
+    domain_tags:
+      - generative_control
+    order_index: 4
+    prerequisite_chapter_ids:
+      - ch_5_3
+    concept_ids:
+      - diffusion_models_basics
+      - diffusion_policy
+      - action_generation
+      - multimodal_distributions
+      - flow_matching
+      - consistency_models
+      - behavior_cloning
+  - id: ch_6_1
+    world_id: world_6
+    title: Experiment Design
+    description: Baselines, ablations, evaluation metrics, and statistical rigor for
+      ML research.
+    domain_tags:
+      - systems
+    order_index: 0
+    prerequisite_chapter_ids: []
+    concept_ids:
+      - evaluation_methodology
+      - experiment_tracking
+  - id: ch_6_2
+    world_id: world_6
+    title: Debugging and Failure Analysis
+    description: Common training failures, systematic diagnosis, reward/loss
+      analysis, and distribution issues.
+    domain_tags:
+      - systems
+    order_index: 1
+    prerequisite_chapter_ids:
+      - ch_6_1
+    concept_ids:
+      - ppo_clipping
+      - sac
+      - reward_shaping
+      - experiment_tracking
+      - dataset_curation
+      - sim2real_transfer
+  - id: ch_6_3
+    world_id: world_6
+    title: Deployment Engineering
+    description: Latency, safety, monitoring, model serving, versioning, and edge
+      deployment.
+    domain_tags:
+      - systems
+    order_index: 2
+    prerequisite_chapter_ids:
+      - ch_6_1
+    concept_ids:
+      - latency_optimization
+      - safety_monitoring
+      - deployment_thinking
+      - experiment_tracking
+  - id: ch_6_4
+    world_id: world_6
+    title: Interview Mastery
+    description: Concept explanation drills, algorithm comparison, system design,
+      and mock interviews.
+    domain_tags:
+      - systems
+    order_index: 3
+    prerequisite_chapter_ids:
+      - ch_6_2
+      - ch_6_3
+    concept_ids:
+      - ppo_clipping
+      - sac
+      - diffusion_policy
+      - sim2real_transfer
+      - behavior_cloning
+      - dagger
+      - deployment_thinking
+      - evaluation_methodology
+      - vla_models

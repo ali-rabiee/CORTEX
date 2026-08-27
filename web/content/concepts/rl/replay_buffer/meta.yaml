@@ -1,0 +1,15 @@
+id: replay_buffer
+title: Experience Replay
+domain: rl
+summary: Without replay, each experience is used once and discarded — like
+  reading a textbook only once.
+tags:
+  - rl
+  - systems
+difficulty: 2
+importance: 4
+related_concept_ids:
+  - sac
+  - dqn
+  - off_policy_learning
+  - offline_rl

@@ -1,0 +1,27 @@
+---
+concept: gae
+level: 1
+status: seed
+recall:
+  prompt: "Explain Generalized Advantage Estimation (GAE) — Formal Treatment in
+    plain language: what is it, and why does it matter?"
+  keyPoints:
+    - GAE is a knob ($\lambda$) that lets you smoothly trade off between
+      trusting your value function (low $\lambda$, more bias, less variance) and
+      trusting actual observed rewards (high $\lambda$, less bias, more
+      variance).
+    - At $\lambda = 0$, you only look one step ahead and rely heavily on
+      $V_\phi$ — fast but wrong if $V_\phi$ is inaccurate.
+    - At $\lambda = 1$, you use the full trajectory return minus the baseline —
+      correct in expectation but noisy.
+check: []
+papers: []
+---
+
+## Intuition
+
+GAE is a knob ($\lambda$) that lets you smoothly trade off between trusting your value function (low $\lambda$, more bias, less variance) and trusting actual observed rewards (high $\lambda$, less bias, more variance). At $\lambda = 0$, you only look one step ahead and rely heavily on $V_\phi$ — fast but wrong if $V_\phi$ is inaccurate. At $\lambda = 1$, you use the full trajectory return minus the baseline — correct in expectation but noisy. The practical magic of $\lambda = 0.95$: it gives you 95% of the variance reduction from bootstrapping while keeping bias negligible, because the geometric weighting $(\gamma\lambda)^l$ makes distant TD residuals decay exponentially.
+
+## In practice
+
+Implementing GAE in a PPO training loop: after collecting a rollout of $T=2048$ steps, compute advantages backwards: $\hat{A}_{T-1} = \delta_{T-1}$, $\hat{A}_t = \delta_t + \gamma\lambda \hat{A}_{t+1}$. This backward recursion is $O(T)$. With $\gamma = 0.99$, $\lambda = 0.95$: effective lookahead $\approx \frac{1}{1-\gamma\lambda} \approx 20$ steps. Compare ablation results on Humanoid-v4: $\lambda = 0.95$ reaches 6000 reward at 5M steps; $\lambda = 0.99$ reaches 5500 (higher variance); $\lambda = 0.80$ reaches 4500 (too biased). Value targets for critic training: $V_{\text{target}}(s_t) = \hat{A}_t + V_\phi(s_t)$, or equivalently compute TD($\lambda$) returns directly.

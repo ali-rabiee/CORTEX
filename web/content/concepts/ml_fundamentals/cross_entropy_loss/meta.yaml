@@ -1,0 +1,13 @@
+id: cross_entropy_loss
+title: Cross-Entropy Loss — Information-Theoretic Classification Objective
+domain: ml_fundamentals
+summary: Cross-entropy penalizes confident wrong predictions exponentially.
+tags:
+  - ml_fundamentals
+difficulty: 2
+importance: 5
+related_concept_ids:
+  - backpropagation
+  - overfitting_underfitting
+  - gradient_descent_variants
+  - attention_mechanism

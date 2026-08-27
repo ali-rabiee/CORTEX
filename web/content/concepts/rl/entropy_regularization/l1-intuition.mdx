@@ -1,0 +1,29 @@
+---
+concept: entropy_regularization
+level: 1
+status: seed
+recall:
+  prompt: "Explain Entropy Regularization in Policy Optimization in plain
+    language: what is it, and why does it matter?"
+  keyPoints:
+    - Without entropy regularization, a policy gradient agent will rapidly
+      converge to a deterministic policy — committing to the first decent
+      strategy it finds.
+    - "The entropy bonus $\\beta H(\\pi)$ rewards the agent for maintaining
+      uncertainty, like telling a chess player: 'you get bonus points for
+      considering multiple moves.' This prevents premature convergence and
+      maintains exploration throughout training."
+    - "The coefficient $\\beta$ controls the explore-exploit balance: large
+      $\\beta$ favors exploration, $\\beta \\to 0$ recovers the standard
+      (exploit-focused) objective."
+check: []
+papers: []
+---
+
+## Intuition
+
+Without entropy regularization, a policy gradient agent will rapidly converge to a deterministic policy — committing to the first decent strategy it finds. The entropy bonus $\beta H(\pi)$ rewards the agent for maintaining uncertainty, like telling a chess player: 'you get bonus points for considering multiple moves.' This prevents premature convergence and maintains exploration throughout training. The coefficient $\beta$ controls the explore-exploit balance: large $\beta$ favors exploration, $\beta \to 0$ recovers the standard (exploit-focused) objective.
+
+## In practice
+
+In PPO for robot manipulation, adding entropy regularization with $\beta = 0.01$. Monitor the policy entropy $H(\pi)$ during training: it should decrease gradually from the initial value (for a Gaussian with $\sigma_0 = 1$ in $d=7$ DOF, $H_0 \approx 9.2$ nats) toward a lower but non-zero value. If $H$ drops below 1.0 too early (before 50% of training), increase $\beta$. In SAC, the dual variable $\alpha$ is optimized to maintain $H(\pi) \geq \bar{H} = -d$, eliminating the need to manually tune $\beta$.

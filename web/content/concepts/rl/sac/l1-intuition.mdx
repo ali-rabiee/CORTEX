@@ -1,0 +1,25 @@
+---
+concept: sac
+level: 1
+status: seed
+recall:
+  prompt: "Explain Soft Actor-Critic (SAC) in plain language: what is it, and why
+    does it matter?"
+  keyPoints:
+    - SAC is like a policy that's rewarded for being both good and creative.
+    - The entropy term $\alpha\, H(\pi)$ encourages exploration by penalizing
+      deterministic behavior.
+    - The automatic temperature $\alpha$ finds the right balance — early in
+      training $\alpha$ is high (explore more), later it decreases (exploit
+      more).
+check: []
+papers: []
+---
+
+## Intuition
+
+SAC is like a policy that's rewarded for being both good and creative. The entropy term $\alpha\, H(\pi)$ encourages exploration by penalizing deterministic behavior. The automatic temperature $\alpha$ finds the right balance — early in training $\alpha$ is high (explore more), later it decreases (exploit more). The dual optimization on $\alpha$ elegantly targets a desired entropy level without manual tuning.
+
+## In practice
+
+Training a dexterous hand to rotate a cube in MuJoCo. SAC reaches 90% success in 2M steps vs PPO needing 10M steps. The replay buffer lets SAC reuse past experience. Key: use two Q-networks with $Q = \min(Q_{\phi_1}, Q_{\phi_2})$ to prevent overestimation. Target network update rate $\tau = 0.005$, learning rate $\alpha_{\text{lr}} = 3 \times 10^{-4}$, replay buffer size $|\mathcal{B}| = 10^6$.

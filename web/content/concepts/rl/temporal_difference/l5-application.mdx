@@ -1,0 +1,26 @@
+---
+concept: temporal_difference
+level: 5
+status: seed
+recall:
+  prompt: How does Temporal Difference (TD) Learning fail in practice, and how
+    would you present it in an interview?
+  keyPoints:
+    - "Bootstrapping bias: if $V(s_{t+1})$ is inaccurate (early training, poor
+      function approximation), the TD target $r + \\gamma V(s')$ propagates
+      errors."
+    - In the worst case, errors compound across successive bootstraps, leading
+      to systematic value function drift.
+    - "Symptoms: value estimates slowly diverge from true values, policy
+      degrades even as TD loss appears low."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Bootstrapping bias: if $V(s_{t+1})$ is inaccurate (early training, poor function approximation), the TD target $r + \gamma V(s')$ propagates errors. In the worst case, errors compound across successive bootstraps, leading to systematic value function drift. Symptoms: value estimates slowly diverge from true values, policy degrades even as TD loss appears low. Fix: use $n$-step returns or GAE ($\lambda > 0$) to reduce bootstrap dependence, ensure sufficient critic training, use target networks. Also: TD learning with function approximation and off-policy data can diverge (the deadly triad) — double Q-learning and target networks are essential stabilizers.
+
+## Interview-ready answer
+
+TD learning is the workhorse of modern RL — nearly all practical algorithms use some form of bootstrapping. The core idea: update $V(s)$ using $r + \gamma V(s')$ instead of waiting for full returns. The TD error $\delta_t = r + \gamma V(s') - V(s)$ is fundamental — it's the one-step advantage estimate, the reward prediction error signal (analogous to dopamine in neuroscience), and the building block of GAE. The bias-variance spectrum from TD(0) to Monte Carlo ($\lambda = 0$ to $\lambda = 1$) is controlled by GAE's $\lambda$ parameter. In practice, $n$-step returns with $n=3$-5 or GAE with $\lambda=0.95$ provide the best balance. TD's ability to learn from incomplete episodes and off-policy data (Q-learning is TD + off-policy) makes it essential for sample-efficient robot learning.

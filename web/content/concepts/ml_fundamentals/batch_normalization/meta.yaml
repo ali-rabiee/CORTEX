@@ -1,0 +1,14 @@
+id: batch_normalization
+title: Batch Normalization — Reducing Internal Covariate Shift
+domain: ml_fundamentals
+summary: Each layer in a deep network receives inputs whose distribution shifts
+  as earlier layers update — like trying to hit a moving target.
+tags:
+  - ml_fundamentals
+difficulty: 3
+importance: 4
+related_concept_ids:
+  - backpropagation
+  - convolutional_neural_networks
+  - dropout_regularization
+  - overfitting_underfitting

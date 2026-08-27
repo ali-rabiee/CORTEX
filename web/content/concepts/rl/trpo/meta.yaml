@@ -1,0 +1,14 @@
+id: trpo
+title: Trust Region Policy Optimization (TRPO)
+domain: rl
+summary: TRPO formalized the intuition that policy updates should be 'small
+  enough' to avoid catastrophic performance drops.
+tags:
+  - rl
+difficulty: 4
+importance: 4
+related_concept_ids:
+  - ppo_clipping
+  - policy_gradients
+  - kl_divergence
+  - natural_gradient

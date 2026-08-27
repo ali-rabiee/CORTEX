@@ -1,0 +1,174 @@
+domain: generative_control
+questions:
+  - id: gc_q1
+    question: "Diffusion policies handle multi-modal action distributions better
+      than standard behavior cloning because:"
+    options:
+      - They use larger networks
+      - The iterative denoising process can represent arbitrary distributions
+        without mode averaging
+      - They train on more data
+      - They use recurrent architectures
+    correct_answer: 1
+    explanation: Standard BC with MSE loss fits a unimodal Gaussian, which averages
+      multiple valid modes into an invalid intermediate action. Diffusion models
+      learn the full distribution through iterative denoising — they can
+      represent arbitrary multimodal distributions. During inference, each
+      denoising trajectory naturally samples from one mode.
+    concept_ids:
+      - diffusion_policy
+      - multimodal_distributions
+    difficulty: 3
+    tags:
+      - generative_control
+  - id: gc_q2
+    question: "Flow matching offers an advantage over diffusion models for robot
+      control primarily because:"
+    options:
+      - It produces higher quality actions
+      - It's simpler to train (no noise schedule) and faster at inference (fewer
+        ODE steps)
+      - It handles images better
+      - It works with discrete action spaces
+    correct_answer: 1
+    explanation: Flow matching learns a direct transport from noise to data via a
+      vector field, requiring no noise schedule design. At inference, the ODE
+      can be solved in 5-10 steps (vs 20-100 for diffusion). The training
+      objective is simpler (direct vector field regression). Quality is
+      comparable to diffusion — the advantage is practical simplicity and speed.
+    concept_ids:
+      - flow_matching
+      - diffusion_policy
+    difficulty: 3
+    tags:
+      - generative_control
+  - id: gc_q3
+    question: "When a behavior cloning policy trained with MSE loss on
+      pick-and-place demos hovers above the object without committing to a grasp
+      direction, the likely cause is:"
+    options:
+      - Insufficient demonstrations
+      - Mode averaging — MSE loss averages multiple valid approach directions
+      - The observation space is too high-dimensional
+      - Action scaling is incorrect
+    correct_answer: 1
+    explanation: If demonstrations include approaches from different angles (left,
+      right, top), MSE loss finds the Gaussian mean — which is directly above
+      the object. This 'averaged' action isn't a valid grasp approach, so the
+      robot hovers. Diffusion policies or mixture models can represent the
+      multiple valid modes without averaging.
+    concept_ids:
+      - multimodal_distributions
+      - behavior_cloning
+    difficulty: 2
+    tags:
+      - generative_control
+      - robot_learning
+  - id: gc_q4
+    question: "In diffusion-based robot policies, DDIM (Denoising Diffusion Implicit
+      Models) reduces inference time by:"
+    options:
+      - Using a smaller network
+      - Skipping denoising steps — taking larger jumps in the reverse process
+        with a deterministic mapping
+      - Quantizing the model weights
+      - Running denoising steps in parallel
+    correct_answer: 1
+    explanation: "DDIM reformulates the reverse diffusion as a deterministic
+      (non-Markovian) process that can skip steps. Instead of 100 small
+      denoising steps, DDIM takes 10 large steps by interpolating along the same
+      trajectory. The output quality degrades gracefully: 10 DDIM steps often
+      match 100 DDPM steps closely. For robot control, this reduces latency from
+      seconds to tens of milliseconds."
+    concept_ids:
+      - diffusion_policy
+      - diffusion_models_basics
+    difficulty: 3
+    tags:
+      - generative_control
+  - id: gc_q5
+    question: "Consistency models improve over diffusion models for real-time
+      control by:"
+    options:
+      - Using a larger training dataset
+      - Learning to map any noisy input directly to the clean output in a single
+        step, without iterative denoising
+      - Using a different noise distribution
+      - Training with reinforcement learning instead of supervised learning
+    correct_answer: 1
+    explanation: Consistency models enforce that all points on the same diffusion
+      trajectory map to the same clean output. This means at inference, you can
+      denoise in a single step (or very few steps) instead of the 10-100 steps
+      diffusion models need. For robot control, this enables sub-10ms action
+      generation while maintaining the multimodal distribution modeling
+      capability.
+    concept_ids:
+      - consistency_models
+      - diffusion_policy
+    difficulty: 3
+    tags:
+      - generative_control
+  - id: gc_q6
+    question: "Energy-Based Models (EBMs) for robot action selection work by:"
+    options:
+      - Directly outputting the best action
+      - Learning an energy function E(s,a) where low energy = good action, then
+        optimizing to find low-energy actions at inference
+      - Training with contrastive loss on state pairs
+      - Modeling the environment dynamics
+    correct_answer: 1
+    explanation: EBMs learn E(s,a) such that demonstrated actions have low energy
+      and non-demonstrated actions have high energy. At inference, the action is
+      found by minimizing E(s,a) over a via gradient descent or sampling
+      (Langevin dynamics). Unlike explicit policy networks, EBMs can naturally
+      represent multimodal distributions — multiple actions can have equally low
+      energy.
+    concept_ids:
+      - energy_based_models
+      - multimodal_distributions
+    difficulty: 3
+    tags:
+      - generative_control
+  - id: gc_q7
+    question: The diffusion process adds noise as x_t = √ᾱ_t x_0 + √(1-ᾱ_t) ε. What
+      does ᾱ_t control?
+    options:
+      - The learning rate
+      - The signal-to-noise ratio at timestep t — how much original data vs
+        noise remains
+      - The number of denoising steps
+      - The output dimension
+    correct_answer: 1
+    explanation: ᾱ_t is the cumulative product of (1-β_i) from i=1 to t. At t=0, ᾱ_0
+      ≈ 1 so x_t ≈ x_0 (mostly signal). At t=T, ᾱ_T ≈ 0 so x_T ≈ ε (mostly
+      noise). The noise schedule {β_t} defines how quickly ᾱ_t decays,
+      controlling the difficulty progression from easy (low noise) to hard (high
+      noise) denoising. The model learns to reverse this process.
+    concept_ids:
+      - diffusion_models_basics
+    difficulty: 2
+    tags:
+      - generative_control
+  - id: gc_q8
+    question: "Long-horizon action generation with diffusion policies is challenging
+      because:"
+    options:
+      - Diffusion is too slow
+      - Predicting coherent action sequences over hundreds of steps requires
+        maintaining temporal consistency across the entire chunk
+      - The noise distribution changes
+      - The action space grows linearly
+    correct_answer: 1
+    explanation: Generating a 200-step action trajectory as a single diffusion
+      sample requires the model to maintain physical consistency (smooth
+      velocities, feasible accelerations, task-relevant waypoints) across the
+      entire sequence. Errors in one part of the trajectory affect all
+      subsequent steps. Temporal U-Net architectures with 1D convolutions along
+      the time axis help, but very long horizons may require hierarchical
+      approaches (plan subgoals, then generate chunks).
+    concept_ids:
+      - long_horizon_generation
+      - diffusion_policy
+    difficulty: 3
+    tags:
+      - generative_control

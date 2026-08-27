@@ -1,0 +1,17 @@
+{
+  "name": "cortex-sync",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Encrypted cross-device sync backend for CORTEX (Cloudflare Worker + D1)",
+  "scripts": {
+    "setup": "./setup.sh",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "tail": "wrangler tail",
+    "token": "node derive-token.mjs",
+    "rotate": "node derive-token.mjs | wrangler secret put SYNC_TOKEN_SHA256"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

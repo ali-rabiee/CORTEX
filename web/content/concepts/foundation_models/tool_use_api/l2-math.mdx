@@ -1,0 +1,23 @@
+---
+concept: tool_use_api
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Tool Use and API Calling for Robotic
+    Systems, including the key equations.
+  keyPoints:
+    - Enabling LLMs/VLMs to invoke external functions (tools) to interact with
+      robot hardware, perception pipelines, and planning systems.
+    - "The model generates structured function calls: given a tool specification
+      $\\{\\text{name}, \\text{params}, \\text{description}\\}$, the LLM outputs
+      a call $f(\\text{arg}_1, \\ldots, \\text{arg}_n)$ which is executed by the
+      runtime."
+    - "For robotics: tools include `move_to(x, y, z)`, `detect_objects(image)`,
+      `plan_path(start, goal)`, `check_collision(trajectory)`."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Enabling LLMs/VLMs to invoke external functions (tools) to interact with robot hardware, perception pipelines, and planning systems. The model generates structured function calls: given a tool specification $\{\text{name}, \text{params}, \text{description}\}$, the LLM outputs a call $f(\text{arg}_1, \ldots, \text{arg}_n)$ which is executed by the runtime. For robotics: tools include `move_to(x, y, z)`, `detect_objects(image)`, `plan_path(start, goal)`, `check_collision(trajectory)`. Code generation extends this: the LLM writes Python programs that compose multiple API calls, with loops, conditionals, and error handling. Structured output (JSON mode) ensures parseable responses: $\text{LLM}(\text{prompt}) \rightarrow \{\text{action}: \text{str}, \text{params}: \text{dict}\}$. Safety: generated calls must be validated against permission policies and physical constraints before execution.

@@ -1,0 +1,23 @@
+---
+concept: multimodal_distributions
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Multi-Modal Action Distributions,
+    including the key equations.
+  keyPoints:
+    - When multiple valid action sequences exist for the same observation (e.g.,
+      reaching left or right around an obstacle).
+    - A single Gaussian $\mathcal{N}(\mu, \Sigma)$ collapses modes by averaging.
+    - "Solutions: (1) Gaussian mixture models: $p(a|o) = \\sum_{k=1}^{K} \\pi_k
+      \\mathcal{N}(a; \\mu_k, \\Sigma_k)$; (2) Conditional VAEs: $p(a|o) = \\int
+      p(a|z,o)\\, p(z|o)\\, dz$ with latent $z$ selecting the mode; (3)
+      Diffusion/flow matching: implicit multi-modal density through iterative
+      refinement from noise."
+check: []
+papers: []
+---
+
+## Formal definition
+
+When multiple valid action sequences exist for the same observation (e.g., reaching left or right around an obstacle). A single Gaussian $\mathcal{N}(\mu, \Sigma)$ collapses modes by averaging. Solutions: (1) Gaussian mixture models: $p(a|o) = \sum_{k=1}^{K} \pi_k \mathcal{N}(a; \mu_k, \Sigma_k)$; (2) Conditional VAEs: $p(a|o) = \int p(a|z,o)\, p(z|o)\, dz$ with latent $z$ selecting the mode; (3) Diffusion/flow matching: implicit multi-modal density through iterative refinement from noise.

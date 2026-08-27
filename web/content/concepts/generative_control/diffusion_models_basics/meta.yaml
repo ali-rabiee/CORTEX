@@ -1,0 +1,14 @@
+id: diffusion_models_basics
+title: Diffusion Models Fundamentals
+domain: generative_control
+summary: Imagine teaching someone to restore a painting by practicing on
+  progressively more damaged versions.
+tags:
+  - generative_control
+  - ml_fundamentals
+difficulty: 2
+importance: 4
+related_concept_ids:
+  - diffusion_policy
+  - flow_matching
+  - consistency_models

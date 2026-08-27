@@ -1,0 +1,24 @@
+---
+concept: task_planning
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Task Planning with LLMs for Robotics,
+    including the key equations.
+  keyPoints:
+    - Using large language models to decompose high-level goals into executable
+      sub-task sequences for robots.
+    - "Hierarchical planning: $\\text{LLM}(\\text{goal}, \\text{scene})
+      \\rightarrow \\{s_1, s_2, \\ldots, s_T\\}$ where each sub-task $s_i$ maps
+      to a parameterized skill $\\pi_{s_i}(a | o, \\theta_i)$."
+    - "Can be formalized as a PDDL-style planning problem where the LLM serves
+      as both the domain modeler and the planner: given predicates
+      $\\mathcal{P}$, initial state $s_0$, and goal $g$, find action sequence
+      $a_1, \\ldots, a_T$ such that $s_T \\models g$."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Using large language models to decompose high-level goals into executable sub-task sequences for robots. Hierarchical planning: $\text{LLM}(\text{goal}, \text{scene}) \rightarrow \{s_1, s_2, \ldots, s_T\}$ where each sub-task $s_i$ maps to a parameterized skill $\pi_{s_i}(a | o, \theta_i)$. Can be formalized as a PDDL-style planning problem where the LLM serves as both the domain modeler and the planner: given predicates $\mathcal{P}$, initial state $s_0$, and goal $g$, find action sequence $a_1, \ldots, a_T$ such that $s_T \models g$. Inner monologue and chain-of-thought improve multi-step reasoning.

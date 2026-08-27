@@ -1,0 +1,25 @@
+---
+concept: task_planning
+level: 5
+status: seed
+recall:
+  prompt: How does Task Planning with LLMs for Robotics fail in practice, and how
+    would you present it in an interview?
+  keyPoints:
+    - "Plan infeasibility: LLM generates physically impossible sequences (e.g.,
+      'pick up the table' when the robot has a small gripper)."
+    - "Compounding errors: early step failure invalidates the rest of the plan
+      but the system doesn't re-plan."
+    - "Grounding mismatch: LLM refers to objects not present in the scene
+      (hallucination)."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Plan infeasibility: LLM generates physically impossible sequences (e.g., 'pick up the table' when the robot has a small gripper). Compounding errors: early step failure invalidates the rest of the plan but the system doesn't re-plan. Grounding mismatch: LLM refers to objects not present in the scene (hallucination). Symptoms: robot attempts impossible actions or gets stuck in loops. Fix: closed-loop re-planning after each step, affordance filtering, scene-state verification before each action, bounded re-planning attempts to avoid infinite loops.
+
+## Interview-ready answer
+
+LLM-based task planning bridges high-level reasoning and low-level robot execution. The key architecture: LLM as planner $\rightarrow$ affordance filter $\rightarrow$ skill library $\rightarrow$ low-level controller. This separates what to do (LLM) from how to do it (learned skills) and whether it's possible (affordance model). Critical design choices: (1) closed-loop replanning — always re-observe and re-plan after each step, (2) skill grounding — the LLM must only reference skills the robot actually has, (3) failure recovery — prompt the LLM with failure observations for adaptive replanning. The main limitation: LLMs don't have physics intuition, so they may propose dynamically infeasible plans. I always pair LLM planning with a feasibility checker.

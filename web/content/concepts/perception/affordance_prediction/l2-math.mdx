@@ -1,0 +1,25 @@
+---
+concept: affordance_prediction
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Affordance Prediction for Manipulation,
+    including the key equations.
+  keyPoints:
+    - Predicting what actions an object or scene region affords — i.e., the
+      action possibilities given the geometry, semantics, and physics.
+    - "Formalized as learning an affordance function $\\mathcal{A}: \\mathcal{O}
+      \\times \\mathcal{S} \\rightarrow [0,1]^{H \\times W}$ that maps an
+      observation $o$ and a skill descriptor $s$ to a spatial affordance heatmap
+      indicating where and how to interact."
+    - "Can also predict dense affordance representations: for each pixel
+      $(u,v)$, estimate the post-contact motion parameters
+      $\\{\\hat{\\mathbf{d}}, \\hat{\\theta}, \\hat{p}_{\\text{success}}\\}$
+      (direction, rotation, success probability)."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Predicting what actions an object or scene region affords — i.e., the action possibilities given the geometry, semantics, and physics. Formalized as learning an affordance function $\mathcal{A}: \mathcal{O} \times \mathcal{S} \rightarrow [0,1]^{H \times W}$ that maps an observation $o$ and a skill descriptor $s$ to a spatial affordance heatmap indicating where and how to interact. Can also predict dense affordance representations: for each pixel $(u,v)$, estimate the post-contact motion parameters $\{\hat{\mathbf{d}}, \hat{\theta}, \hat{p}_{\text{success}}\}$ (direction, rotation, success probability).

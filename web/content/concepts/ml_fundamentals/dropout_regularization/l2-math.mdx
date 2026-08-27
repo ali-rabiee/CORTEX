@@ -1,0 +1,25 @@
+---
+concept: dropout_regularization
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Dropout Regularization — Preventing
+    Co-adaptation, including the key equations.
+  keyPoints:
+    - Dropout randomly sets each neuron's activation to zero with probability
+      $p$ during training, then scales by $1/(1-p)$ (inverted dropout) so that
+      expected values remain consistent at inference.
+    - "For a layer activation $h$, the dropout operation is: $$\\tilde{h}_i =
+      \\frac{m_i}{1 - p} \\cdot h_i, \\quad m_i \\sim \\text{Bernoulli}(1 - p)$$
+      At inference, all neurons are active with no scaling (due to inverted
+      dropout)."
+    - Dropout can be interpreted as training an implicit ensemble of $2^n$
+      sub-networks that share parameters, or equivalently as approximate
+      variational inference over the network weights.
+check: []
+papers: []
+---
+
+## Formal definition
+
+Dropout randomly sets each neuron's activation to zero with probability $p$ during training, then scales by $1/(1-p)$ (inverted dropout) so that expected values remain consistent at inference. For a layer activation $h$, the dropout operation is: $$\tilde{h}_i = \frac{m_i}{1 - p} \cdot h_i, \quad m_i \sim \text{Bernoulli}(1 - p)$$ At inference, all neurons are active with no scaling (due to inverted dropout). Dropout can be interpreted as training an implicit ensemble of $2^n$ sub-networks that share parameters, or equivalently as approximate variational inference over the network weights.

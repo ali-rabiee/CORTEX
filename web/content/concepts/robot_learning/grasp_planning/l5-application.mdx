@@ -1,0 +1,25 @@
+---
+concept: grasp_planning
+level: 5
+status: seed
+recall:
+  prompt: How does Grasp Planning and Synthesis fail in practice, and how would
+    you present it in an interview?
+  keyPoints:
+    - Grasp prediction fails on transparent/reflective objects (depth sensor
+      returns noisy/missing data), thin objects (insufficient contact surface),
+      and novel geometries outside the training distribution.
+    - "Also: predicted grasp may be kinematically unreachable for the robot arm."
+    - "Symptoms: gripper closes on air, object slips during lift, or arm
+      contorts into singular configuration."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Grasp prediction fails on transparent/reflective objects (depth sensor returns noisy/missing data), thin objects (insufficient contact surface), and novel geometries outside the training distribution. Also: predicted grasp may be kinematically unreachable for the robot arm. Symptoms: gripper closes on air, object slips during lift, or arm contorts into singular configuration. Fix: RGB-D fusion for transparent objects, tactile feedback for slip detection, IK-aware grasp filtering, and domain-specific fine-tuning.
+
+## Interview-ready answer
+
+Grasp planning has shifted from analytical (force closure, form closure) to learned methods. Modern pipelines: point cloud $\rightarrow$ neural network $\rightarrow$ ranked 6-DOF grasp proposals $\rightarrow$ IK filter $\rightarrow$ execute. Contact-GraspNet and AnyGrasp are state-of-the-art, predicting diverse grasps from partial point clouds with >90% success. The key engineering decisions: (1) sensor choice (depth quality matters enormously), (2) grasp filtering (reachability, collision checking), (3) fallback strategies (re-plan if first grasp fails). For production, I combine learned grasp prediction with classical collision checking and force-based grasp success detection.

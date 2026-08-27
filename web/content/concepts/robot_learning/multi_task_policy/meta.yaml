@@ -1,0 +1,15 @@
+id: multi_task_policy
+title: Multi-Task and Language-Conditioned Policies
+domain: robot_learning
+summary: Instead of training a separate robot brain for every task, train one
+  brain that can follow instructions.
+tags:
+  - robot_learning
+  - foundation_models
+difficulty: 3
+importance: 5
+related_concept_ids:
+  - vla_models
+  - behavior_cloning
+  - language_grounding
+  - rt2_robotic_fm

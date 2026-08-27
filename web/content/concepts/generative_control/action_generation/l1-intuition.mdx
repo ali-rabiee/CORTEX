@@ -1,0 +1,28 @@
+---
+concept: action_generation
+level: 1
+status: seed
+recall:
+  prompt: "Explain Action Generation with Generative Models in plain language:
+    what is it, and why does it matter?"
+  keyPoints:
+    - Instead of predicting one action at a time (which leads to jerky, myopic
+      behavior), action generation produces a whole trajectory segment at once —
+      like planning your next several chess moves rather than just the next one.
+    - The denoising process starts with random noise shaped like an action
+      trajectory and gradually sculpts it into a coherent, smooth sequence of
+      actions that responds to what the robot currently sees.
+    - "Executing only the first few steps and then replanning gives you the best
+      of both worlds: temporal coherence from chunk generation and reactivity
+      from frequent replanning."
+check: []
+papers: []
+---
+
+## Intuition
+
+Instead of predicting one action at a time (which leads to jerky, myopic behavior), action generation produces a whole trajectory segment at once — like planning your next several chess moves rather than just the next one. The denoising process starts with random noise shaped like an action trajectory and gradually sculpts it into a coherent, smooth sequence of actions that responds to what the robot currently sees. Executing only the first few steps and then replanning gives you the best of both worlds: temporal coherence from chunk generation and reactivity from frequent replanning.
+
+## In practice
+
+Diffusion Policy implementation: observation encoder (ResNet-18 on 2 camera views + proprioception MLP) produces conditioning vector $\mathbf{c} = [\phi_{\text{img}}(o_{t-1}), \phi_{\text{img}}(o_t), \phi_{\text{prop}}(q_t)]$. Temporal U-Net takes noisy action chunk $\mathbf{a}^s \in \mathbb{R}^{16 \times 7}$ (16 steps, 7-DOF) with FiLM conditioning from $\mathbf{c}$. Train with DDPM loss, sample with DDIM (10 steps). Execute first 8 of 16 predicted steps, then replan — the 8-step overlap provides smooth transitions between chunks. Running at 10Hz on an NVIDIA 3090, the system controls a bimanual ALOHA robot for folding clothes.

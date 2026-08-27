@@ -1,0 +1,13 @@
+id: grasp_planning
+title: Grasp Planning and Synthesis
+domain: robot_learning
+summary: Think of picking up an egg vs a book vs a mug.
+tags:
+  - robot_learning
+  - perception
+difficulty: 3
+importance: 4
+related_concept_ids:
+  - point_cloud_processing
+  - contact_rich_manipulation
+  - visuomotor_policy

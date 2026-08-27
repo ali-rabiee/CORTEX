@@ -1,0 +1,27 @@
+---
+concept: td3
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Twin Delayed DDPG (TD3), including the
+    key equations.
+  keyPoints:
+    - "TD3 extends DDPG with three critical improvements for stable continuous
+      control: (1) Clipped double-Q: $y = r + \\gamma \\min_{i=1,2}
+      Q_{\\bar{\\theta}_i}(s', \\tilde{a}')$ using two critics to combat
+      overestimation; (2) Delayed policy updates: update the actor every $d = 2$
+      critic updates to let the critics stabilize; (3) Target policy smoothing:
+      $\\tilde{a}' = \\pi_{\\bar{\\phi}}(s') + \\text{clip}(\\epsilon, -c, c),
+      \\; \\epsilon \\sim \\mathcal{N}(0, \\sigma^2)$ adding clipped noise to
+      the target action, which smooths the $Q$-function and prevents
+      exploitation of narrow $Q$-peaks."
+    - The actor is a deterministic policy $a = \pi_\phi(s)$ updated by
+      $\nabla_\phi J = \mathbb{E}[\nabla_a Q_{\theta_1}(s,a)|_{a=\pi_\phi(s)}
+      \nabla_\phi \pi_\phi(s)]$.
+check: []
+papers: []
+---
+
+## Formal definition
+
+TD3 extends DDPG with three critical improvements for stable continuous control: (1) Clipped double-Q: $y = r + \gamma \min_{i=1,2} Q_{\bar{\theta}_i}(s', \tilde{a}')$ using two critics to combat overestimation; (2) Delayed policy updates: update the actor every $d = 2$ critic updates to let the critics stabilize; (3) Target policy smoothing: $\tilde{a}' = \pi_{\bar{\phi}}(s') + \text{clip}(\epsilon, -c, c), \; \epsilon \sim \mathcal{N}(0, \sigma^2)$ adding clipped noise to the target action, which smooths the $Q$-function and prevents exploitation of narrow $Q$-peaks. The actor is a deterministic policy $a = \pi_\phi(s)$ updated by $\nabla_\phi J = \mathbb{E}[\nabla_a Q_{\theta_1}(s,a)|_{a=\pi_\phi(s)} \nabla_\phi \pi_\phi(s)]$.

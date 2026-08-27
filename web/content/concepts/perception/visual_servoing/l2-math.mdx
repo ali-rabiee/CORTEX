@@ -1,0 +1,28 @@
+---
+concept: visual_servoing
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Visual Servoing, including the key equations.
+  keyPoints:
+    - "Closed-loop robot control using visual feedback to minimize an error
+      function in image or Cartesian space. (1) Image-Based Visual Servoing
+      (IBVS): control law directly in image feature space, $\\mathbf{v} =
+      -\\lambda \\hat{L}_s^+ (\\mathbf{s} - \\mathbf{s}^*)$ where $\\mathbf{s}$
+      is a vector of image features (e.g., point coordinates), $\\mathbf{s}^*$
+      is the desired feature vector, $L_s \\in \\mathbb{R}^{k \\times 6}$ is the
+      image Jacobian (interaction matrix) relating feature velocities to camera
+      velocities: $\\dot{\\mathbf{s}} = L_s \\mathbf{v}$, and $\\lambda$ is the
+      gain. (2) Position-Based Visual Servoing (PBVS): estimate 3D pose from
+      visual features, then control in Cartesian space, $\\mathbf{v} =
+      -\\lambda(\\mathbf{r} - \\mathbf{r}^*)$ where $\\mathbf{r}, \\mathbf{r}^*$
+      are current and desired poses. (3) Eye-in-hand: camera mounted on
+      end-effector (Jacobian changes with configuration); Eye-to-hand: camera
+      fixed in workspace (simpler Jacobian but occlusion issues)."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Closed-loop robot control using visual feedback to minimize an error function in image or Cartesian space. (1) Image-Based Visual Servoing (IBVS): control law directly in image feature space, $\mathbf{v} = -\lambda \hat{L}_s^+ (\mathbf{s} - \mathbf{s}^*)$ where $\mathbf{s}$ is a vector of image features (e.g., point coordinates), $\mathbf{s}^*$ is the desired feature vector, $L_s \in \mathbb{R}^{k \times 6}$ is the image Jacobian (interaction matrix) relating feature velocities to camera velocities: $\dot{\mathbf{s}} = L_s \mathbf{v}$, and $\lambda$ is the gain. (2) Position-Based Visual Servoing (PBVS): estimate 3D pose from visual features, then control in Cartesian space, $\mathbf{v} = -\lambda(\mathbf{r} - \mathbf{r}^*)$ where $\mathbf{r}, \mathbf{r}^*$ are current and desired poses. (3) Eye-in-hand: camera mounted on end-effector (Jacobian changes with configuration); Eye-to-hand: camera fixed in workspace (simpler Jacobian but occlusion issues).

@@ -1,0 +1,25 @@
+---
+concept: trpo
+level: 1
+status: seed
+recall:
+  prompt: "Explain Trust Region Policy Optimization (TRPO) in plain language: what
+    is it, and why does it matter?"
+  keyPoints:
+    - TRPO formalized the intuition that policy updates should be 'small enough'
+      to avoid catastrophic performance drops.
+    - The trust region is a ball in KL-divergence space around the current
+      policy — you find the best policy within that ball.
+    - The KL constraint $D_{\text{KL}} \leq \delta$ is more principled than a
+      fixed learning rate because it adapts to the geometry of the policy space.
+check: []
+papers: []
+---
+
+## Intuition
+
+TRPO formalized the intuition that policy updates should be 'small enough' to avoid catastrophic performance drops. The trust region is a ball in KL-divergence space around the current policy — you find the best policy within that ball. The KL constraint $D_{\text{KL}} \leq \delta$ is more principled than a fixed learning rate because it adapts to the geometry of the policy space. Think of walking carefully on a cliff: you want to improve your position, but each step must be measured to avoid falling.
+
+## In practice
+
+Training a simulated humanoid locomotion policy. TRPO with $\delta = 0.01$ produces monotonic improvement for 5M steps. Implementation involves: (1) compute policy gradient $g$, (2) solve $F^{-1}g$ via 10 conjugate gradient iterations without forming $F$ explicitly, (3) line search with backtracking to satisfy the KL constraint. Computational cost: ~2x that of vanilla PG per update due to Hessian-vector products, but far more stable.

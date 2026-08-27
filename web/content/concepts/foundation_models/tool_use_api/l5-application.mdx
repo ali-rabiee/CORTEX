@@ -1,0 +1,26 @@
+---
+concept: tool_use_api
+level: 5
+status: seed
+recall:
+  prompt: How does Tool Use and API Calling for Robotic Systems fail in practice,
+    and how would you present it in an interview?
+  keyPoints:
+    - "Unsafe code generation: LLM generates API calls with dangerous parameters
+      (e.g., `move_to(x, y, z, speed=max_speed)` near a human) or calls
+      functions in wrong order (moving before checking clearance)."
+    - "Hallucinated APIs: LLM calls functions that don't exist in the robot's
+      API, or passes wrong argument types."
+    - "Code execution errors: generated code has runtime bugs (index out of
+      bounds, type mismatches) that crash the control pipeline."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Unsafe code generation: LLM generates API calls with dangerous parameters (e.g., `move_to(x, y, z, speed=max_speed)` near a human) or calls functions in wrong order (moving before checking clearance). Hallucinated APIs: LLM calls functions that don't exist in the robot's API, or passes wrong argument types. Code execution errors: generated code has runtime bugs (index out of bounds, type mismatches) that crash the control pipeline. Symptoms: robot executes unsafe motions, control pipeline crashes on malformed API calls, or LLM gets stuck in retry loops. Fix: strict function allowlist with parameter range validation, type-checked function signatures provided in the prompt, sandboxed execution with rollback capability, mandatory collision/safety checks injected as wrappers around all motion commands, human-in-the-loop approval for high-risk actions.
+
+## Interview-ready answer
+
+Tool use and code generation are the most practical ways to deploy LLMs in robotic systems today. The key advantage over end-to-end approaches: compositionality and interpretability — you can inspect, validate, and modify the generated plan before execution. The architecture: LLM receives tool descriptions + scene state $\rightarrow$ generates structured function calls or Python code $\rightarrow$ safety validator checks all calls $\rightarrow$ execution engine runs on real hardware. Critical safety requirements: (1) function allowlisting — the LLM can only call pre-approved APIs, (2) parameter validation — all arguments checked against physical limits, (3) sandboxed execution — test in simulation before real deployment, (4) E-stop integration — hardware kill switch independent of software. The practical workflow I use: Code as Policies for high-level orchestration, with specialized controllers handling low-level execution. The LLM decides 'what' and 'when,' the controllers handle 'how.'

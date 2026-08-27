@@ -1,0 +1,16 @@
+id: transformer_architecture
+title: Transformer Architecture — Self-Attention and Positional Encoding
+domain: ml_fundamentals
+summary: A Transformer is like a room full of researchers, each simultaneously
+  reading the entire document and highlighting the parts most relevant to their
+  assigned position.
+tags:
+  - ml_fundamentals
+  - foundation_models
+difficulty: 3
+importance: 5
+related_concept_ids:
+  - attention_mechanism
+  - backpropagation
+  - batch_normalization
+  - dropout_regularization

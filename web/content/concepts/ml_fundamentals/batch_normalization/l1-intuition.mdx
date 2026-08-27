@@ -1,0 +1,26 @@
+---
+concept: batch_normalization
+level: 1
+status: seed
+recall:
+  prompt: "Explain Batch Normalization — Reducing Internal Covariate Shift in
+    plain language: what is it, and why does it matter?"
+  keyPoints:
+    - Each layer in a deep network receives inputs whose distribution shifts as
+      earlier layers update — like trying to hit a moving target.
+    - BatchNorm re-centers and re-scales each layer's inputs to a standard
+      distribution, then lets the learnable $\gamma$ and $\beta$ recover any
+      useful shift/scale.
+    - This smooths the loss landscape, enabling higher learning rates and faster
+      convergence.
+check: []
+papers: []
+---
+
+## Intuition
+
+Each layer in a deep network receives inputs whose distribution shifts as earlier layers update — like trying to hit a moving target. BatchNorm re-centers and re-scales each layer's inputs to a standard distribution, then lets the learnable $\gamma$ and $\beta$ recover any useful shift/scale. This smooths the loss landscape, enabling higher learning rates and faster convergence. The batch dependency creates an implicit regularization effect (each sample's normalization depends on its batch neighbors).
+
+## In practice
+
+In a ResNet-50 backbone for robotic perception, BatchNorm is placed after each convolution and before ReLU activation. With batch size 256 on ImageNet, BatchNorm enables training with learning rate 0.1 (10x higher than without). For deployment on a robot with batch size 1, the running statistics from training are used. Key pitfall: if the robot's input distribution shifts from training (e.g., different lighting), running statistics become stale — use instance normalization or group normalization instead.

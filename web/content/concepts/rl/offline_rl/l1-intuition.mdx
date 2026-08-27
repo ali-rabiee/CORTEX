@@ -1,0 +1,26 @@
+---
+concept: offline_rl
+level: 1
+status: seed
+recall:
+  prompt: "Explain Offline Reinforcement Learning in plain language: what is it,
+    and why does it matter?"
+  keyPoints:
+    - Like learning to drive from dashcam footage without ever getting behind
+      the wheel.
+    - The data shows what happened, but you can't try new things to see what
+      would happen.
+    - "The danger: your policy might choose actions where $Q_\\theta(s, a)$ is
+      incorrectly high because the Q-function is just extrapolating for actions
+      it's never seen."
+check: []
+papers: []
+---
+
+## Intuition
+
+Like learning to drive from dashcam footage without ever getting behind the wheel. The data shows what happened, but you can't try new things to see what would happen. The danger: your policy might choose actions where $Q_\theta(s, a)$ is incorrectly high because the Q-function is just extrapolating for actions it's never seen. CQL pushes down $Q$-values for unseen actions; IQL sidesteps the issue entirely by never evaluating $Q$ outside $\mathcal{D}$.
+
+## In practice
+
+Using a dataset of $N = 100\text{K}$ robot grasping attempts (mixed quality) to train a grasping policy. CQL adds a penalty that pushes down $Q$-values for actions sampled from the current policy $\pi_\theta$ while pushing up $Q$-values for actions in $\mathcal{D}$. IQL avoids querying the $Q$-function for unseen actions by using expectile regression with $\tau = 0.7$. TD3+BC simply adds a behavior cloning term: $\pi = \arg\max_\pi \mathbb{E}[\lambda Q(s, \pi(s)) - (\pi(s) - a)^2]$.

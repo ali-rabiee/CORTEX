@@ -1,0 +1,25 @@
+---
+concept: open_vocabulary_detection
+level: 1
+status: seed
+recall:
+  prompt: "Explain Open-Vocabulary Detection in plain language: what is it, and
+    why does it matter?"
+  keyPoints:
+    - Traditional detectors only find what they were trained on — if you trained
+      on 80 COCO classes, that's all you get.
+    - Open-vocabulary detection breaks this ceiling by connecting vision to
+      language.
+    - Instead of learning class-specific weights, these models learn to match
+      visual regions with text descriptions in a shared space.
+check: []
+papers: []
+---
+
+## Intuition
+
+Traditional detectors only find what they were trained on — if you trained on 80 COCO classes, that's all you get. Open-vocabulary detection breaks this ceiling by connecting vision to language. Instead of learning class-specific weights, these models learn to match visual regions with text descriptions in a shared space. You can say 'find the Phillips-head screwdriver' at test time without ever training on screwdrivers — the model understands the concept through language. It's like giving a robot the ability to look for anything you can describe in words.
+
+## In practice
+
+Language-conditioned pick-and-place with Grounding DINO: user instruction 'pick up the red cup next to the laptop' $\rightarrow$ extract noun phrases via spaCy $\rightarrow$ query Grounding DINO with each phrase (box threshold $= 0.3$, text threshold $= 0.25$) $\rightarrow$ get bounding boxes with confidence scores $\rightarrow$ spatial reasoning to resolve 'next to the laptop' (select cup box with minimum distance to laptop box centroid) $\rightarrow$ crop depth within selected box $\rightarrow$ estimate grasp. Run Grounding DINO on GPU: $\sim 200\,\text{ms}$ per query on RTX 3090. For repeated queries in static scenes, cache detections and only re-run on scene change (detected via frame differencing).

@@ -1,0 +1,25 @@
+---
+concept: experiment_tracking
+level: 1
+status: seed
+recall:
+  prompt: "Explain Experiment Tracking and Reproducibility in plain language: what
+    is it, and why does it matter?"
+  keyPoints:
+    - Like a lab notebook for ML experiments.
+    - When your colleague asks 'what was the learning rate for the run that got
+      90% success?' you need an instant answer, not a folder of untitled
+      scripts.
+    - Good tracking means any result can be reproduced by anyone on the team at
+      any time.
+check: []
+papers: []
+---
+
+## Intuition
+
+Like a lab notebook for ML experiments. When your colleague asks 'what was the learning rate for the run that got 90% success?' you need an instant answer, not a folder of untitled scripts. Good tracking means any result can be reproduced by anyone on the team at any time.
+
+## In practice
+
+W&B setup for RL training: log every 1000 steps — reward $R_t$, episode length $T$, loss $\mathcal{L}$, entropy $H(\pi)$, learning rate $\alpha$. Log hyperparameters as config. Save model checkpoints as artifacts with data version tags. Custom W&B panels for comparing runs across hyperparameter sweeps. Use sweep agents for automated hyperparameter search (Bayesian optimization over $\alpha \in [10^{-5}, 10^{-3}]$, batch size $\in \{32, 64, 128, 256\}$).

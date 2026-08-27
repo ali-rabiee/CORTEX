@@ -1,0 +1,27 @@
+---
+concept: tool_use_api
+level: 1
+status: seed
+recall:
+  prompt: "Explain Tool Use and API Calling for Robotic Systems in plain language:
+    what is it, and why does it matter?"
+  keyPoints:
+    - Tool use gives an LLM 'hands' — instead of just describing what to do, it
+      can actually trigger actions in the real world through a controlled API.
+    - "Think of it as giving the LLM a remote control for the robot: it can
+      press buttons (call functions) but each button press goes through a safety
+      filter."
+    - Code generation takes this further — instead of pressing one button at a
+      time, the LLM writes a whole program that orchestrates multiple actions,
+      handles edge cases, and adapts to feedback.
+check: []
+papers: []
+---
+
+## Intuition
+
+Tool use gives an LLM 'hands' — instead of just describing what to do, it can actually trigger actions in the real world through a controlled API. Think of it as giving the LLM a remote control for the robot: it can press buttons (call functions) but each button press goes through a safety filter. Code generation takes this further — instead of pressing one button at a time, the LLM writes a whole program that orchestrates multiple actions, handles edge cases, and adapts to feedback.
+
+## In practice
+
+Code as Policies (Liang et al.): LLM generates Python code calling a robot API: `def sort_blocks_by_color(colors=['red','blue','green']): for color in colors: block = detect(f'\{color\} block'); pick(block); place(block, get_bin(color))`. The generated code includes loops, conditionals, and API calls — more expressive than single-step action prediction. ToolFormer-style approach: LLM decides when to call `get_depth(pixel_x, pixel_y)` to get metric distance or `check_reachability(pose)` to verify kinematic feasibility. Safety layer: all generated code is parsed, function calls are checked against an allowlist, parameter ranges are validated (e.g., velocities clamped to safe limits), and execution happens in a sandboxed environment with physical E-stop override.

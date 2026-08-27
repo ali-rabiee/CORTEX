@@ -1,0 +1,28 @@
+---
+concept: diffusion_models_basics
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Diffusion Models Fundamentals, including
+    the key equations.
+  keyPoints:
+    - "Diffusion models define a forward process that gradually corrupts data
+      $\\mathbf{x}_0 \\sim q(\\mathbf{x}_0)$ by adding Gaussian noise over $T$
+      steps: $q(\\mathbf{x}_t | \\mathbf{x}_{t-1}) = \\mathcal{N}(\\mathbf{x}_t;
+      \\sqrt{1-\\beta_t}\\,\\mathbf{x}_{t-1}, \\beta_t \\mathbf{I})$, with noise
+      schedule $\\{\\beta_t\\}_{t=1}^T$."
+    - "Using $\\alpha_t = 1 - \\beta_t$ and $\\bar{\\alpha}_t = \\prod_{s=1}^t
+      \\alpha_s$, we can sample any timestep directly: $q(\\mathbf{x}_t |
+      \\mathbf{x}_0) = \\mathcal{N}(\\mathbf{x}_t;
+      \\sqrt{\\bar{\\alpha}_t}\\,\\mathbf{x}_0,
+      (1-\\bar{\\alpha}_t)\\mathbf{I})$."
+    - "The reverse process learns to denoise: $p_\\theta(\\mathbf{x}_{t-1} |
+      \\mathbf{x}_t) = \\mathcal{N}(\\mathbf{x}_{t-1};
+      \\mu_\\theta(\\mathbf{x}_t, t), \\sigma_t^2 \\mathbf{I})$."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Diffusion models define a forward process that gradually corrupts data $\mathbf{x}_0 \sim q(\mathbf{x}_0)$ by adding Gaussian noise over $T$ steps: $q(\mathbf{x}_t | \mathbf{x}_{t-1}) = \mathcal{N}(\mathbf{x}_t; \sqrt{1-\beta_t}\,\mathbf{x}_{t-1}, \beta_t \mathbf{I})$, with noise schedule $\{\beta_t\}_{t=1}^T$. Using $\alpha_t = 1 - \beta_t$ and $\bar{\alpha}_t = \prod_{s=1}^t \alpha_s$, we can sample any timestep directly: $q(\mathbf{x}_t | \mathbf{x}_0) = \mathcal{N}(\mathbf{x}_t; \sqrt{\bar{\alpha}_t}\,\mathbf{x}_0, (1-\bar{\alpha}_t)\mathbf{I})$. The reverse process learns to denoise: $p_\theta(\mathbf{x}_{t-1} | \mathbf{x}_t) = \mathcal{N}(\mathbf{x}_{t-1}; \mu_\theta(\mathbf{x}_t, t), \sigma_t^2 \mathbf{I})$. Equivalent to learning the score function $\nabla_{\mathbf{x}} \log p(\mathbf{x}_t)$ (score matching perspective). DDPM training objective: $\mathcal{L} = \mathbb{E}_{t, \mathbf{x}_0, \boldsymbol{\epsilon}} [\|\boldsymbol{\epsilon} - \boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t)\|^2]$ where $\boldsymbol{\epsilon} \sim \mathcal{N}(0, \mathbf{I})$. DDIM reformulates sampling as a deterministic ODE: $\mathbf{x}_{t-1} = \sqrt{\bar{\alpha}_{t-1}} \hat{\mathbf{x}}_0 + \sqrt{1-\bar{\alpha}_{t-1}} \cdot \boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t)$, enabling fewer steps (10-50 vs 1000 for DDPM). Noise schedules: linear ($\beta_t$ increases linearly), cosine (smoother, better for small images/actions), and learned schedules.

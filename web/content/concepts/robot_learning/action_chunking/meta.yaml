@@ -1,0 +1,14 @@
+id: action_chunking
+title: Action Chunking for Manipulation
+domain: robot_learning
+summary: Instead of giving turn-by-turn GPS directions one step at a time, you
+  give the next 10 steps at once.
+tags:
+  - robot_learning
+  - generative_control
+difficulty: 3
+importance: 4
+related_concept_ids:
+  - behavior_cloning
+  - diffusion_policy
+  - imitation_learning

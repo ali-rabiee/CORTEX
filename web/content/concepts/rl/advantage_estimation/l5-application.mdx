@@ -1,0 +1,24 @@
+---
+concept: advantage_estimation
+level: 5
+status: seed
+recall:
+  prompt: How does Generalized Advantage Estimation (GAE) fail in practice, and
+    how would you present it in an interview?
+  keyPoints:
+    - Poor $\lambda$ choice creates either bias or variance problems.
+    - "With $\\lambda$ too low ($< 0.8$): heavy bias from an inaccurate value
+      function, policy converges to suboptimal behavior."
+    - "With $\\lambda$ too high ($> 0.99$): high variance slows learning,
+      especially in long-horizon tasks."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Poor $\lambda$ choice creates either bias or variance problems. With $\lambda$ too low ($< 0.8$): heavy bias from an inaccurate value function, policy converges to suboptimal behavior. With $\lambda$ too high ($> 0.99$): high variance slows learning, especially in long-horizon tasks. Also: GAE assumes $V_\phi$ is reasonably accurate — if the critic is poorly trained (too few updates, bad architecture), all advantage estimates are corrupted. Fix: train value function for more epochs than policy (e.g., 5 vs 1), use $\lambda = 0.95$ as robust default.
+
+## Interview-ready answer
+
+GAE is the standard advantage estimator in modern policy gradient methods. It computes $\hat{A}_t = \sum_l (\gamma\lambda)^l \delta_{t+l}$, which is an exponentially-weighted average of $n$-step returns. The $\lambda$ parameter controls the bias-variance trade-off: $\lambda = 0$ gives the one-step TD residual $\delta_t = r + \gamma V(s') - V(s)$ (high bias, low variance), $\lambda = 1$ gives Monte Carlo (low bias, high variance). In practice, $\lambda = 0.95$ with $\gamma = 0.99$ is nearly universal. Implementation is efficient via backward recursion: $\hat{A}_t = \delta_t + \gamma\lambda \hat{A}_{t+1}$. The quality of GAE estimates depends critically on the value function approximation — always normalize advantages per minibatch and ensure the critic is well-trained.

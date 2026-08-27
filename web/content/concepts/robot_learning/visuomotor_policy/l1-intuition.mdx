@@ -1,0 +1,24 @@
+---
+concept: visuomotor_policy
+level: 1
+status: seed
+recall:
+  prompt: "Explain Visuomotor Policies in plain language: what is it, and why does
+    it matter?"
+  keyPoints:
+    - Instead of building separate perception (detect object) → planning
+      (compute grasp) → control (execute motion) modules, you train one neural
+      network that sees the camera image and outputs joint velocities.
+    - Like teaching someone to catch a ball by practice rather than by
+      explaining physics equations.
+check: []
+papers: []
+---
+
+## Intuition
+
+Instead of building separate perception (detect object) → planning (compute grasp) → control (execute motion) modules, you train one neural network that sees the camera image and outputs joint velocities. Like teaching someone to catch a ball by practice rather than by explaining physics equations.
+
+## In practice
+
+ResNet-18 encoder with spatial softmax $\text{softmax}(f_{ij}) \rightarrow (x_c, y_c)$ → 64-dim feature → MLP → 7-DOF joint velocities $\dot{q} \in \mathbb{R}^7$ for pick-and-place. Trained on 200 teleoperated demonstrations with random crops for augmentation. Key: spatial softmax preserves spatial structure (outputting expected 2D coordinates) better than global average pooling for manipulation tasks.

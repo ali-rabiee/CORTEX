@@ -1,0 +1,28 @@
+---
+concept: offline_rl
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Offline Reinforcement Learning, including
+    the key equations.
+  keyPoints:
+    - Offline RL learns a policy from a fixed dataset $\mathcal{D} = \{(s_i,
+      a_i, r_i, s'_i)\}_{i=1}^{N}$ collected by a behavior policy $\pi_\beta$,
+      without any additional environment interaction.
+    - "Key challenge: distributional shift between the learned policy
+      $\\pi_\\theta$ and $\\pi_\\beta$."
+    - "CQL adds a conservative penalty: $$\\hat{Q}^{\\text{CQL}} = \\arg\\min_Q
+      \\;\\alpha\\, \\mathbb{E}_{s \\sim \\mathcal{D}}\\left[\\log \\sum_a \\exp
+      Q(s,a) - \\mathbb{E}_{a \\sim \\pi_\\beta}[Q(s,a)]\\right] +
+      \\frac{1}{2}\\mathbb{E}_{\\mathcal{D}}\\left[(Q - \\hat{\\mathcal{B}}^\\pi
+      \\hat{Q}^k)^2\\right]$$ IQL avoids querying $Q$ for out-of-distribution
+      actions via expectile regression on the value function: $L_\\tau(V) =
+      \\mathbb{E}_{(s,a) \\sim \\mathcal{D}}[|\\tau - \\mathbf{1}(Q(s,a) - V(s)
+      < 0)| \\cdot (Q(s,a) - V(s))^2]$."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Offline RL learns a policy from a fixed dataset $\mathcal{D} = \{(s_i, a_i, r_i, s'_i)\}_{i=1}^{N}$ collected by a behavior policy $\pi_\beta$, without any additional environment interaction. Key challenge: distributional shift between the learned policy $\pi_\theta$ and $\pi_\beta$. CQL adds a conservative penalty: $$\hat{Q}^{\text{CQL}} = \arg\min_Q \;\alpha\, \mathbb{E}_{s \sim \mathcal{D}}\left[\log \sum_a \exp Q(s,a) - \mathbb{E}_{a \sim \pi_\beta}[Q(s,a)]\right] + \frac{1}{2}\mathbb{E}_{\mathcal{D}}\left[(Q - \hat{\mathcal{B}}^\pi \hat{Q}^k)^2\right]$$ IQL avoids querying $Q$ for out-of-distribution actions via expectile regression on the value function: $L_\tau(V) = \mathbb{E}_{(s,a) \sim \mathcal{D}}[|\tau - \mathbf{1}(Q(s,a) - V(s) < 0)| \cdot (Q(s,a) - V(s))^2]$.

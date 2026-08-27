@@ -1,0 +1,22 @@
+---
+concept: pose_estimation_6d
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of 6D Object Pose Estimation, including the
+    key equations.
+  keyPoints:
+    - Estimating the full 6-DOF pose (3D rotation $R \in SO(3)$ + 3D translation
+      $\mathbf{t} \in \mathbb{R}^3$) of known objects from RGB or RGB-D images.
+    - "The pose transforms a point from object frame to camera frame:
+      $\\mathbf{p}_{\\text{cam}} = R\\,\\mathbf{p}_{\\text{obj}} +
+      \\mathbf{t}$."
+    - "Methods: template matching, keypoint detection + PnP, direct regression,
+      render-and-compare."
+check: []
+papers: []
+---
+
+## Formal definition
+
+Estimating the full 6-DOF pose (3D rotation $R \in SO(3)$ + 3D translation $\mathbf{t} \in \mathbb{R}^3$) of known objects from RGB or RGB-D images. The pose transforms a point from object frame to camera frame: $\mathbf{p}_{\text{cam}} = R\,\mathbf{p}_{\text{obj}} + \mathbf{t}$. Methods: template matching, keypoint detection + PnP, direct regression, render-and-compare. Rotation representations: quaternion $\mathbf{q} \in \mathbb{S}^3$, rotation matrix $R \in \mathbb{R}^{3 \times 3}$, 6D continuous representation (Zhou et al.).

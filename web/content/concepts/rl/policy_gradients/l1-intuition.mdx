@@ -1,0 +1,26 @@
+---
+concept: policy_gradients
+level: 1
+status: seed
+recall:
+  prompt: "Explain Policy Gradient Methods in plain language: what is it, and why
+    does it matter?"
+  keyPoints:
+    - Instead of figuring out the value of every state (value-based), policy
+      gradients directly tune the knobs $\theta$ that control behavior.
+    - Think of a robot arm — rather than mapping every joint angle to a value,
+      you directly adjust the parameters that choose which angle to move to.
+    - "The advantage $\\hat{A}(s,a)$ tells you: 'was this action better or worse
+      than average?' Positive advantage means 'do more of this,' so we increase
+      $\\log \\pi_\\theta(a|s)$."
+check: []
+papers: []
+---
+
+## Intuition
+
+Instead of figuring out the value of every state (value-based), policy gradients directly tune the knobs $\theta$ that control behavior. Think of a robot arm — rather than mapping every joint angle to a value, you directly adjust the parameters that choose which angle to move to. The advantage $\hat{A}(s,a)$ tells you: 'was this action better or worse than average?' Positive advantage means 'do more of this,' so we increase $\log \pi_\theta(a|s)$.
+
+## In practice
+
+REINFORCE algorithm for a CartPole task. Sample trajectories, compute returns $G_t = \sum_{k=t}^{T} \gamma^{k-t} r_k$, estimate advantage $\hat{A} = G_t - V_\phi(s_t)$ using a learned baseline $V_\phi$, update policy. With a learned value function baseline, gradient variance drops significantly. For continuous actions, output mean $\mu_\theta(s)$ and std $\sigma_\theta(s)$ of a Gaussian $\pi_\theta(a|s) = \mathcal{N}(\mu_\theta(s), \sigma_\theta^2(s))$.

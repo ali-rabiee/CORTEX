@@ -1,0 +1,26 @@
+---
+concept: llm_capabilities
+level: 1
+status: seed
+recall:
+  prompt: "Explain LLM Capabilities and Limitations for Robotics in plain
+    language: what is it, and why does it matter?"
+  keyPoints:
+    - An LLM is like a brilliant colleague who has read every robotics paper but
+      has never touched a real robot.
+    - It can reason about tasks, suggest plans, generate code, and explain
+      concepts — but it may confidently describe physically impossible actions
+      because its knowledge comes from text, not experience.
+    - Chain-of-thought prompting helps it 'think step by step,' and grounding
+      modules connect its reasoning to physical reality.
+check: []
+papers: []
+---
+
+## Intuition
+
+An LLM is like a brilliant colleague who has read every robotics paper but has never touched a real robot. It can reason about tasks, suggest plans, generate code, and explain concepts — but it may confidently describe physically impossible actions because its knowledge comes from text, not experience. Chain-of-thought prompting helps it 'think step by step,' and grounding modules connect its reasoning to physical reality. The token limit is like a finite working memory — it can only consider so much context at once.
+
+## In practice
+
+Using GPT-4 for robot task planning with CoT: prompt includes scene description + available skills + 'think step by step.' LLM generates: 'Step 1: The cup is on the left side of the table (from scene description). Step 2: The robot's workspace reaches the left side (from robot config). Step 3: Use pick_object(cup) then place_object(cup, target_location).' Hallucination example: LLM says 'rotate the gripper 360 degrees to unscrew the cap' when the robot's wrist joint has only 270-degree range. Mitigation: validate LLM outputs against robot URDF kinematic limits before execution.

@@ -1,0 +1,25 @@
+---
+concept: domain_randomization
+level: 1
+status: seed
+recall:
+  prompt: "Explain Domain Randomization in plain language: what is it, and why
+    does it matter?"
+  keyPoints:
+    - If you learn to cook in 1000 different kitchens — different stoves,
+      different pans, different temperatures — you'll handle any new kitchen
+      because you've seen enough variation.
+    - "The real world is just kitchen #1001."
+    - "The key: randomize enough that reality falls within your training
+      distribution."
+check: []
+papers: []
+---
+
+## Intuition
+
+If you learn to cook in 1000 different kitchens — different stoves, different pans, different temperatures — you'll handle any new kitchen because you've seen enough variation. The real world is just kitchen #1001. The key: randomize enough that reality falls within your training distribution.
+
+## In practice
+
+Sim2real for robotic grasping: randomize object mass $m \in [0.01, 2.0]$ kg, friction $\mu \in [0.3, 1.0]$, table height $h \pm 5$ cm, camera position $\pm 2$ cm, lighting direction, gripper finger friction. Train with PPO across 1024 parallel environments. The policy learns invariance to all these factors.

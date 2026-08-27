@@ -1,0 +1,25 @@
+---
+concept: image_representations
+level: 1
+status: seed
+recall:
+  prompt: "Explain Image Representations for Robotics in plain language: what is
+    it, and why does it matter?"
+  keyPoints:
+    - Think of image representations as different ways to summarize what the
+      robot sees.
+    - Raw pixels are like remembering every detail of a photo — complete but
+      overwhelming.
+    - Feature maps are like noticing patterns (edges, textures, shapes) at
+      different scales.
+check: []
+papers: []
+---
+
+## Intuition
+
+Think of image representations as different ways to summarize what the robot sees. Raw pixels are like remembering every detail of a photo — complete but overwhelming. Feature maps are like noticing patterns (edges, textures, shapes) at different scales. Keypoints are like placing sticky notes on the important spots. DINO/CLIP embeddings are like describing the image in a rich, compressed language that captures semantics. The right representation depends on the task: keypoints for precise placement, CLIP embeddings for language-conditioned tasks, dense features for correspondence-based manipulation.
+
+## In practice
+
+Representation selection for imitation learning: (1) Extract DINOv2 features (ViT-B/14, layer 11): $\phi(I) \in \mathbb{R}^{16 \times 16 \times 768}$ — these provide dense semantic correspondences across viewpoints and object instances. (2) Apply PCA to reduce to 64 dimensions. (3) Concatenate with proprioceptive features $[q, \dot{q}, F] \in \mathbb{R}^{21}$ (joint angles, velocities, wrist F/T). (4) Feed to diffusion policy. Result: 3$\times$ better sample efficiency vs raw pixels because DINO features already encode pose-equivariant semantics. ResNet-50 features (ImageNet pretrained) work well for simpler tasks; CLIP features enable zero-shot task specification via language.

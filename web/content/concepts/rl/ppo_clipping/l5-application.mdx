@@ -1,0 +1,23 @@
+---
+concept: ppo_clipping
+level: 5
+status: seed
+recall:
+  prompt: How does Proximal Policy Optimization (PPO) — Clipping Mechanism fail in
+    practice, and how would you present it in an interview?
+  keyPoints:
+    - "Entropy collapse: policy becomes deterministic too early, converging to a
+      single action mode."
+    - "Symptoms: reward plateaus, action standard deviation $\\sigma \\to 0$."
+    - "Root cause: entropy coefficient too low."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Entropy collapse: policy becomes deterministic too early, converging to a single action mode. Symptoms: reward plateaus, action standard deviation $\sigma \to 0$. Root cause: entropy coefficient too low. Fix: increase entropy bonus coefficient to $\beta \in [0.01, 0.05]$, monitor policy entropy $H(\pi)$.
+
+## Interview-ready answer
+
+PPO stabilizes policy gradient training by clipping the importance sampling ratio $r(\theta) = \frac{\pi_{\theta}}{\pi_{\theta_{\text{old}}}}$ between old and new policies. The key insight is the $\min$ of clipped and unclipped objectives — this creates a pessimistic bound that prevents destructive updates. In practice, PPO with $\epsilon=0.2$, batch size 2048, 10 epochs per update, and entropy bonus $\beta=0.01$ is a strong default for continuous control. Compared to TRPO, PPO is simpler (no conjugate gradient, no Fisher vector products) and scales better to large networks.

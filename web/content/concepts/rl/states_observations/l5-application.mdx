@@ -1,0 +1,25 @@
+---
+concept: states_observations
+level: 5
+status: seed
+recall:
+  prompt: How does States and Observations fail in practice, and how would you
+    present it in an interview?
+  keyPoints:
+    - Treating observations as states when the Markov property doesn't hold.
+    - "Example: policy trained on single-frame images cannot distinguish whether
+      an object is moving left or right — identical observations require
+      different actions."
+    - "Symptoms: policy oscillates, fails on dynamic tasks, or only succeeds on
+      quasi-static tasks."
+check: []
+papers: []
+---
+
+## Failure modes
+
+Treating observations as states when the Markov property doesn't hold. Example: policy trained on single-frame images cannot distinguish whether an object is moving left or right — identical observations require different actions. Symptoms: policy oscillates, fails on dynamic tasks, or only succeeds on quasi-static tasks. Fix: (1) frame stacking — concatenate $k=3$-4 consecutive frames; (2) recurrent policies (LSTM hidden state as approximate belief); (3) add explicit velocity estimation; (4) use observation history transformers. Another pitfall: observation space too large (raw $640 \times 480$ images) — use pre-trained visual encoders (ResNet, CLIP) to reduce dimensionality.
+
+## Interview-ready answer
+
+The state/observation distinction is critical in robotics RL. The state $s_t$ satisfies Markov; observations $o_t$ generally don't. In simulation, we often train on privileged state information (joint states, object poses, contact forces) for efficiency, then transfer to observation-based policies via distillation or domain randomization. For real-world deployment, the observation space design is crucial: proprioception $(q, \dot{q})$ is cheap and accurate; vision provides object information but is partial and noisy. POMDP solutions include frame stacking (simple but limited memory), RNN/LSTM policies (learns what to remember), and transformer-based architectures that attend over observation histories. The teacher-student paradigm — privileged state teacher, observation-based student — is the current best practice for sim2real.

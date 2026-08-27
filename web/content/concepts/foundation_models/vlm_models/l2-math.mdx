@@ -1,0 +1,21 @@
+---
+concept: vlm_models
+level: 2
+status: seed
+recall:
+  prompt: State the formal definition of Vision-Language Models (VLMs), including
+    the key equations.
+  keyPoints:
+    - Models that jointly process images and text, enabling tasks like visual
+      question answering, image captioning, and visual reasoning.
+    - "Architecture: vision encoder $f_\\text{vis}$ (ViT/CLIP) $\\rightarrow$
+      projection layer $W_p$ $\\rightarrow$ language model $f_\\text{LM}$."
+    - The visual tokens $\mathbf{z} = W_p \cdot f_\text{vis}(I)$ are
+      concatenated with text tokens and processed autoregressively.
+check: []
+papers: []
+---
+
+## Formal definition
+
+Models that jointly process images and text, enabling tasks like visual question answering, image captioning, and visual reasoning. Architecture: vision encoder $f_\text{vis}$ (ViT/CLIP) $\rightarrow$ projection layer $W_p$ $\rightarrow$ language model $f_\text{LM}$. The visual tokens $\mathbf{z} = W_p \cdot f_\text{vis}(I)$ are concatenated with text tokens and processed autoregressively. Examples: GPT-4V, Claude Vision, LLaVA, Gemini. Training: often a two-stage approach — (1) pre-train projection on image-caption pairs, (2) instruction-tune end-to-end.
