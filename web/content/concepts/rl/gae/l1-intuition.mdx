@@ -1,27 +1,142 @@
 ---
 concept: gae
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Generalized Advantage Estimation (GAE) — Formal Treatment in
-    plain language: what is it, and why does it matter?"
+  prompt: "Explain GAE in plain language. What two estimators is it interpolating between, and what does $\\lambda$ control?"
   keyPoints:
-    - GAE is a knob ($\lambda$) that lets you smoothly trade off between
-      trusting your value function (low $\lambda$, more bias, less variance) and
-      trusting actual observed rewards (high $\lambda$, less bias, more
-      variance).
-    - At $\lambda = 0$, you only look one step ahead and rely heavily on
-      $V_\phi$ — fast but wrong if $V_\phi$ is inaccurate.
-    - At $\lambda = 1$, you use the full trajectory return minus the baseline —
-      correct in expectation but noisy.
-check: []
-papers: []
+    - "The advantage answers 'how much better than typical was this action?'. Estimating it is the problem: use real rewards and you get truth with huge variance; use the critic and you get a stable number that is wrong by however wrong the critic is."
+    - "GAE is an exponentially weighted average of all the n-step advantage estimators, with weight $(1-\\lambda)\\lambda^{n-1}$."
+    - "$\\lambda = 0$ is the one-step TD residual — minimum variance, maximum reliance on the critic. $\\lambda = 1$ is the Monte Carlo advantage — no reliance on the critic beyond a baseline, maximum variance."
+    - "In practice 0.9-0.97, and it is a genuinely separate knob from $\\gamma$: $\\gamma$ says how far ahead you care, $\\lambda$ says how much you trust your critic."
+media:
+  - kind: article
+    title: "Vanilla Policy Gradient"
+    url: https://spinningup.openai.com/en/latest/algorithms/vpg.html
+    source: "OpenAI Spinning Up"
+    note: "Shows exactly where GAE plugs into the policy gradient loop, and why the advantage estimator is the component that determines whether on-policy RL works at all."
+  - kind: article
+    title: "High-Dimensional Continuous Control Using Generalized Advantage Estimation"
+    url: https://arxiv.org/abs/1506.02438
+    source: "Schulman, Moritz, Levine, Jordan, Abbeel"
+    note: "The original paper. Section 3 is the derivation reproduced in Level 2; the discussion of $\\gamma$ as itself a variance-reduction parameter is the part most readers miss."
+  - kind: article
+    title: "What Matters In On-Policy Reinforcement Learning? A Large-Scale Empirical Study"
+    url: https://arxiv.org/abs/2006.05990
+    source: "Andrychowicz et al., Google Brain"
+    note: "Thousands of runs over the choices that actually move on-policy RL. Read the advantage-estimation and normalisation sections — this is the empirical basis for the $\\lambda$ values everyone quotes."
+check:
+  - id: gae_l1_c1
+    prompt: "Why not just use the observed return minus the value baseline, $G_t - V(s_t)$, as the advantage?"
+    options:
+      - "Because it is a biased estimator of the advantage"
+      - "Because $G_t$ sums every reward and every random transition to the end of the episode, so its variance grows with the horizon — the estimate is honest but too noisy to learn from efficiently"
+      - "Because it requires a model of the dynamics"
+      - "Because it cannot be computed for continuing tasks"
+    answer: 1
+    explanation: "That estimator is fine in expectation — it is the $\\lambda = 1$ end of GAE — and the problem is purely variance. Every stochastic transition and every stochastic action between $t$ and the end of the episode adds noise to a single scalar that then has to explain one action. Over a 1000-step episode this is hopeless. Bootstrapping through the critic replaces that tail with one number, at the cost of inheriting the critic's error."
+  - id: gae_l1_c2
+    prompt: "What is the difference between $\\gamma$ and $\\lambda$ in GAE?"
+    options:
+      - "They are the same parameter under two names"
+      - "$\\gamma$ defines the problem — how far ahead rewards count — while $\\lambda$ is purely an estimator choice about how much to trust the learned value function versus observed rewards"
+      - "$\\gamma$ applies to rewards and $\\lambda$ applies to states"
+      - "$\\lambda$ controls the learning rate of the critic"
+    answer: 1
+    explanation: "They multiply together in the recursion, which is why they get conflated, but they answer different questions. Change $\\gamma$ and you have changed the objective you are optimising. Change $\\lambda$ and you are estimating the same objective differently. The one honest complication — made in the original paper — is that $\\gamma$ *also* acts as a variance reducer, so in practice people tune it partly for that, which blurs a distinction that is clean in theory."
+  - id: gae_l1_c3
+    prompt: "Your critic is badly fit early in training — explained variance near zero. What does that imply for $\\lambda$?"
+    options:
+      - "Lower $\\lambda$, to rely more on the critic and reduce variance"
+      - "Higher $\\lambda$, because a low $\\lambda$ leans on a value function that is currently wrong, so you would be trading variance for a large amount of bias"
+      - "$\\lambda$ has no interaction with critic quality"
+      - "Set $\\lambda = 0$ until the critic converges, then raise it"
+    answer: 1
+    explanation: "$\\lambda$ is a trust setting for the critic, so it should track how trustworthy the critic actually is. With explained variance near zero, the bootstrapped values are noise and a low $\\lambda$ propagates that noise into every advantage. Option 4 inverts the reasoning and is the trap: it uses the critic most heavily at exactly the moment it deserves the least trust."
 ---
 
-## Intuition
+## The quantity you actually want
 
-GAE is a knob ($\lambda$) that lets you smoothly trade off between trusting your value function (low $\lambda$, more bias, less variance) and trusting actual observed rewards (high $\lambda$, less bias, more variance). At $\lambda = 0$, you only look one step ahead and rely heavily on $V_\phi$ — fast but wrong if $V_\phi$ is inaccurate. At $\lambda = 1$, you use the full trajectory return minus the baseline — correct in expectation but noisy. The practical magic of $\lambda = 0.95$: it gives you 95% of the variance reduction from bootstrapping while keeping bias negligible, because the geometric weighting $(\gamma\lambda)^l$ makes distant TD residuals decay exponentially.
+Policy gradients weight each action by how good it was. "Good" should mean
+*relative to what was typical from that state* — otherwise a mediocre action in
+a great state looks better than a brilliant action in a terrible one. That
+relative quantity is the advantage:
 
-## In practice
+$$
+A^\pi(s,a) = Q^\pi(s,a) - V^\pi(s)
+$$
 
-Implementing GAE in a PPO training loop: after collecting a rollout of $T=2048$ steps, compute advantages backwards: $\hat{A}_{T-1} = \delta_{T-1}$, $\hat{A}_t = \delta_t + \gamma\lambda \hat{A}_{t+1}$. This backward recursion is $O(T)$. With $\gamma = 0.99$, $\lambda = 0.95$: effective lookahead $\approx \frac{1}{1-\gamma\lambda} \approx 20$ steps. Compare ablation results on Humanoid-v4: $\lambda = 0.95$ reaches 6000 reward at 5M steps; $\lambda = 0.99$ reaches 5500 (higher variance); $\lambda = 0.80$ reaches 4500 (too biased). Value targets for critic training: $V_{\text{target}}(s_t) = \hat{A}_t + V_\phi(s_t)$, or equivalently compute TD($\lambda$) returns directly.
+You do not have $Q^\pi$ or $V^\pi$. You have a noisy critic and some sampled
+rewards, and everything about GAE follows from that.
+
+## Two bad options
+
+<Steps>
+<Step title="Use the real rewards to the end of the episode">
+$\hat A_t = G_t - V(s_t)$. Honest — this is what actually happened. But $G_t$
+accumulates every random transition and every random action for the rest of the
+episode, so its variance grows with the horizon. One extremely noisy number now
+has to explain one action.
+</Step>
+
+<Step title="Use the critic after one step">
+$\hat A_t = r_t + \gamma V(s_{t+1}) - V(s_t)$. Low variance: only one reward and
+one transition are random. But it is wrong by however wrong $V$ is, and early in
+training $V$ is very wrong.
+</Step>
+</Steps>
+
+<Intuition>
+You want to know whether a chess move was good. You could play the game to the
+end and see who won — accurate, but one game's outcome is mostly noise about
+everything except the last few moves. Or you could make the move and ask a
+positional evaluator how the resulting position looks — stable, but only as good
+as the evaluator.
+
+Or you could play three moves ahead and *then* evaluate. That is the n-step
+estimator, and the whole family lies on a line between the two extremes.
+</Intuition>
+
+## The dial
+
+GAE does not pick a point on that line. It averages over all of them, with
+weights that decay geometrically:
+
+$$
+\hat A^{\text{GAE}(\gamma,\lambda)}_t = (1-\lambda)\sum_{n=1}^{\infty} \lambda^{n-1}\, \hat A^{(n)}_t
+$$
+
+<Figure src="/figures/gae-lambda-dial.svg"
+        alt="Left: bar charts of the weight on each n-step estimator, sharply decaying for lambda 0.5 and nearly flat for lambda 0.95. Right: curves showing bias falling and variance rising as lambda goes from 0 to 1, with a highlighted band around 0.9 to 0.97."
+        caption="Small lambda concentrates the weight on short lookaheads and leans on the critic. Large lambda spreads it over long ones and leans on observed rewards. The useful range is near the top, because critics are usually the weaker link." />
+
+The reason this is not just a nice idea is that the infinite sum collapses into
+a single backward pass — a one-line recursion, cheaper than computing any single
+n-step estimator naively. Level 2 does that derivation.
+
+<KeyIdea>
+$\lambda$ is a statement about **how much you trust your critic**. $\gamma$ is a
+statement about **how far ahead you care**. They multiply together in the
+recursion and get conflated constantly, but changing $\gamma$ changes the
+problem you are solving, while changing $\lambda$ only changes how you estimate
+it.
+</KeyIdea>
+
+## Setting it
+
+Defaults cluster around $\lambda = 0.95$, and large-scale sweeps support roughly
+$0.9$–$0.97$ as robust. That is high — closer to Monte Carlo than to TD — which
+tells you something: in practice the critic is usually the less reliable of the
+two sources, so you lean on real rewards and use the critic mainly to cut the
+tail.
+
+<Warning>
+Tune $\lambda$ against your critic's quality, not in isolation. If explained
+variance is near zero, a low $\lambda$ is feeding critic noise into every
+advantage — the exact opposite of the variance reduction you wanted. And check
+your advantage normalisation before blaming $\lambda$ for anything: per-batch
+normalisation interacts strongly with it, and an unnormalised advantage makes
+the effective learning rate drift as the reward scale changes over training.
+</Warning>
+
+<WatchThis />

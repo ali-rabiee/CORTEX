@@ -1,26 +1,191 @@
 ---
 concept: gae
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Generalized Advantage Estimation (GAE) —
-    Formal Treatment, including the key equations.
+  prompt: "Derive GAE from the n-step advantage estimators. Show it collapses to a sum of discounted TD residuals, and say exactly where the bias comes from."
   keyPoints:
-    - "GAE defines a family of advantage estimators indexed by $\\lambda \\in
-      [0,1]$: $$\\hat{A}_t^{\\text{GAE}(\\gamma,\\lambda)} = \\sum_{l=0}^{T-t-1}
-      (\\gamma\\lambda)^l \\delta_{t+l}, \\quad \\delta_t = r_t + \\gamma
-      V_\\phi(s_{t+1}) - V_\\phi(s_t)$$ This can be shown to equal the
-      exponentially-weighted average of $n$-step advantage estimators:
-      $\\hat{A}_t^{\\text{GAE}} = (1-\\lambda) \\sum_{n=1}^{\\infty}
-      \\lambda^{n-1} \\hat{A}_t^{(n)}$ where $\\hat{A}_t^{(n)} = -V_\\phi(s_t) +
-      \\sum_{k=0}^{n-1} \\gamma^k r_{t+k} + \\gamma^n V_\\phi(s_{t+n})$."
-    - The bias of GAE is $O(\epsilon_{V} / (1 - \gamma\lambda))$ where
-      $\epsilon_V = \max_s |V_\phi(s) - V^\pi(s)|$, and the variance scales as
-      $O(\sigma_r^2 / (1 - \gamma\lambda)^2)$.
-check: []
-papers: []
+    - "$\\delta_t = r_t + \\gamma V(s_{t+1}) - V(s_t)$. The $n$-step advantage telescopes into $\\hat A^{(n)}_t = \\sum_{l=0}^{n-1}\\gamma^l \\delta_{t+l}$."
+    - "Averaging with weights $(1-\\lambda)\\lambda^{n-1}$ and swapping the order of summation gives $\\hat A^{\\text{GAE}}_t = \\sum_{l\\ge0}(\\gamma\\lambda)^l\\delta_{t+l}$, hence the recursion $\\hat A_t = \\delta_t + \\gamma\\lambda \\hat A_{t+1}$."
+    - "At $\\lambda=1$ the sum telescopes to $G_t - V(s_t)$: the policy gradient is unbiased for *any* $V$, because $V(s_t)$ is a pure state-dependent baseline."
+    - "At $\\lambda<1$ the estimator contains $\\gamma^n V(s_{t+n})$, which depends on states that $a_t$ influenced — so it is not a valid baseline, and that is precisely where the bias enters."
+check:
+  - id: gae_l2_c1
+    prompt: "Why does the $n$-step advantage equal $\\sum_{l=0}^{n-1}\\gamma^l\\delta_{t+l}$?"
+    options:
+      - "Because the TD residuals are independent"
+      - "Because writing out the discounted sum of residuals makes every intermediate $\\gamma^l V(s_{t+l})$ term appear once positively and once negatively, so the sum telescopes to $\\sum \\gamma^l r_{t+l} + \\gamma^n V(s_{t+n}) - V(s_t)$"
+      - "Because $V$ satisfies the Bellman equation exactly"
+      - "Because $\\gamma < 1$ makes the tail negligible"
+    answer: 1
+    explanation: "It is an algebraic identity, true for *any* function $V$ — no assumption that $V$ is correct, no independence, no convergence argument. That matters: the identity is what makes the whole GAE construction implementable as a single backward pass, and it would still hold with a randomly initialised critic. Option 3 is the tempting one, and if $V$ were exact every residual would be zero in expectation, which is a different statement."
+  - id: gae_l2_c2
+    prompt: "At $\\lambda = 1$, GAE gives $G_t - V(s_t)$. Is the resulting policy gradient biased if the critic $V$ is wrong?"
+    options:
+      - "Yes — a wrong $V$ biases every advantage, so it biases the gradient"
+      - "No. $V(s_t)$ depends only on the state, so it is a valid baseline and subtracting it leaves the policy gradient unbiased for any $V$; a wrong $V$ costs variance, not bias"
+      - "Only if $V$ is systematically too large"
+      - "Yes, and the bias grows with the horizon"
+    answer: 1
+    explanation: "This is the cleanest illustration of what a baseline is. The advantage estimate itself is biased for $A^\\pi$ when $V \\ne V^\\pi$, but the *gradient* is not, because the expected score function times any state-dependent quantity is zero. A wrong baseline is simply a badly-centred one, so the weights are larger than they need to be and variance suffers. It is a good sanity check on whether you understand baselines: the estimator and the gradient have different unbiasedness properties."
+  - id: gae_l2_c3
+    prompt: "So where does GAE's bias actually come from at $\\lambda < 1$?"
+    options:
+      - "From truncating the infinite sum in practice"
+      - "From the bootstrapped term $\\gamma^n V(s_{t+n})$: it depends on states reached *after* $a_t$, so it is not a function of $s_t$ alone and therefore not a valid baseline — the argument that saved $\\lambda = 1$ does not apply"
+      - "From the discount factor $\\gamma$"
+      - "From per-batch advantage normalisation"
+    answer: 1
+    explanation: "Being able to locate the bias in that specific term is what separates a derived understanding from a memorised one. $V(s_t)$ is safe because $a_t$ cannot influence $s_t$; $V(s_{t+n})$ is not, because $a_t$ helped determine where you ended up. If $V = V^\\pi$ the bias vanishes — which is exactly why $\\lambda$ should be tuned against critic quality rather than set once."
 ---
 
-## Formal definition
+## The TD residual
 
-GAE defines a family of advantage estimators indexed by $\lambda \in [0,1]$: $$\hat{A}_t^{\text{GAE}(\gamma,\lambda)} = \sum_{l=0}^{T-t-1} (\gamma\lambda)^l \delta_{t+l}, \quad \delta_t = r_t + \gamma V_\phi(s_{t+1}) - V_\phi(s_t)$$ This can be shown to equal the exponentially-weighted average of $n$-step advantage estimators: $\hat{A}_t^{\text{GAE}} = (1-\lambda) \sum_{n=1}^{\infty} \lambda^{n-1} \hat{A}_t^{(n)}$ where $\hat{A}_t^{(n)} = -V_\phi(s_t) + \sum_{k=0}^{n-1} \gamma^k r_{t+k} + \gamma^n V_\phi(s_{t+n})$. The bias of GAE is $O(\epsilon_{V} / (1 - \gamma\lambda))$ where $\epsilon_V = \max_s |V_\phi(s) - V^\pi(s)|$, and the variance scales as $O(\sigma_r^2 / (1 - \gamma\lambda)^2)$.
+Everything is built from one quantity. For any value function $V$ — correct or
+not:
+
+$$
+\delta_t = r_t + \gamma V(s_{t+1}) - V(s_t)
+$$
+
+If $V = V^\pi$ then $\mathbb{E}[\delta_t \mid s_t, a_t] = A^\pi(s_t,a_t)$, so
+$\delta_t$ is an unbiased one-step advantage estimate. If $V$ is wrong, it is
+still a well-defined number and everything below still holds algebraically.
+
+## From residuals to n-step estimators
+
+<Derivation title="The $n$-step advantage telescopes">
+
+Define the $n$-step estimator by running $n$ real rewards and then bootstrapping:
+
+$$
+\hat A^{(n)}_t = \sum_{l=0}^{n-1}\gamma^l r_{t+l} + \gamma^n V(s_{t+n}) - V(s_t)
+$$
+
+Now expand the discounted sum of residuals:
+
+$$
+\sum_{l=0}^{n-1}\gamma^l\delta_{t+l}
+= \sum_{l=0}^{n-1}\gamma^l\Big(r_{t+l} + \gamma V(s_{t+l+1}) - V(s_{t+l})\Big)
+$$
+
+Split it into three sums. The middle one contributes
+$\gamma^{l+1}V(s_{t+l+1})$ and the third contributes $-\gamma^{l}V(s_{t+l})$, so
+each interior $\gamma^{k}V(s_{t+k})$ for $1 \le k \le n-1$ appears once with each
+sign and cancels. What survives are the two endpoints:
+
+$$
+\sum_{l=0}^{n-1}\gamma^l\delta_{t+l}
+= \sum_{l=0}^{n-1}\gamma^l r_{t+l} + \gamma^n V(s_{t+n}) - V(s_t)
+= \hat A^{(n)}_t
+$$
+
+**This is an identity, not an approximation.** It uses no property of $V$
+whatsoever — not correctness, not the Bellman equation, not convergence.
+
+</Derivation>
+
+The two ends of the family:
+
+$$
+\hat A^{(1)}_t = \delta_t
+\qquad\qquad
+\hat A^{(\infty)}_t = \sum_{l\ge0}\gamma^l r_{t+l} - V(s_t) = G_t - V(s_t)
+$$
+
+## The exponential average, and why it is cheap
+
+<Derivation title="GAE collapses to a single geometric sum">
+
+Take the exponentially weighted average over $n$, with weights summing to one:
+
+$$
+\hat A^{\text{GAE}(\gamma,\lambda)}_t
+= (1-\lambda)\sum_{n=1}^{\infty}\lambda^{n-1}\hat A^{(n)}_t
+= (1-\lambda)\sum_{n=1}^{\infty}\lambda^{n-1}\sum_{l=0}^{n-1}\gamma^l\delta_{t+l}
+$$
+
+**Swap the order of summation.** The term $\gamma^l\delta_{t+l}$ appears in
+$\hat A^{(n)}$ for every $n \ge l+1$, so collect its total weight:
+
+$$
+= (1-\lambda)\sum_{l=0}^{\infty}\gamma^l\delta_{t+l}\sum_{n=l+1}^{\infty}\lambda^{n-1}
+= (1-\lambda)\sum_{l=0}^{\infty}\gamma^l\delta_{t+l}\cdot\frac{\lambda^{l}}{1-\lambda}
+$$
+
+The $(1-\lambda)$ cancels:
+
+$$
+\boxed{\;\hat A^{\text{GAE}(\gamma,\lambda)}_t = \sum_{l=0}^{\infty}(\gamma\lambda)^l\,\delta_{t+l}\;}
+$$
+
+and reading it backwards gives the recursion that implementations use:
+
+$$
+\hat A_t = \delta_t + \gamma\lambda\,\hat A_{t+1}
+$$
+
+</Derivation>
+
+<KeyIdea>
+An average over infinitely many estimators costs one backward pass over the
+rollout and one multiply-add per step — cheaper than computing any single
+$n$-step estimator by its definition. That collapse is the reason GAE became
+universal rather than remaining a nice idea about interpolation.
+</KeyIdea>
+
+## Where the bias is
+
+Both limits are worth stating carefully, because the unbiasedness properties of
+the *estimator* and of the *gradient* differ.
+
+<Steps>
+<Step title="$\lambda = 1$: unbiased gradient, for any $V$">
+The sum telescopes to $G_t - V(s_t)$. As an estimate of $A^\pi$ this is biased
+whenever $V \ne V^\pi$. But the policy gradient is not, because $V(s_t)$ is a
+function of the state alone — a valid baseline — and
+$\mathbb{E}_a[\nabla\log\pi(a\mid s)\,b(s)] = 0$. A wrong critic costs variance
+here, never bias.
+</Step>
+
+<Step title="$\lambda = 0$: minimum variance, maximum bias">
+$\hat A_t = \delta_t$. Only one reward and one transition are random, so the
+variance is $O(1)$ regardless of horizon. The estimate is off by exactly the
+critic's Bellman error at that state.
+</Step>
+
+<Step title="$0 < \lambda < 1$: the bias lives in the bootstrap term">
+The estimator contains $\gamma^n V(s_{t+n})$, and $s_{t+n}$ was influenced by
+$a_t$. So it is *not* a function of $s_t$ alone, the baseline argument does not
+apply, and a wrong $V$ biases the gradient. This is the precise location of
+GAE's bias, and it vanishes exactly when $V = V^\pi$.
+</Step>
+</Steps>
+
+<Warning>
+The original paper makes a point that is easy to miss: $\gamma$ is *also* a
+variance-reduction parameter, not only a statement about the objective.
+Discounting shortens the effective credit-assignment path, so lowering it
+reduces variance while biasing you toward a shorter-horizon problem. In
+principle $\gamma$ defines the problem and $\lambda$ estimates it; in practice
+both get tuned for variance, which is why the clean separation blurs when you
+read other people's hyperparameters.
+</Warning>
+
+## Two things that break the identity
+
+<Steps>
+<Step title="Episode boundaries">
+Both the bootstrap and the recursion must be severed at a true terminal:
+$\delta_T = r_T - V(s_T)$ and $\hat A_T = \delta_T$. Forgetting either lets
+credit leak across episodes, and it inflates advantages at exactly the steps
+that matter most.
+</Step>
+
+<Step title="Time limits are not terminals">
+A truncation at a step limit is not the end of the world — the value of the
+final state is genuinely non-zero, so you must bootstrap $V(s_T)$ there.
+Treating a timeout as a terminal tells the critic the world stops at 1000 steps
+and systematically depresses values near the limit.
+</Step>
+</Steps>

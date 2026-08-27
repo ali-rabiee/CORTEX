@@ -1,25 +1,160 @@
 ---
 concept: gae
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Generalized Advantage Estimation (GAE) — Formal Treatment fail
-    in practice, and how would you present it in an interview?
+  prompt: "Give your interview answer on GAE. What is the one-line summary, and what do you check before tuning $\\lambda$?"
   keyPoints:
-    - GAE quality is bottlenecked by the value function $V_\phi$.
-    - If the critic is poorly trained (too few updates, bad architecture, wrong
-      learning rate), all advantage estimates become garbage — $\delta_t$
-      contains systematic errors that propagate through the GAE sum.
-    - "Symptoms: advantages are not centered around zero, large magnitude
-      advantage estimates, policy oscillation."
-check: []
-papers: []
+    - "One line: an exponentially weighted average over all n-step advantage estimators, which collapses to a discounted sum of TD residuals and therefore costs one backward pass."
+    - "$\\lambda$ is a trust setting for the critic. Check explained variance before tuning it — a low $\\lambda$ with a bad critic is trading variance for a large amount of bias."
+    - "Know the two implementation bugs cold: severing the recursion at true terminals, and *not* severing it at time limits, where you must bootstrap."
+    - "Be able to say exactly where the bias lives — in the $\\gamma^n V(s_{t+n})$ term, which is not a valid baseline because $a_t$ influenced $s_{t+n}$."
+interview:
+  answer: >-
+    GAE is how you estimate the advantage without having to choose between two
+    bad options. You want to know how much better than typical an action was.
+    If you use the actual return to the end of the episode you get something
+    honest but with variance that grows with the horizon — every random
+    transition and every random action after this one is noise in a single
+    scalar. If you use the critic after one step you get a low-variance number
+    that's wrong by however wrong the critic is. In between are the n-step
+    estimators, and GAE takes an exponentially weighted average over all of
+    them with weights one minus lambda times lambda to the n minus one. The
+    reason that's practical rather than just elegant is that it collapses. The
+    n-step advantage telescopes into a discounted sum of TD residuals — that's
+    an algebraic identity, true for any value function, correct or not — and
+    then swapping the order of summation in the exponential average gives you
+    the sum of gamma-lambda to the l times delta t plus l. Read backwards
+    that's a one-line recursion: A_t equals delta_t plus gamma lambda A_{t+1}.
+    So an average over infinitely many estimators costs one backward pass over
+    the rollout. On what lambda means: it's a trust setting for the critic, and
+    it's a genuinely separate knob from gamma. Gamma defines the problem, how
+    far ahead rewards count; lambda only changes how you estimate it. At lambda
+    equals one it telescopes to the return minus V of s_t, and the policy
+    gradient there is unbiased for any critic, because V of s_t is a pure
+    state-dependent baseline. Below one, the estimator contains gamma to the n
+    times V of s_{t+n}, and that state was influenced by the action you're
+    scoring — so it isn't a valid baseline and that's exactly where the bias
+    enters. Practically, 0.95 is the default and 0.9 to 0.97 holds up in
+    large-scale sweeps. That's high, which tells you the critic is usually the
+    weaker link.
+  followUps:
+    - q: "How would you tune lambda in practice?"
+      a: >-
+        Against the critic's explained variance rather than in isolation. If
+        explained variance is near zero the critic is noise and a low lambda
+        feeds that noise into every advantage — the opposite of the variance
+        reduction I wanted. So I'd start at 0.95, check explained variance,
+        and only consider going lower once the critic is genuinely tracking
+        returns. The other thing I'd check first is advantage normalisation,
+        because per-batch normalisation interacts strongly with lambda and an
+        unnormalised advantage means the effective step size drifts with the
+        reward scale over training. In my experience more GAE tuning is
+        actually a missing normalisation than a wrong lambda.
+    - q: "What are the classic GAE implementation bugs?"
+      a: >-
+        Two, and they're mirror images. The first is not severing at true
+        terminals — at an episode end there's no future, so delta is just the
+        reward minus V of s, with no bootstrap, and the recursion has to
+        restart. Miss either zeroing and credit leaks across episode
+        boundaries. The second is the opposite mistake: treating a time-limit
+        truncation as a terminal. A timeout isn't the end of the world, the
+        final state genuinely has non-zero value, and you must bootstrap V of
+        s_T there. If you don't, you're telling the critic that everything
+        stops at step 1000, which systematically depresses values near the
+        limit and can teach the policy some strange behaviour approaching it.
+    - q: "Does GAE apply off-policy?"
+      a: >-
+        Not directly, and that's the honest limitation. The derivation assumes
+        the residuals come from trajectories generated by the current policy —
+        the TD residual is only an advantage estimate for the policy that
+        produced the transition. In the distributed setting where actors lag
+        the learner, or genuinely off-policy, you need importance corrections,
+        which is what V-trace in IMPALA does: it's structurally the same
+        backward recursion with clipped importance weights folded in, and the
+        clipping bounds both the bias and the variance of that correction.
+        Retrace is the same idea for off-policy n-step returns. I'd describe
+        V-trace as GAE's sibling for when you can't guarantee on-policy data.
+    - q: "Is lambda really separate from gamma, or is that a textbook distinction?"
+      a: >-
+        Cleanly separate in theory, blurred in practice, and the original paper
+        is explicit about it. Gamma changes the objective — the discounted
+        return you're optimising — while lambda only changes the estimator for
+        the same objective. But gamma also shortens the effective
+        credit-assignment path, so lowering it reduces variance while biasing
+        you toward a shorter-horizon problem. That means people do tune gamma
+        partly for variance reasons, which muddies the distinction when you're
+        reading someone else's hyperparameters. I'd still keep them separate
+        when reasoning: if the task genuinely needs a long horizon, fix gamma
+        from the horizon and use lambda for the variance.
+  traps:
+    - "Describing GAE as 'an n-step return with a lambda'. It is an average over *all* n, and the fact that the average collapses to one recursion is the reason it is used at all."
+    - "Saying the telescoping identity requires an accurate value function. It holds for any $V$ — that is what makes the construction implementable with a randomly initialised critic."
+    - "Claiming a wrong critic biases the gradient at $\\lambda = 1$. It does not; $V(s_t)$ is a valid baseline there and the cost is variance only."
+    - "Treating time-limit truncation as termination. You must bootstrap at a timeout, and this silent bug depresses values near the horizon."
+check:
+  - id: gae_l5_c1
+    prompt: "Your PPO agent behaves oddly in the last ~50 steps of every 1000-step episode: values drop and the policy becomes erratic. What do you check first?"
+    options:
+      - "The entropy coefficient"
+      - "Whether the time-limit truncation is being treated as a terminal in the GAE computation — if so, no bootstrap happens at the cutoff and values near the limit are systematically depressed"
+      - "The learning rate schedule"
+      - "The clip epsilon"
+    answer: 1
+    explanation: "The location of the symptom is the diagnostic: a problem confined to the end of every episode points at the episode boundary logic, not at a global hyperparameter. Treating a timeout as a terminal tells the critic the return really is zero after step 1000, so values decay toward the limit and the advantages that depend on them become nonsense. The fix is to distinguish termination from truncation and bootstrap $V(s_T)$ in the latter case."
+  - id: gae_l5_c2
+    prompt: "An interviewer asks: 'you're using $\\lambda = 0.95$ — why not 0.5, since lower variance is better?' What is the strongest response?"
+    options:
+      - "0.5 would be fine; 0.95 is just convention"
+      - "Lower $\\lambda$ buys variance reduction by leaning harder on the critic, and it pays for it in bias proportional to the critic's error. At 0.95 the critic is only trimming the tail; at 0.5 nearly all the weight sits on one- and two-step estimates, so the advantage is mostly whatever the critic believes"
+      - "Lower $\\lambda$ increases variance, not decreases it"
+      - "$\\lambda$ only affects the critic's loss, not the policy's"
+    answer: 1
+    explanation: "The question is testing whether you know what you are paying for. Variance reduction is not free here — it is purchased with the critic's error, and the exchange rate depends on how good the critic is. The right framing to offer back is that $\\lambda$ should track explained variance: lean on the critic to the extent it has earned it, which for a network being trained concurrently on a moving target is usually not very far."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-GAE quality is bottlenecked by the value function $V_\phi$. If the critic is poorly trained (too few updates, bad architecture, wrong learning rate), all advantage estimates become garbage — $\delta_t$ contains systematic errors that propagate through the GAE sum. Symptoms: advantages are not centered around zero, large magnitude advantage estimates, policy oscillation. Fix: train critic for more epochs than policy (e.g., value loss coefficient $c_V = 0.5$-$1.0$ in the combined PPO loss, or separate critic training with 5 epochs), use larger critic network, verify $V_\phi$ predictions roughly match actual returns. Another subtle bug: forgetting to zero out $\hat{A}$ at episode boundaries — must reset $\hat{A}_t = \delta_t$ when $s_{t+1}$ is a terminal state.
+<Steps>
+<Step title="Problems confined to the end of episodes → boundary handling">
+Values depressed and behaviour erratic near a time limit means truncation is
+being treated as termination. Distinguish the two and bootstrap at timeouts.
+Credit leaking across episodes is the mirror bug: check the recursion restarts.
+</Step>
 
-## Interview-ready answer
+<Step title="Advantages look enormous or tiny → normalisation, not $\lambda$">
+Per-batch advantage normalisation is not cosmetic; without it the effective step
+size drifts with the reward scale as the policy improves. Check this before
+tuning anything.
+</Step>
 
-GAE is the exponentially-weighted sum of TD residuals: $\hat{A}_t = \sum_l (\gamma\lambda)^l \delta_{t+l}$, equivalently the $(1-\lambda)$-weighted average of all $n$-step advantages. The bias scales as $O(\epsilon_V / (1-\gamma\lambda))$ and variance as $O(\sigma_r^2 / (1-\gamma\lambda)^2)$, so $\lambda$ trades them off. The universal default $\lambda = 0.95$ works because: it reduces variance dramatically versus Monte Carlo ($\lambda = 1$) while keeping bias negligible for reasonably trained value functions. Implementation is a simple backward scan: $\hat{A}_t = \delta_t + \gamma\lambda \hat{A}_{t+1}$. The critical dependency is critic quality — a bad $V_\phi$ corrupts all advantage estimates. I always validate by checking that mean advantage is near zero and that the critic's explained variance ratio $1 - \text{Var}(G - V) / \text{Var}(G) > 0.5$.
+<Step title="Training noisy and directionless → the critic, then $\lambda$">
+Explained variance near zero means the advantages are mostly critic noise. Fix
+the critic — capacity, learning rate, target normalisation — or raise $\lambda$
+so you lean on it less. Lowering $\lambda$ here makes it worse.
+</Step>
+
+<Step title="Learns slowly on long-horizon tasks → variance, and $\gamma$ is implicated too">
+Monte Carlo variance grows with the horizon, so $\lambda$ near 1 gets expensive
+as episodes lengthen. This is one of the places where $\gamma$ and $\lambda$
+genuinely interact, and it is worth naming that rather than pretending they are
+independent.
+</Step>
+
+<Step title="Actors lagging the learner in a distributed setup → GAE is the wrong tool">
+The derivation assumes on-policy trajectories. Use V-trace, which is the same
+backward recursion with clipped importance weights.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The detail that reads as having implemented this rather than read it is the
+bias location. Most candidates say "$\lambda$ trades bias for variance". Few can
+say that at $\lambda = 1$ the gradient is unbiased *for any critic*, because
+$V(s_t)$ is a valid baseline — and that below 1 the bias enters through
+$\gamma^n V(s_{t+n})$, which is not a valid baseline because $a_t$ helped
+determine $s_{t+n}$. That is one sentence, and it demonstrates the whole
+derivation.
+</Warning>
