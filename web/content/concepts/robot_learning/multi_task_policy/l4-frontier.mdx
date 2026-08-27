@@ -1,0 +1,174 @@
+---
+concept: multi_task_policy
+level: 4
+status: final
+recall:
+  prompt: "Trace how the field's answer to negative transfer changed between 2019 and now."
+  keyPoints:
+    - "Meta-World (2019) made negative transfer measurable and showed multi-task RL methods of the day underperforming per-task training — establishing it as a genuine problem rather than folklore."
+    - "PCGrad (2020) is the representative optimisation-side answer: detect conflicting gradients geometrically and project the conflict away."
+    - "BC-Z (2021) ran the clean test of language conditioning — held-out tasks described only in words — and found zero-shot success depends on training-task diversity, not on the language encoder."
+    - "RT-1 (2022) onward is the scale-side answer, and it largely won: at 700+ tasks and 130k demonstrations the joint policy *beats* per-task policies, and Open X-Embodiment extended the same finding across robot bodies."
+papers:
+  - key: yu2019metaworld
+    title: "Meta-World: A Benchmark and Evaluation for Multi-Task and Meta Reinforcement Learning"
+    authors: "Tianhe Yu, Deirdre Quillen, Zhanpeng He, Ryan Julian, Avnish Narayan, Hayden Shively, Adithya Bellathur, Karol Hausman, Chelsea Finn, Sergey Levine"
+    venue: CoRL
+    year: 2019
+    arxiv: "1910.10897"
+    takeaway: "Fifty manipulation tasks with a shared robot and action space, built so that transfer is possible in principle — and the baselines showed multi-task training underperforming per-task training, which is what made negative transfer a research target."
+  - key: yu2020pcgrad
+    title: "Gradient Surgery for Multi-Task Learning"
+    authors: "Tianhe Yu, Saurabh Kumar, Abhishek Gupta, Sergey Levine, Karol Hausman, Chelsea Finn"
+    venue: NeurIPS
+    year: 2020
+    arxiv: "2001.06782"
+    takeaway: "Identifies conflicting gradients as the mechanism of negative transfer and removes the conflict by projection — the clearest statement of the optimisation-side answer."
+  - key: lynch2019play
+    title: "Learning Latent Plans from Play"
+    authors: "Corey Lynch, Mohi Khansari, Ted Xiao, Vikash Kumar, Jonathan Tompson, Sergey Levine, Pierre Sermanet"
+    venue: CoRL
+    year: 2019
+    arxiv: "1903.01973"
+    takeaway: "Unstructured teleoperated play, relabelled in hindsight, trains a goal-conditioned policy covering many tasks — data with no task labels at all becomes multi-task supervision."
+  - key: lynch2021lang
+    title: "Language Conditioned Imitation Learning over Unstructured Data"
+    authors: "Corey Lynch, Pierre Sermanet"
+    venue: RSS
+    year: 2021
+    arxiv: "2005.07648"
+    takeaway: "Shows language can be attached to unstructured play by annotating only a small fraction of it, since a shared latent goal space lets the rest of the data train the policy."
+  - key: jang2022bcz
+    title: "BC-Z: Zero-Shot Task Generalization with Robotic Imitation Learning"
+    authors: "Eric Jang, Alex Irpan, Mohi Khansari, Daniel Kappler, Frederik Ebert, Corey Lynch, Sergey Levine, Chelsea Finn"
+    venue: CoRL
+    year: 2021
+    arxiv: "2202.02005"
+    takeaway: "100 tasks, conditioned on language or a human video, tested on tasks held out entirely — and the finding that zero-shot success tracks the *diversity* of training tasks rather than the amount of data per task."
+  - key: brohan2022rt1
+    title: "RT-1: Robotics Transformer for Real-World Control at Scale"
+    authors: "Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen Chebotar, Joseph Dabis, Chelsea Finn, Keerthana Gopalakrishnan, et al."
+    venue: RSS
+    year: 2023
+    arxiv: "2212.06817"
+    takeaway: "One transformer over 130k demonstrations and 700+ instructions, with discretised action tokens. Joint training beats per-task training, and absorbing simulation and other-robot data raises performance instead of degrading it."
+  - key: oneill2023openx
+    title: "Open X-Embodiment: Robotic Learning Datasets and RT-X Models"
+    authors: "Open X-Embodiment Collaboration (Abby O'Neill et al.)"
+    year: 2023
+    arxiv: "2310.08864"
+    takeaway: "Pools data from 22 robot embodiments and shows a single policy trained across all of them outperforms per-embodiment training — extending positive transfer past tasks to bodies."
+  - key: ghosh2024octo
+    title: "Octo: An Open-Source Generalist Robot Policy"
+    authors: "Octo Model Team: Dibya Ghosh, Homer Walke, Karl Pertsch, Kevin Black, Oier Mees, et al."
+    year: 2024
+    arxiv: "2405.12213"
+    takeaway: "An open generalist policy trained on 800k Open X-Embodiment trajectories, with a transformer designed so new observation modalities and action spaces can be attached without retraining from scratch."
+check:
+  - id: mtp_l4_c1
+    prompt: "Meta-World's headline baseline result was that multi-task methods underperformed per-task training. Why was that a useful finding rather than a discouraging one?"
+    options:
+      - "It proved multi-task learning is impossible for manipulation"
+      - "The benchmark was built so transfer *should* be possible — shared robot, shared action space, related tasks — so a failure isolates the optimisation and capacity problem rather than a mismatch between tasks"
+      - "It showed reinforcement learning is unsuitable for manipulation"
+      - "It established that 50 tasks is the maximum useful number"
+    answer: 1
+    explanation: "The value is in the controlled setup. If the tasks had nothing in common, failing to transfer would tell you nothing. Because they share a robot, an action space, and much of their structure, the failure had to come from how the tasks interact during training — which is exactly what PCGrad and its successors went after. A benchmark whose baselines all succeed teaches you very little."
+  - id: mtp_l4_c2
+    prompt: "Between 2020 and 2023 the field's centre of gravity moved from gradient-surgery methods toward scale. What does that shift most directly imply?"
+    options:
+      - "Gradient conflict was never real"
+      - "Conflict is largely a symptom of tasks competing for limited capacity and data — with enough of both, tasks stop interfering and start helping, so the scale-side fix subsumes the optimisation-side one in the regimes people care about"
+      - "PCGrad was found to be mathematically incorrect"
+      - "Transformers do not suffer from gradient conflict"
+    answer: 1
+    explanation: "PCGrad's analysis is correct and its guarantees still hold; what changed is the regime. At 10 tasks and a small network the tasks fight over room, and projecting conflicts away helps. At 700 tasks with a large transformer and 130k demonstrations, joint training beats per-task training outright — the interference is dominated by shared structure. Naming the regime dependence, rather than declaring a winner, is the answer that survives follow-ups."
+  - id: mtp_l4_c3
+    prompt: "BC-Z found that zero-shot performance on held-out tasks depended more on the number of distinct *training tasks* than on demonstrations per task. What does this imply for data collection?"
+    options:
+      - "Collect as many demonstrations as possible of a few tasks, to reduce per-task noise"
+      - "Breadth beats depth once you have enough per task: distinct tasks are what force the policy to decompose the instruction rather than memorise a mapping from sentence to behaviour"
+      - "Language conditioning should be replaced by one-hot task indices"
+      - "Zero-shot generalisation is impossible without a pretrained language model"
+    answer: 1
+    explanation: "With few tasks, mapping each whole instruction to a behaviour is the cheapest solution and it generalises to nothing. Only when verbs and objects recur in varied combinations does decomposition become the economical representation. That reframes data collection: a hundred tasks with fifty demonstrations each is worth more, for generalisation, than five tasks with a thousand — and it is also the more annoying thing to collect, which is why it took a while to become standard practice."
+---
+
+## Making the problem measurable
+
+<PaperCard refKey="yu2019metaworld" />
+
+Fifty manipulation tasks on one simulated arm with one action space, deliberately
+built so that transfer *ought* to work. The baselines then showed multi-task
+training losing to per-task training. That combination is what turned negative
+transfer from an anecdote into a target: with the task mismatch controlled away,
+the remaining explanation is how the objectives interact during optimisation.
+
+## The optimisation-side answer
+
+<PaperCard refKey="yu2020pcgrad" />
+
+Name the mechanism — gradients with negative inner product — and delete it by
+projection. Clean, cheap to state, with a provable pairwise guarantee. It is the
+most quotable version of a family that also includes loss reweighting, uncertainty
+weighting, and per-task normalisation, all of which treat interference as
+something to be *managed* at the optimiser.
+
+## The data-side answer
+
+<PaperGrid>
+<PaperCard refKey="lynch2019play" />
+<PaperCard refKey="lynch2021lang" />
+</PaperGrid>
+
+A different reading of the problem: the shortage is not optimisation but
+coverage. Let a human play with the objects for hours with no task in mind,
+relabel every segment in hindsight by the state it reached, and you have
+multi-task data without ever defining a task list. The follow-up shows language
+can be bolted on by annotating only a small fraction of that play — the rest
+still trains the policy through a shared latent goal space.
+
+<PaperCard refKey="jang2022bcz" />
+
+Then the test that mattered: 100 tasks, conditioned on a sentence or a human
+video, evaluated on tasks held out from training entirely. The finding —
+generalisation tracks the *number of distinct tasks* far more than the
+demonstrations per task — is the most actionable result in this whole cluster,
+because it tells you what to go collect.
+
+<KeyIdea>
+With few tasks, mapping each entire instruction to a behaviour is the cheapest
+thing the network can do, and it generalises to nothing. Varied verbs and objects
+in varied combinations are what make decomposition the economical solution. The
+language encoder does not give you compositionality; the dataset does.
+</KeyIdea>
+
+## The scale-side answer, which mostly won
+
+<PaperCard refKey="brohan2022rt1" />
+
+130k demonstrations, 700+ instructions, one transformer emitting discretised
+action tokens. The result that reframed the field: joint training **beats**
+per-task training, and folding in simulation data and data from a different robot
+raises performance rather than degrading it. The interference that Meta-World
+measured had not been solved by cleverness — it had been outgrown.
+
+<PaperGrid>
+<PaperCard refKey="oneill2023openx" />
+<PaperCard refKey="ghosh2024octo" />
+</PaperGrid>
+
+Open X-Embodiment pushed the same logic past tasks to bodies: pool 22 embodiments
+and a single policy beats per-embodiment training. Octo made a generalist policy
+of that kind open and extensible, so new sensors and action spaces can be
+attached without starting over.
+
+<Warning>
+Do not read this arc as "gradient conflict was a myth". PCGrad's guarantees are
+correct, and negative transfer is easy to reproduce at small scale — which is the
+regime most people's projects are actually in. The honest summary is regime
+dependence: with 10 tasks and a modest network, tasks compete and the
+optimisation-side tools earn their keep; with 700 tasks and a large one, shared
+structure dominates and the scale-side answer subsumes them. Diagnosing which
+regime you are in is the useful skill.
+</Warning>

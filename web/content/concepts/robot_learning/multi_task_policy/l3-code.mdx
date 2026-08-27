@@ -1,0 +1,199 @@
+---
+concept: multi_task_policy
+level: 3
+status: final
+recall:
+  prompt: "Implement a language-conditioned multi-task policy and a PCGrad step. What must you measure before believing it works?"
+  keyPoints:
+    - "Precompute and cache instruction embeddings from a frozen sentence encoder — they never change during training, so encoding them per batch wastes most of your compute."
+    - "Condition with FiLM at several layers rather than concatenating once at the head, so ignoring $z$ costs the network something."
+    - "Choose the task sampler explicitly. Pooling and shuffling weights by dataset size; a per-task sampler equalises influence and over-replays small sets."
+    - "Before reporting any multi-task result: hold the observation fixed, swap $z$, and measure how far the predicted action moves. Near zero means the conditioning is decorative."
+check:
+  - id: mtp_l3_c1
+    prompt: "Why precompute instruction embeddings instead of running the text encoder inside the training loop?"
+    options:
+      - "Because the text encoder cannot run on GPU"
+      - "Because the encoder is frozen, so the embedding of a given instruction is constant across all of training — recomputing it every batch is pure waste, often larger than the policy's own forward pass"
+      - "Because gradients would flow into the text encoder and destabilise it"
+      - "Because instructions must be padded to a fixed length"
+    answer: 1
+    explanation: "A frozen encoder is a lookup table you have not built yet. There are typically a few hundred distinct instructions and millions of training steps, so caching turns a repeated transformer forward pass into a dictionary access. Option 3 is not the reason — you would simply not require gradients — though it is a real concern if you ever unfreeze, since a large text encoder fine-tuned on a few hundred sentences overfits immediately."
+  - id: mtp_l3_c2
+    prompt: "In the PCGrad implementation, why must the per-task gradients be computed and stored separately rather than accumulated?"
+    options:
+      - "Because PyTorch cannot accumulate gradients across backward passes"
+      - "Because the projection needs each $g_i$ as a distinct vector to test $g_i^\\top g_j < 0$ and subtract components — once summed, the individual directions are unrecoverable"
+      - "Because each task uses a different loss function"
+      - "Because the tasks have different batch sizes"
+    answer: 1
+    explanation: "The whole method operates on the geometry between individual task gradients, and a sum destroys exactly that. The cost is the point of the trade-off: $N$ backward passes and $N$ copies of the gradient in memory per step. That is why PCGrad is common in papers with a handful of tasks and rare in production systems with hundreds, where people rely on scale and careful sampling instead."
+  - id: mtp_l3_c3
+    prompt: "Your conditioning-sensitivity check shows the predicted action barely changes when you swap the instruction. Which explanation should you rule out first?"
+    options:
+      - "The language encoder is producing degenerate embeddings"
+      - "The observation already determines the task in your dataset — each task was collected in its own scene — so the policy never needed to read $z$"
+      - "The FiLM layers are initialised badly"
+      - "The learning rate is too low"
+    answer: 1
+    explanation: "Check the data before the model. If 'open the drawer' was only ever collected in front of a drawer and 'fold the towel' only in front of a towel, then the scene is a perfect predictor of the instruction and reading $z$ buys nothing. No architectural fix repairs this; you need demonstrations of *different* tasks from the *same* initial scene, which is exactly the data people forget to collect. Verify the embeddings differ, then look at your scene-task correlation."
+---
+
+## Conditioning that is hard to ignore
+
+<CodeWalk title="Cached language embeddings and FiLM">
+
+```python title="policy.py"
+import torch, torch.nn as nn
+
+class InstructionCache:
+    """A frozen encoder is a lookup table. Build it once, up front."""
+
+    def __init__(self, encoder, instructions, device="cuda"):
+        with torch.no_grad():
+            embs = encoder(instructions)                  # (n_instr, lang_dim)
+        self.table = embs.to(device)
+        self.index = {s: i for i, s in enumerate(instructions)}
+
+    def __call__(self, batch_instructions):
+        idx = torch.tensor([self.index[s] for s in batch_instructions])
+        return self.table[idx]
+
+
+class FiLMBlock(nn.Module):
+    """h <- gamma(z) * h + beta(z): the task modulates the computation
+    rather than arriving as a side input the head can zero out."""
+
+    def __init__(self, feat_dim, lang_dim):
+        super().__init__()
+        self.to_gamma_beta = nn.Linear(lang_dim, 2 * feat_dim)
+        # Init so the block starts as identity: gamma=1, beta=0.
+        nn.init.zeros_(self.to_gamma_beta.weight)
+        nn.init.zeros_(self.to_gamma_beta.bias)
+
+    def forward(self, h, z):
+        gamma, beta = self.to_gamma_beta(z).chunk(2, dim=-1)
+        return (1 + gamma) * h + beta
+```
+
+</CodeWalk>
+
+Two details carry the weight. The cache turns a transformer forward pass per
+batch into an index lookup — with a few hundred distinct instructions and
+millions of steps, that is most of your training compute. And the zero
+initialisation makes FiLM start as the identity, so the policy trains as a
+task-agnostic model on step one and *earns* its way into using $z$ rather than
+being destabilised by random modulation early on.
+
+## Choosing the weighting on purpose
+
+```python title="sampling.py"
+class TaskBalancedSampler(torch.utils.data.Sampler):
+    """Sample a task uniformly, then an example within it.
+
+    Pooling and shuffling instead would set w_i proportional to |D_i| —
+    a valid choice, but one you should make rather than inherit.
+    """
+
+    def __init__(self, task_indices, length):
+        self.task_indices = list(task_indices.values())   # list of index lists
+        self.length = length
+
+    def __iter__(self):
+        for _ in range(self.length):
+            task = self.task_indices[torch.randint(len(self.task_indices), (1,))]
+            yield task[torch.randint(len(task), (1,))]
+
+    def __len__(self):
+        return self.length
+```
+
+<Warning>
+Equalising tasks means the 200-demo task is replayed 25x more often per epoch
+than the 5,000-demo one, so it overfits 25x faster. Watch per-task validation
+curves separately, not the aggregate — the average will look healthy while your
+smallest task is memorised.
+</Warning>
+
+## PCGrad, when you have few enough tasks to afford it
+
+<CodeWalk title="Project away pairwise conflicts">
+
+```python title="pcgrad.py"
+def pcgrad_step(model, per_task_losses, opt):
+    grads = []
+    for i, loss in enumerate(per_task_losses):
+        opt.zero_grad()
+        # Keep the graph for all but the last: each task needs its own
+        # gradient as a separate vector, since summing destroys the geometry.
+        loss.backward(retain_graph=(i < len(per_task_losses) - 1))
+        grads.append(torch.cat([
+            (p.grad if p.grad is not None else torch.zeros_like(p)).flatten()
+            for p in model.parameters()
+        ]))
+
+    projected = []
+    for i, g_i in enumerate(grads):
+        g = g_i.clone()
+        for j in torch.randperm(len(grads)):        # order matters — hence random
+            if j == i:
+                continue
+            dot = torch.dot(g, grads[j])
+            if dot < 0:                             # conflict: remove the component
+                g -= dot / grads[j].pow(2).sum() * grads[j]
+        projected.append(g)
+
+    flat = torch.stack(projected).sum(0)
+    opt.zero_grad()
+    offset = 0
+    for p in model.parameters():
+        n = p.numel()
+        p.grad = flat[offset:offset + n].view_as(p)
+        offset += n
+    opt.step()
+```
+
+</CodeWalk>
+
+`torch.randperm` is not a stylistic choice. Projecting against $j$ then $k$ does
+not leave the result orthogonal to $j$, so the outcome depends on order and the
+method randomises it rather than baking in a bias. The cost is $N$ backward
+passes and $N$ full gradient copies per step, which is why this appears in papers
+with ten tasks and not in systems with seven hundred.
+
+## The check to run before believing anything
+
+<Steps>
+<Step title="Conditioning sensitivity">
+Fix the observation, sweep $z$ over every instruction, and measure the spread of
+the predicted actions. Near zero means the policy is not conditioned on
+anything, and every multi-task claim about it is unsupported.
+</Step>
+
+<Step title="Then look at your scene-task correlation">
+If sensitivity is low, the usual cause is data, not architecture: each task was
+collected in its own scene, so the observation predicts the instruction
+perfectly and reading $z$ was never necessary. The fix is demonstrations of
+different tasks from the same starting scene.
+</Step>
+
+<Step title="Per-task curves, never the aggregate">
+Negative transfer shows as some tasks degrading while the mean improves. An
+averaged loss is precisely the statistic that hides it.
+</Step>
+
+<Step title="The N-single-task baseline">
+Train separate policies with the same total compute. If the joint model does not
+beat them, you have paid for interference and received nothing. This is the
+comparison multi-task papers are weakest on, and the one an interviewer will ask
+whether you ran.
+</Step>
+</Steps>
+
+```python title="check.py"
+@torch.no_grad()
+def conditioning_sensitivity(policy, obs, z_table):
+    """Same scene, every instruction. How far apart are the actions?"""
+    acts = torch.stack([policy(obs, z.unsqueeze(0))[0] for z in z_table])
+    return acts.std(dim=0).mean().item()      # ~0 means z is being ignored
+```

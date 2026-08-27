@@ -1,26 +1,148 @@
 ---
 concept: multi_task_policy
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Multi-Task and Language-Conditioned Policies in plain language:
-    what is it, and why does it matter?"
+  prompt: "Explain multi-task and language-conditioned policies in plain language. What does conditioning buy, and what is the risk you take on?"
   keyPoints:
-    - Instead of training a separate robot brain for every task, train one brain
-      that can follow instructions.
-    - Like a human assistant who can do many things when you tell them what you
-      want.
-    - The language instruction acts as a program that configures the policy's
-      behavior, enabling generalization to new instructions composed from
-      familiar concepts.
-check: []
-papers: []
+    - "One policy $\\pi(a \\mid o, z)$ where $z$ names the task — a one-hot index, a language embedding, or a goal image. The trunk learns what all the tasks share; $z$ selects which behaviour to produce."
+    - "The payoff is amortisation: gripper control, object-centric visual features, and collision avoidance are learned once for all tasks instead of once per task."
+    - "The risk is negative transfer. Tasks whose gradients disagree fight over shared capacity, and a policy that fits ten tasks jointly can be worse at each than ten separate policies."
+    - "Language conditioning adds one specific ability: describing a task the policy has never been trained on, in words whose parts it has seen. That is compositional generalisation, and it does not come free with a language encoder — the data has to make language load-bearing."
+media:
+  - kind: article
+    title: "RT-1: Robotics Transformer for Real-World Control at Scale"
+    url: https://robotics-transformer1.github.io/
+    source: "Brohan et al., Google"
+    note: "The clearest demonstration that one language-conditioned policy over 700+ tasks beats per-task policies — but only after the data scale is large enough. Watch the long-horizon instruction videos."
+  - kind: article
+    title: "BC-Z: Zero-Shot Task Generalization with Robotic Imitation Learning"
+    url: https://sites.google.com/view/bc-z/home
+    source: "Jang et al., Google / Everyday Robots"
+    note: "The clean experiment on the question that matters: does the policy do a task described only in words it never trained on? Read the held-out-task numbers, not the headline."
+  - kind: lecture
+    title: "CS 285 Lecture 2: Imitation Learning, Part 1"
+    url: https://www.youtube.com/watch?v=tbLaFtYpWWU
+    source: "UC Berkeley CS285 · Sergey Levine"
+    minutes: 17
+    note: "Multi-task policies are almost always trained as conditioned behaviour cloning. The failure modes of the base method carry over unchanged, so start here if that is not solid."
+check:
+  - id: mtp_l1_c1
+    prompt: "You train one policy on ten tasks jointly and each task is worse than its dedicated single-task policy. What is the standard name for this, and what causes it?"
+    options:
+      - "Overfitting — the joint model has too many parameters"
+      - "Negative transfer: the tasks' gradients disagree, so they compete for shared capacity and the update that helps one undoes progress on another"
+      - "Catastrophic forgetting — the policy forgets earlier tasks"
+      - "Covariate shift, since each task has a different state distribution"
+    answer: 1
+    explanation: "Negative transfer is about *interference between simultaneous objectives*, not about capacity or forgetting. Catastrophic forgetting is the sequential version — you train on A then B and lose A — and it does not apply when tasks are interleaved in every batch. The tell for negative transfer is that per-task performance drops as you *add* tasks while data per task stays fixed, and it is worst between tasks that look similar but need opposite actions."
+  - id: mtp_l1_c2
+    prompt: "You add a frozen language encoder and condition the policy on instruction embeddings. On held-out phrasings of trained tasks it works; on genuinely new instructions it fails entirely. What does that suggest?"
+    options:
+      - "The language encoder is too small"
+      - "The policy learned to use language as a task lookup key rather than compositionally — with one instruction per task in training, nothing forced it to learn what the individual words mean"
+      - "Language conditioning does not work for robotics"
+      - "The instructions need to be tokenised differently"
+    answer: 1
+    explanation: "If every task appears under one instruction, then mapping the whole embedding to a task index minimises the loss perfectly, and there is no gradient pressure to decompose 'pick up the red block' into a verb and an object. Compositional generalisation requires the training data to vary verbs and nouns *independently* — several objects per verb and several verbs per object — so the only economical solution is to represent them separately. It is a property of the dataset, not of the encoder."
+  - id: mtp_l1_c3
+    prompt: "What is the main practical reason to prefer language over a one-hot task index as the conditioning variable?"
+    options:
+      - "Language embeddings are lower-dimensional than one-hot vectors"
+      - "A one-hot index has no structure, so tasks share nothing through the conditioning and new tasks need a new output slot; language places related tasks near each other and lets an unseen instruction be described in known words"
+      - "Language encoders train faster"
+      - "One-hot conditioning cannot be used with transformers"
+    answer: 1
+    explanation: "A one-hot vector makes 'pick up the red block' and 'pick up the blue block' exactly as different as 'pick up the red block' and 'wipe the table' — the geometry carries no information. A sentence embedding puts related instructions close together, so the policy can interpolate, and adding a task requires no architectural change. That is also the honest limit of the argument: language buys you a structured conditioning space, and the structure only pays off if the training data made it load-bearing."
 ---
 
-## Intuition
+## One brain, many jobs
 
-Instead of training a separate robot brain for every task, train one brain that can follow instructions. Like a human assistant who can do many things when you tell them what you want. The language instruction acts as a program that configures the policy's behavior, enabling generalization to new instructions composed from familiar concepts.
+A single-task policy is a function of what the robot sees. A multi-task policy
+takes a second input: something that says *which task*.
 
-## In practice
+$$
+\pi(a \mid o) \quad\longrightarrow\quad \pi(a \mid o, z)
+$$
 
-RT-2 (Robotics Transformer 2): a 55B parameter VLA that takes image + language instruction and outputs discretized actions. Trained on both internet-scale vision-language data and robot demonstrations. Can follow novel instructions like 'move the apple to the blue cup' even if that exact combination was never demonstrated, because it composes concepts from language understanding. Smaller-scale: a diffusion policy conditioned on CLIP text embeddings, trained on 10 tasks with 50 demos each, generalizes to novel task descriptions at test time.
+That $z$ can be a one-hot index over a fixed task list, an embedding of the
+sentence "put the sponge in the drawer", or an image of the desired final state.
+The architecture barely changes. What changes is everything about how the system
+behaves as you add tasks.
+
+<Figure src="/figures/multitask-conditioning.svg"
+        alt="Left: three tasks each with a separate encoder and head, nothing shared. Right: one shared trunk taking an image and a task descriptor z, producing an action."
+        caption="The conditioning variable is the whole design. Everything the tasks have in common gets learned once in the trunk; z is only asked to select among behaviours, not to build them." />
+
+<Intuition>
+Cooking is the useful analogy. You do not learn "make an omelette" and "make a
+risotto" as two unrelated skills — knife control, heat management, and knowing
+when a pan is hot enough are shared, and the recipe just says which of them to
+apply in which order.
+
+The recipe is $z$. It is short because most of the competence lives elsewhere.
+</Intuition>
+
+## Why bother
+
+<Steps>
+<Step title="Amortisation">
+Holding an object without crushing it, keeping the arm out of its own way,
+finding the gripper in the image — every task needs these, and separate policies
+learn them separately from separate data. One trunk learns them once, from the
+union of all your data.
+</Step>
+
+<Step title="Data you could not otherwise use">
+Twenty tasks with 50 demonstrations each is 1000 demonstrations for the shared
+representation. No individual task could have justified collecting them.
+</Step>
+
+<Step title="A usable interface">
+Adding a task to a one-hot policy means changing the architecture and
+retraining. Adding a task to a language-conditioned policy means typing a
+sentence. That is the difference between a research artefact and something a
+non-expert can direct.
+</Step>
+
+<Step title="Generalisation across, not just within, tasks">
+Trained on "pick up the sponge" and "put the block in the drawer", a policy that
+has genuinely decomposed language can attempt "put the sponge in the drawer".
+This is the payoff people actually want — and the one that most often fails to
+materialise.
+</Step>
+</Steps>
+
+## What goes wrong
+
+**Negative transfer.** Tasks are not automatically friends. When two tasks need
+opposite actions from similar-looking observations, their gradients point in
+opposing directions and the shared update partly cancels. Adding tasks can make
+every task worse. This is the phenomenon that made multi-task learning a
+research problem rather than a free lunch.
+
+**The conditioning gets ignored.** If the observation already reveals the task —
+only a drawer is present, so the task must be "open the drawer" — the policy can
+solve the training set without ever reading $z$. It looks perfect until you ask
+for a different task in the same scene.
+
+**Task imbalance.** Sum the per-task losses and the task with ten times the data
+gets ten times the gradient. Your policy quietly becomes a specialist wearing a
+multi-task label.
+
+<Warning>
+The single most useful diagnostic is cheap: hold the scene fixed and change only
+$z$. If the behaviour does not change, the policy is not conditioned on anything
+— it has learned a scene-to-action map and the instruction is decorative. Run
+this before believing any multi-task result, including your own.
+</Warning>
+
+<KeyIdea>
+Negative transfer is real at small scale and largely dissolves at large scale.
+RT-1 and its successors find that one policy over hundreds of tasks *beats*
+per-task policies — but only once data and capacity are big enough that the
+tasks stop competing for room. Being able to say which regime you are in is more
+useful than any opinion about whether multi-task learning "works".
+</KeyIdea>
+
+<WatchThis />

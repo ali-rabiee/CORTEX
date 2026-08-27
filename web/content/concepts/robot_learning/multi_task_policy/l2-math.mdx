@@ -1,25 +1,172 @@
 ---
 concept: multi_task_policy
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Multi-Task and Language-Conditioned
-    Policies, including the key equations.
+  prompt: "Write the multi-task objective, define gradient conflict, and derive PCGrad's projection along with what it guarantees."
   keyPoints:
-    - A single policy $\pi_\theta(a | s, z)$ that performs multiple tasks,
-      conditioned on a task descriptor $z$.
-    - "The descriptor can be: a one-hot task ID, a goal image $s_g$, a language
-      instruction $l$ embedded via a language model $z = \\text{Enc}(l)$, or a
-      task embedding from a learned latent space."
-    - "Language conditioning: $\\pi_\\theta(a | s, \\text{Enc}(l))$ enables
-      open-vocabulary task specification — e.g., 'pick up the red cup' or 'wipe
-      the table.' Architecture: visual encoder + language encoder
-      (CLIP/SentenceBERT) $\\rightarrow$ cross-attention fusion $\\rightarrow$
-      action head."
-check: []
-papers: []
+    - "$\\mathcal{L}(\\theta) = \\sum_i w_i\\, \\mathbb{E}_{(o,a)\\sim\\mathcal{D}_i}[\\ell(\\pi_\\theta(o, z_i), a)]$. Sampling uniformly over pooled examples silently sets $w_i \\propto |\\mathcal{D}_i|$ — a choice, and usually not the one you wanted."
+    - "Tasks $i, j$ conflict at $\\theta$ when $g_i^\\top g_j < 0$. PCGrad replaces $g_i$ with $g_i - \\frac{g_i^\\top g_j}{\\|g_j\\|^2} g_j$, which makes the inner product with $g_j$ exactly zero."
+    - "The projected gradient is still a descent direction for its own task: $g_i^{\\perp\\top} g_i = \\|g_i\\|^2 - (g_i^\\top g_j)^2/\\|g_j\\|^2 \\ge 0$ by Cauchy–Schwarz. That inequality is the whole guarantee — and it is only pairwise and only local."
+    - "Hindsight relabelling makes goal-conditioned data self-supervising: a trajectory that ended at state $s_T$ is a demonstration for the goal $\\phi(s_T)$, whatever it was trying to do."
+check:
+  - id: mtp_l2_c1
+    prompt: "After PCGrad projects $g_i$ onto the normal plane of a conflicting $g_j$, what is guaranteed?"
+    options:
+      - "Both tasks' losses are guaranteed to decrease at every step"
+      - "$g_i^{\\perp\\top} g_j = 0$ exactly, and $g_i^{\\perp\\top} g_i \\ge 0$ by Cauchy–Schwarz — so the update no longer opposes task $j$ and is still a descent direction for task $i$"
+      - "The combined gradient has larger norm than the naive sum"
+      - "Convergence to a Pareto-optimal point"
+    answer: 1
+    explanation: "Both parts fall straight out of the algebra: subtracting the $g_j$-component leaves something orthogonal to $g_j$, and the retained self-inner-product is non-negative by Cauchy–Schwarz. What you do *not* get is any guarantee about joint progress. The projection is pairwise, so with more than two tasks it is applied against others in random order and the outcome depends on that order; and it holds at the current $\\theta$ only, saying nothing about the next step."
+  - id: mtp_l2_c2
+    prompt: "You pool ten task datasets and sample batches uniformly over examples. Task A has 5,000 demos, task B has 200. What have you implicitly chosen?"
+    options:
+      - "Equal weighting across tasks, since every example counts once"
+      - "$w_i \\propto |\\mathcal{D}_i|$, so task A contributes 25x the gradient signal of task B and the shared trunk is optimised mostly for A"
+      - "Nothing — the weighting is set by the loss function, not the sampler"
+      - "Weighting inversely proportional to task difficulty"
+    answer: 1
+    explanation: "The sampler *is* the weighting; there is no neutral option. Uniform-over-examples means proportional-to-dataset-size, which is defensible if dataset sizes reflect how much you care, and is usually just an artefact of which tasks were easy to collect. The alternative — sample task uniformly, then an example within it — makes B's 200 demos count as much as A's 5,000, at the cost of seeing each of them 25x more often and overfitting them. Neither is free, and the point is to choose deliberately."
+  - id: mtp_l2_c3
+    prompt: "Hindsight relabelling turns a failed trajectory into a successful demonstration by replacing the intended goal with the state actually reached. When does this reasoning break?"
+    options:
+      - "When the trajectory is short"
+      - "When the trajectory is far from optimal for the state it reached — it wandered, or reached it accidentally — since it is then a demonstration of an inefficient way to get there, and the policy learns that inefficiency"
+      - "When the goal space and the state space are different"
+      - "It never breaks; any trajectory is valid data"
+    answer: 1
+    explanation: "Relabelling is sound as a statement about *reachability*: this trajectory does get to $\\phi(s_T)$. It is unsound as a statement about *quality*, and behaviour cloning copies quality. A trajectory that meandered for 200 steps before stumbling into a state teaches the policy to meander toward that state. This is why relabelling is far more natural in reinforcement learning, where the reward can still penalise the meandering, than in pure imitation — and why 'play' data is filtered or reweighted before being cloned."
 ---
 
-## Formal definition
+## The objective, and the weighting hidden inside it
 
-A single policy $\pi_\theta(a | s, z)$ that performs multiple tasks, conditioned on a task descriptor $z$. The descriptor can be: a one-hot task ID, a goal image $s_g$, a language instruction $l$ embedded via a language model $z = \text{Enc}(l)$, or a task embedding from a learned latent space. Language conditioning: $\pi_\theta(a | s, \text{Enc}(l))$ enables open-vocabulary task specification — e.g., 'pick up the red cup' or 'wipe the table.' Architecture: visual encoder + language encoder (CLIP/SentenceBERT) $\rightarrow$ cross-attention fusion $\rightarrow$ action head.
+With tasks $i = 1 \ldots N$, per-task datasets $\mathcal{D}_i$, and conditioning
+variables $z_i$:
+
+$$
+\mathcal{L}(\theta) = \sum_{i=1}^{N} w_i \;
+\mathbb{E}_{(o,a)\sim\mathcal{D}_i}\Big[\ell\big(\pi_\theta(o, z_i),\, a\big)\Big]
+$$
+
+Nothing here is new — it is a sum of single-task losses. The interesting content
+is entirely in $w_i$ and in the fact that all tasks share $\theta$.
+
+<Warning>
+There is no default. Pooling every demonstration and shuffling sets
+$w_i \propto |\mathcal{D}_i|$, which means your task weighting is whatever your
+data collection happened to produce. Sampling a task uniformly and then an
+example within it sets $w_i = 1/N$, which equalises influence at the cost of
+replaying small datasets many times per epoch. Both are choices; the failure is
+making one by accident and reporting it as neutral.
+</Warning>
+
+## Gradient conflict
+
+Write $g_i = \nabla_\theta \mathcal{L}_i(\theta)$. Tasks $i$ and $j$ **conflict**
+at $\theta$ when
+
+$$
+g_i^\top g_j < 0
+$$
+
+The shared update $\sum_i g_i$ then contains components that undo each other, and
+in the worst case the sum is shorter than any individual gradient — you take a
+small step that helps nobody.
+
+<Figure src="/figures/multitask-gradient-conflict.svg"
+        alt="Left: two gradient vectors more than ninety degrees apart, with their sum drawn shorter than either. Right: task A's gradient projected onto the plane normal to task B's, yielding a vector that no longer opposes B."
+        caption="Conflict is a statement about an inner product at the current parameters. PCGrad removes exactly the offending component and keeps the rest." />
+
+<Derivation title="PCGrad's projection, and the two things it guarantees">
+
+**Step 1 — remove the conflicting component.** Decompose $g_i$ into the part
+along $g_j$ and the part orthogonal to it, and keep only the orthogonal part:
+
+$$
+g_i^{\perp} \;=\; g_i - \frac{g_i^\top g_j}{\|g_j\|^2}\, g_j
+$$
+
+**Step 2 — check it no longer opposes $j$.**
+
+$$
+g_i^{\perp\top} g_j = g_i^\top g_j - \frac{g_i^\top g_j}{\|g_j\|^2}\,\|g_j\|^2 = 0
+$$
+
+Exactly orthogonal, not merely improved.
+
+**Step 3 — check it still helps $i$.**
+
+$$
+g_i^{\perp\top} g_i = \|g_i\|^2 - \frac{(g_i^\top g_j)^2}{\|g_j\|^2} \;\ge\; 0
+$$
+
+non-negative by Cauchy–Schwarz, with equality only when $g_i$ and $g_j$ are
+exactly anti-parallel — the one case where the tasks are in total opposition and
+no shared direction exists.
+
+**The assumptions doing the work.** The analysis is *pairwise* and *local*. With
+$N$ tasks, PCGrad projects each gradient against the others in random order, and
+the result depends on that order — orthogonality to the last one projected
+against is not preserved by the earlier projections. And every statement holds
+at the current $\theta$; nothing is claimed about the trajectory of optimisation
+or about reaching a Pareto-optimal point.
+
+</Derivation>
+
+## How the task actually enters the network
+
+<Steps>
+<Step title="Concatenation">
+Append $z$ to the pooled features before the head. Simplest, and the easiest for
+the network to ignore — the head can learn near-zero weights on those inputs if
+the observation already determines the task.
+</Step>
+
+<Step title="FiLM modulation">
+Predict per-channel scale and shift from $z$ and apply them at several layers:
+$h \leftarrow \gamma(z) \odot h + \beta(z)$. The task now modulates the
+computation rather than being a late-arriving side input, which makes ignoring
+it far more expensive.
+</Step>
+
+<Step title="Tokens in a sequence model">
+Encode the instruction as tokens and let the policy transformer attend over
+them jointly with visual tokens. This is what RT-1 and every VLA do, and it is
+the only option that scales to instructions with internal structure worth
+attending to.
+</Step>
+</Steps>
+
+<KeyIdea>
+Whatever the mechanism, the property you need is that $\pi(a \mid o, z)$
+actually *depends* on $z$. Measure it: hold $o$ fixed, vary $z$, and look at how
+much the action distribution moves. A policy with near-zero sensitivity has
+learned a scene-to-action map, and every multi-task claim you make about it is
+unsupported.
+</KeyIdea>
+
+## Goal conditioning and the relabelling trick
+
+Let $z = g$ be a goal state or goal image, with $\phi$ mapping states to goals.
+Then any trajectory carries a free label: whatever it was *trying* to do, it is
+a demonstration of reaching $\phi(s_T)$.
+
+$$
+\tau = (s_0, a_0, \ldots, s_T) \;\longrightarrow\;
+\big\{(s_t, a_t, \; g = \phi(s_T))\big\}_{t<T}
+$$
+
+This is hindsight relabelling, and it is why goal-conditioned methods can learn
+from unstructured "play" data that has no task labels at all: every segment of
+every trajectory is training data for some goal.
+
+<Warning>
+The trick is sound about *reachability* and silent about *quality*. Behaviour
+cloning imitates whatever it is shown, so relabelling a trajectory that wandered
+for 200 steps before stumbling onto a state teaches the policy to wander toward
+that state. Relabelling fits far more comfortably in reinforcement learning,
+where a reward still penalises the wandering. In the imitation setting it needs
+filtering — short segments, or a preference for trajectories that reached their
+endpoint efficiently.
+</Warning>

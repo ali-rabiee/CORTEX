@@ -1,25 +1,160 @@
 ---
 concept: multi_task_policy
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Multi-Task and Language-Conditioned Policies fail in practice,
-    and how would you present it in an interview?
+  prompt: "Give your interview answer on multi-task and language-conditioned policies. What is the failure everyone hits, and what is the one check you run first?"
   keyPoints:
-    - "Language grounding failure: the policy understands the language (correct
-      text embedding) but fails to ground it in the physical scene (picks wrong
-      object)."
-    - "Negative transfer: adding too many diverse tasks degrades performance on
-      each individual task compared to single-task specialists."
-    - Distribution of tasks in training data matters — rare tasks get forgotten.
-check: []
-papers: []
+    - "Open by defining the conditioning: $\\pi(a \\mid o, z)$, and say what $z$ can be and why the choice matters — a one-hot index carries no structure, language does."
+    - "Name negative transfer with its mechanism (conflicting gradients competing for shared capacity), the optimisation-side fix, and why the field mostly got there by scale instead."
+    - "The check to run first is conditioning sensitivity: fix the scene, swap $z$, see whether the action moves. It is one line, and it invalidates most first attempts."
+    - "The actionable result to cite is BC-Z's: zero-shot generalisation tracks the number of distinct training tasks, not demonstrations per task. Compositionality comes from the dataset, not the language encoder."
+interview:
+  answer: >-
+    A multi-task policy is just a policy with a second input naming the task —
+    pi of a given o and z — where z can be a one-hot index, a goal image, or an
+    embedding of a natural-language instruction. The architecture barely
+    changes; what changes is what the shared trunk gets to amortise. Gripper
+    control, object-centric visual features, collision avoidance: every task
+    needs those, and separate policies learn them separately from separate
+    data. The choice of z matters more than people expect. A one-hot vector
+    makes "pick up the red block" exactly as different from "pick up the blue
+    block" as from "wipe the table" — there's no structure in the geometry — so
+    nothing transfers through the conditioning and adding a task means changing
+    the architecture. Language embeddings put related instructions near each
+    other, and you can describe a new task by typing a sentence. The thing that
+    goes wrong is negative transfer. Tasks whose gradients disagree compete for
+    shared capacity, and adding tasks can make every task worse. Meta-World
+    established that empirically, and PCGrad is the clean statement of the
+    optimisation-side fix — detect gradients with negative inner product and
+    project the conflicting component out. But that's mostly not how the field
+    solved it. RT-1 and Open X-Embodiment showed that at seven hundred tasks
+    and a large enough model, joint training beats per-task training outright,
+    and adding data from a different robot helps rather than hurts. So my
+    working answer is that negative transfer is a small-scale phenomenon: real
+    if you have ten tasks and a modest network, largely outgrown if you have
+    enough data and capacity. And practically, the first thing I check on any
+    multi-task policy is conditioning sensitivity — hold the scene fixed, swap
+    the instruction, and see whether the predicted action actually moves. It
+    very often doesn't.
+  followUps:
+    - q: "Why would the conditioning be ignored? Isn't it an input?"
+      a: >-
+        Because in most datasets the scene already reveals the task. If "open
+        the drawer" was only ever collected in front of a drawer and "fold the
+        towel" only in front of a towel, then the observation is a perfect
+        predictor of the instruction and reading z buys the network nothing —
+        it minimises the training loss just as well by learning a scene-to-
+        action map. It looks flawless until you ask for a different task in the
+        same scene. The fix isn't architectural; it's collecting demonstrations
+        of several different tasks from the same starting configuration. FiLM
+        conditioning at multiple layers makes ignoring z more expensive than
+        concatenating once at the head, but it can't manufacture a signal the
+        data doesn't contain.
+    - q: "You have budget for 5,000 more demonstrations. More per task, or more tasks?"
+      a: >-
+        More tasks, if I care about generalising to new instructions. That's
+        BC-Z's finding — zero-shot success on held-out tasks tracked the number
+        of distinct training tasks far more than demos per task. The mechanism
+        is that with few tasks, memorising sentence-to-behaviour is the
+        cheapest solution the network can find, and it generalises to nothing.
+        Only when verbs and objects recur in varied combinations does
+        decomposing the instruction become the economical representation. The
+        caveat is a floor — if I'm below roughly fifty demos on a task it won't
+        work at all, so I'd top up the thin tasks first and spend the rest on
+        breadth.
+    - q: "How would you tell negative transfer from just not having enough data?"
+      a: >-
+        Run the scaling comparison in the task axis rather than the data axis.
+        Hold demonstrations-per-task fixed and train on two, five, and ten
+        tasks, watching each task's success separately. If per-task performance
+        falls as you add tasks, that's interference. If it's flat or rising,
+        you have a data problem, not a transfer problem. The other half is the
+        N-single-task baseline at matched total compute — if the joint policy
+        doesn't beat separate policies, you've paid for interference and got
+        nothing. That comparison is the one multi-task papers are weakest on,
+        and it's what I'd want to see before believing a result.
+    - q: "Does language conditioning actually require a language model?"
+      a: >-
+        Not for the conditioning itself — a frozen sentence encoder is enough,
+        and in practice you cache the embeddings since they never change. What
+        a large pretrained model buys you is semantic structure you didn't pay
+        to collect: "grab the mug" landing near "pick up the cup" without ever
+        having demonstrated both phrasings. That's real, and it's cheap. What
+        it does not buy you is compositional generalisation to new tasks —
+        that comes from the data varying verbs and objects independently. RT-2
+        is the interesting counterexample, because there the web-scale
+        vision-language pretraining does carry over genuinely new semantic
+        knowledge, but that's a much bigger claim than "we used a text
+        encoder."
+  traps:
+    - "Presenting multi-task training as free sharing. Adding tasks can make every task worse, and a candidate who does not raise negative transfer unprompted has not trained one of these."
+    - "Crediting the language encoder for compositional generalisation. The encoder gives you a structured conditioning space; whether the policy decomposes instructions is determined by whether the dataset varied verbs and objects independently."
+    - "Reporting only aggregate multi-task performance. The average is precisely the statistic that hides some tasks degrading while others improve — always show per-task curves."
+    - "Treating negative transfer as settled in either direction. It is regime-dependent: real at ten tasks and a small model, largely outgrown at seven hundred tasks and a large one. Say which regime you mean."
+check:
+  - id: mtp_l5_c1
+    prompt: "A team reports that their 12-task language-conditioned policy averages 71% success, up from 68% for single-task policies. What should you ask for first?"
+    options:
+      - "The language encoder architecture"
+      - "Per-task success rates, and whether the single-task baselines got the same total compute — an aggregate can hide several tasks degrading badly while a few carry the mean"
+      - "The number of denoising steps used at inference"
+      - "Whether they used PCGrad"
+    answer: 1
+    explanation: "A three-point average improvement is exactly the regime where the distribution matters more than the mean. Negative transfer typically presents as a handful of tasks collapsing while related ones improve, and averaging erases it. The compute-matched baseline is the second half: if the single-task policies were each trained for a twelfth as long, the comparison establishes nothing about transfer."
+  - id: mtp_l5_c2
+    prompt: "Your policy handles all 40 training instructions well but fails on every new instruction, including ones built entirely from familiar words. What is the most likely explanation?"
+    options:
+      - "The language encoder is not powerful enough — a larger one would generalise"
+      - "The training set has roughly one instruction per task, so mapping the whole embedding to a behaviour minimises the loss and nothing ever forced the policy to represent verbs and objects separately"
+      - "The action space is too coarse to express new tasks"
+      - "The policy needs more demonstrations per instruction"
+    answer: 1
+    explanation: "Composed-from-familiar-words is the diagnostic detail. The words are present in training, so the encoder plainly represents them — the failure is that the *policy* never needed to. With one instruction per task, whole-sentence lookup is the cheapest solution available. The fix is data whose verbs and objects vary independently, several objects per verb and several verbs per object, which is also why option 4 is the tempting wrong answer: more demonstrations of the same 40 instructions deepen exactly the lookup table that is the problem."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Language grounding failure: the policy understands the language (correct text embedding) but fails to ground it in the physical scene (picks wrong object). Negative transfer: adding too many diverse tasks degrades performance on each individual task compared to single-task specialists. Distribution of tasks in training data matters — rare tasks get forgotten. Symptoms: policy follows common instructions well but fails on rare or compositional ones. Fix: balanced task sampling, task-specific evaluation, hierarchical policies (language $\rightarrow$ subgoal $\rightarrow$ action), and grounding modules that explicitly link language to perception.
+<Steps>
+<Step title="Same behaviour regardless of instruction → the conditioning is dead">
+Run the sensitivity check: fix the observation, sweep $z$, measure the spread of
+predicted actions. Near zero and you are looking at a scene-to-action map. Then
+look at your data, not your architecture — the usual cause is that each task was
+collected in its own scene.
+</Step>
 
-## Interview-ready answer
+<Step title="Per-task success falls as you add tasks → negative transfer">
+Confirm it by scaling in the *task* axis with demonstrations-per-task held fixed.
+Falling per-task curves mean interference; flat ones mean you have a data
+problem. Compare against separate policies at matched total compute before
+concluding anything.
+</Step>
 
-Multi-task policies are the path to general-purpose robot systems. Language conditioning via $\pi(a|s, \text{Enc}(l))$ is the most flexible approach — it enables open-vocabulary task specification and compositional generalization. The architecture choices that matter: (1) language encoder — CLIP or SentenceBERT for instruction embedding, (2) fusion mechanism — FiLM conditioning or cross-attention between visual and language features, (3) action space — discretized tokens (RT-2) vs continuous (diffusion). The key challenge is data: you need diverse demonstrations across many tasks with language annotations. Current frontier: RT-2, Octo, and OpenVLA show that internet-scale pretraining dramatically improves multi-task robot performance.
+<Step title="One task dominates → the sampler is your weighting">
+Pooling and shuffling sets each task's influence proportional to its dataset
+size. Check the per-task example counts before blaming the model; a specialist
+wearing a multi-task label is the most common version of this.
+</Step>
+
+<Step title="Trained instructions fine, new ones hopeless → the dataset never demanded composition">
+One instruction per task makes whole-sentence lookup optimal. No encoder change
+fixes it. You need verbs and objects varying independently.
+</Step>
+
+<Step title="Small tasks memorised, large tasks fine → over-replay from balanced sampling">
+The mirror image of the imbalance problem. Equalising tasks replays a 200-demo
+set 25x more often than a 5,000-demo one. Watch per-task validation separately.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The distinguishing move in this answer is regime-awareness. Negative transfer is
+neither a myth nor a law — it is what happens when tasks compete for capacity,
+and whether that dominates depends on how much capacity and data you have. A
+candidate who says "multi-task learning causes negative transfer" and one who
+says "scale solved it" have each memorised half the story. Saying which regime
+you are in, and how you would tell, is the answer that holds up under
+follow-ups.
+</Warning>

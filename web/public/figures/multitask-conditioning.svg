@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 300" role="img"
+     aria-labelledby="mct mcd" font-family="system-ui, -apple-system, sans-serif">
+  <title id="mct">Separate per-task policies compared with one conditioned policy</title>
+  <desc id="mcd">On the left, three tasks each get their own encoder and head, so
+    nothing learned for one task helps another and each needs its own dataset.
+    On the right, a single shared trunk receives the observation plus a task
+    descriptor z, and one head produces the action; everything common to the
+    tasks is learned once, while z selects which behaviour to produce.</desc>
+
+  <defs>
+    <marker id="mcg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6"
+            orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8b949e"/></marker>
+    <marker id="mcp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6"
+            orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#6c63ff"/></marker>
+  </defs>
+
+  <!-- ===== left: one policy per task ===== -->
+  <text x="20" y="26" fill="#e6edf3" font-size="13" font-weight="600">One policy per task</text>
+
+  <g font-size="10.5" fill="#8b949e" text-anchor="end">
+    <text x="60" y="76">"open drawer"</text>
+    <text x="60" y="146">"pick cloth"</text>
+    <text x="60" y="216">"wipe table"</text>
+  </g>
+
+  <g fill="#1c2128" stroke="#30363d">
+    <rect x="72" y="56" width="86" height="28" rx="5"/>
+    <rect x="72" y="126" width="86" height="28" rx="5"/>
+    <rect x="72" y="196" width="86" height="28" rx="5"/>
+    <rect x="184" y="56" width="60" height="28" rx="5"/>
+    <rect x="184" y="126" width="60" height="28" rx="5"/>
+    <rect x="184" y="196" width="60" height="28" rx="5"/>
+  </g>
+  <g fill="#e6edf3" font-size="10.5" text-anchor="middle">
+    <text x="115" y="74">encoder 1</text>
+    <text x="115" y="144">encoder 2</text>
+    <text x="115" y="214">encoder 3</text>
+    <text x="214" y="74">head 1</text>
+    <text x="214" y="144">head 2</text>
+    <text x="214" y="214">head 3</text>
+  </g>
+  <g stroke="#8b949e" stroke-width="1.3" marker-end="url(#mcg)">
+    <line x1="160" y1="70" x2="180" y2="70"/>
+    <line x1="160" y1="140" x2="180" y2="140"/>
+    <line x1="160" y1="210" x2="180" y2="210"/>
+    <line x1="246" y1="70" x2="272" y2="70"/>
+    <line x1="246" y1="140" x2="272" y2="140"/>
+    <line x1="246" y1="210" x2="272" y2="210"/>
+  </g>
+  <text x="158" y="256" fill="#f85149" font-size="11" text-anchor="middle">nothing is shared &#8212; each task pays for its own data</text>
+
+  <line x1="308" y1="20" x2="308" y2="280" stroke="#30363d" stroke-width="1"/>
+
+  <!-- ===== right: one conditioned policy ===== -->
+  <text x="330" y="26" fill="#e6edf3" font-size="13" font-weight="600">One conditioned policy</text>
+
+  <rect x="330" y="98" width="62" height="28" rx="5" fill="#1c2128" stroke="#484f58"/>
+  <text x="361" y="116" fill="#8b949e" font-size="10.5" text-anchor="middle">image o</text>
+
+  <rect x="330" y="152" width="62" height="28" rx="5" fill="#1c2128" stroke="#3fb950" stroke-opacity="0.6"/>
+  <text x="361" y="170" fill="#3fb950" font-size="10.5" text-anchor="middle">task z</text>
+  <text x="361" y="196" fill="#8b949e" font-size="9.5" text-anchor="middle">language embedding,</text>
+  <text x="361" y="208" fill="#8b949e" font-size="9.5" text-anchor="middle">goal image, or one-hot</text>
+
+  <rect x="428" y="88" width="104" height="104" rx="7" fill="#1c2128" stroke="#6c63ff" stroke-opacity="0.6"/>
+  <text x="480" y="132" fill="#e6edf3" font-size="11.5" text-anchor="middle">shared trunk</text>
+  <text x="480" y="150" fill="#8b949e" font-size="10" text-anchor="middle">&#960;(a | o, z)</text>
+
+  <g stroke="#6c63ff" stroke-width="1.5" marker-end="url(#mcp)">
+    <line x1="394" y1="112" x2="422" y2="122"/>
+    <line x1="394" y1="166" x2="422" y2="156"/>
+    <line x1="534" y1="140" x2="586" y2="140"/>
+  </g>
+  <text x="606" y="144" fill="#8b949e" font-size="10.5" text-anchor="middle">action</text>
+
+  <text x="474" y="240" fill="#3fb950" font-size="11" text-anchor="middle">everything the tasks share is learned once;</text>
+  <text x="474" y="254" fill="#3fb950" font-size="11" text-anchor="middle">z selects which behaviour to produce</text>
+  <text x="474" y="276" fill="#f85149" font-size="11" text-anchor="middle">&#8212; unless the trunk ignores z, or the tasks fight over capacity</text>
+</svg>
