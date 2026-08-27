@@ -1,28 +1,138 @@
 ---
 concept: bellman_equations
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Bellman Equations in plain language: what is it, and why does
-    it matter?"
+  prompt: "Explain the Bellman equation in plain language. What does it let you do that summing rewards does not?"
   keyPoints:
-    - "The Bellman equation says: 'the value of being in a state equals the
-      immediate reward plus the discounted value of where you end up.' It's like
-      evaluating a chess position: your position's value = the material you gain
-      this move + how good the resulting position is."
-    - This recursive structure is what makes RL tractable — instead of
-      evaluating entire trajectories, you only need to look one step ahead (if
-      you have an accurate value function).
-    - "The optimality version adds: 'and you should pick the best action,' which
-      is the foundation of planning and Q-learning."
-check: []
-papers: []
+    - "Value splits into one step plus the rest: $V(s) = \\mathbb{E}[r + \\gamma V(s')]$. The infinite future collapses into a single number you already have an estimate of."
+    - "That is what makes bootstrapping legal — you can learn from one transition instead of waiting for the episode to end, because the true value function already satisfies the equation exactly."
+    - "The price is bias: your target contains your own current error. Monte Carlo returns are unbiased and high variance; bootstrapped targets are biased and low variance."
+    - "Two versions. The expectation equation evaluates a fixed policy and is linear. The optimality equation has a max in it, is nonlinear, and defines the best achievable value."
+media:
+  - kind: lecture
+    title: "RL Course by David Silver — Lecture 2: Markov Decision Process"
+    url: https://www.youtube.com/watch?v=lfHX2hHRMVQ
+    source: "Google DeepMind · David Silver"
+    minutes: 102
+    note: "The second half derives the Bellman expectation and optimality equations with backup diagrams. Those diagrams are worth internalising — they make the algebra almost unnecessary."
+  - kind: lecture
+    title: "RL Course by David Silver — Lecture 3: Planning by Dynamic Programming"
+    url: https://www.youtube.com/watch?v=Nd1-UUMVfz4
+    source: "Google DeepMind · David Silver"
+    minutes: 99
+    note: "Turns the equations into algorithms: policy evaluation, policy iteration, value iteration. Watch it right after Lecture 2 — the pairing is what makes the contraction argument feel inevitable."
+  - kind: article
+    title: "Reinforcement Learning: An Introduction (2nd ed.)"
+    url: http://incompleteideas.net/book/the-book-2nd.html
+    source: "Sutton & Barto"
+    note: "Chapters 3 and 4. Section 3.5 onward is the reference derivation; chapter 6 connects it to TD learning, which is where this concept actually earns its keep."
+check:
+  - id: bell_l1_c1
+    prompt: "What does the Bellman equation buy you over just summing discounted rewards to the end of the episode?"
+    options:
+      - "It gives a more accurate estimate of the return"
+      - "It replaces the infinite tail of the sum with a single value estimate, so you can update from one transition instead of waiting for the episode to finish"
+      - "It removes the need for a discount factor"
+      - "It makes the value function differentiable"
+    answer: 1
+    explanation: "The recursion is what converts an inherently episode-length computation into a one-step one. That matters twice over: you can learn online rather than at episode boundaries, and you can learn in continuing tasks that have no end. Accuracy is if anything the wrong word — the bootstrapped target is *biased*, and you accept that bias in exchange for much lower variance."
+  - id: bell_l1_c2
+    prompt: "Bootstrapping means your learning target contains your own current value estimate. What is the practical consequence?"
+    options:
+      - "Learning is unbiased but slower"
+      - "Errors in the value function feed into the targets used to train it, so bias propagates and, combined with function approximation and off-policy data, can diverge"
+      - "The value function will always converge to zero"
+      - "It only works in deterministic environments"
+    answer: 1
+    explanation: "This is the seed of the deadly triad. In the tabular case the backup is a contraction and errors shrink regardless, so bootstrapping is safe. Add function approximation — where a value update at one state changes the estimate at others — and off-policy data, and the shrinkage guarantee is lost. Target networks and ensembles exist to slow that feedback loop down, not to remove it."
+  - id: bell_l1_c3
+    prompt: "What is the difference between the Bellman *expectation* equation and the Bellman *optimality* equation?"
+    options:
+      - "The expectation equation uses $\\gamma$ and the optimality equation does not"
+      - "The expectation equation gives the value of a given policy and is linear in $V$; the optimality equation takes a max over actions, is nonlinear, and gives the best value achievable by any policy"
+      - "The expectation equation is for continuous states, the optimality equation for discrete ones"
+      - "They are the same equation written two ways"
+    answer: 1
+    explanation: "The max is the whole difference and it changes what you can do. Linearity means policy evaluation is a linear system you can literally solve by matrix inversion. The max makes the optimality equation nonlinear, so no direct solve exists — but the operator is still a contraction, which is why value iteration works anyway. Every algorithm in RL descends from one of these two, and knowing which is a fast way to place an unfamiliar method."
 ---
 
-## Intuition
+## Value splits in two
 
-The Bellman equation says: 'the value of being in a state equals the immediate reward plus the discounted value of where you end up.' It's like evaluating a chess position: your position's value = the material you gain this move + how good the resulting position is. This recursive structure is what makes RL tractable — instead of evaluating entire trajectories, you only need to look one step ahead (if you have an accurate value function). The optimality version adds: 'and you should pick the best action,' which is the foundation of planning and Q-learning.
+You want to know how good a state is: the total discounted reward you expect
+from here on. Written directly, that is an infinite sum over an unknown future.
 
-## In practice
+Bellman's observation is that the sum has a seam in it. Peel off the first term:
 
-Q-learning in a gridworld: $Q(s,a) \leftarrow Q(s,a) + \alpha [r + \gamma \max_{a'} Q(s',a') - Q(s,a)]$. The TD target $r + \gamma \max_{a'} Q(s',a')$ is a sample-based approximation of the Bellman optimality equation. Convergence requires: $\alpha_t \to 0$ with $\sum \alpha_t = \infty$ and $\sum \alpha_t^2 < \infty$ (Robbins-Monro conditions). In practice with function approximation (neural nets), the Bellman equation becomes a regression target: minimize $L(\phi) = \mathbb{E}[(Q_\phi(s,a) - (r + \gamma \max_{a'} Q_{\bar{\phi}}(s',a')))^2]$ where $\bar{\phi}$ is a target network updated slowly.
+$$
+V(s) = \mathbb{E}\big[\, \underbrace{r}_{\text{one step}} \;+\;
+\gamma \underbrace{V(s')}_{\text{everything after}} \,\big]
+$$
+
+The entire remaining future — every branch, every timestep — has collapsed into
+one number: the value of wherever you land next. And that number is something
+you already keep an estimate of.
+
+<Intuition>
+Evaluating a chess position works this way. You do not enumerate every line to
+checkmate. You look one move ahead and ask how good the *resulting* positions
+are, using judgement you have already built up about positions in general.
+
+The Bellman equation says that habit is not a shortcut — for the true value
+function, it is exactly correct.
+</Intuition>
+
+## Why that matters more than it looks
+
+<Figure src="/figures/bellman-bootstrap-vs-mc.svg"
+        alt="A trajectory of states with rewards. An orange arrow spans the whole episode, labelled Monte Carlo return. A green arrow spans one step and then points to a box holding the agent's own value estimate of the next state."
+        caption="Two ways to build a learning target for the same state. Monte Carlo waits and sums; bootstrapping takes one real reward and trusts its own estimate for the rest." />
+
+Without the recursion you must wait until the episode ends to know what
+happened, and your target's variance accumulates over every random transition
+and every random action along the way. With it, you learn from a single
+transition.
+
+<KeyIdea>
+The trade is exact and worth stating in these words: **Monte Carlo targets are
+unbiased with high variance; bootstrapped targets are biased with low
+variance.** The bias is your own current error, borrowed and reused. Everything
+in between — n-step returns, TD($\lambda$), GAE — is a dial between the two.
+</KeyIdea>
+
+## The two equations
+
+<Steps>
+<Step title="Bellman expectation — how good is this policy?">
+Fix a policy $\pi$ and ask what it is worth:
+$V^\pi(s) = \mathbb{E}_{a\sim\pi,\, s'\sim P}\big[r + \gamma V^\pi(s')\big]$.
+No choosing happens; $\pi$ already decided. This equation is *linear* in $V$,
+which for a small known MDP means you can solve it exactly with linear algebra.
+</Step>
+
+<Step title="Bellman optimality — how good could any policy be?">
+Replace "whatever $\pi$ does" with "the best action":
+$V^*(s) = \max_a \mathbb{E}\big[r + \gamma V^*(s')\big]$.
+The max makes it nonlinear, so there is no direct solve — but iterating it still
+converges, which is value iteration.
+</Step>
+
+<Step title="The action-value versions">
+$Q^\pi(s,a)$ and $Q^*(s,a)$ say the same things one step later, after the action
+is fixed. They matter because acting greedily on $Q$ needs no model at all —
+just $\arg\max_a Q(s,a)$ — whereas acting greedily on $V$ requires knowing where
+each action leads.
+</Step>
+</Steps>
+
+<Warning>
+Bootstrapping is safe in the tabular case for a specific reason: the backup
+shrinks errors by a factor of $\gamma$ every sweep, so whatever error you
+borrowed gets discounted away. That guarantee does not survive function
+approximation, where updating the value at one state moves the value at others.
+Combine bootstrapping, function approximation, and off-policy data and you have
+the deadly triad — the reason target networks exist, and the reason deep value
+learning is more fragile than the tabular theory suggests.
+</Warning>
+
+<WatchThis />

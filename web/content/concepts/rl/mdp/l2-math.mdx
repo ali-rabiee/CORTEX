@@ -1,25 +1,184 @@
 ---
 concept: mdp
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Markov Decision Process (MDP), including
-    the key equations.
+  prompt: "Define an MDP formally. Derive the effective horizon from $\\gamma$, and state precisely what makes a POMDP's belief state Markov."
   keyPoints:
-    - "An MDP is the formal mathematical framework for sequential decision
-      making, defined by the tuple $(\\mathcal{S}, \\mathcal{A}, P, R,
-      \\gamma)$: state space $\\mathcal{S}$, action space $\\mathcal{A}$,
-      transition dynamics $P(s'|s,a): \\mathcal{S} \\times \\mathcal{A} \\times
-      \\mathcal{S} \\to [0,1]$, reward function $R(s,a,s'): \\mathcal{S} \\times
-      \\mathcal{A} \\times \\mathcal{S} \\to \\mathbb{R}$, and discount factor
-      $\\gamma \\in [0,1)$."
-    - The Markov property states that $P(s_{t+1}|s_t, a_t, s_{t-1}, a_{t-1},
-      \ldots) = P(s_{t+1}|s_t, a_t)$ — the future is conditionally independent
-      of the past given the present state and action.
-check: []
-papers: []
+    - "$(\\mathcal{S}, \\mathcal{A}, P, R, \\gamma)$ with $P(s_{t+1} \\mid s_t, a_t, \\text{history}) = P(s_{t+1} \\mid s_t, a_t)$. Return $G_t = \\sum_{k\\ge0}\\gamma^k r_{t+k}$."
+    - "Discounting bounds the return: $|G_t| \\le R_{\\max}\\sum \\gamma^k = R_{\\max}/(1-\\gamma)$. The same geometric sum is the effective horizon, $\\approx 1/(1-\\gamma)$ steps."
+    - "Any $k$-th order dependence can be made first-order by defining $\\tilde s_t = (o_{t-k+1}, \\ldots, o_t)$. Frame stacking is this theorem, and it is why 'not Markov' is a statement about representation."
+    - "In a POMDP the belief $b_t(s) = P(s_t \\mid o_{1:t}, a_{1:t-1})$ is a sufficient statistic, so the belief MDP *is* Markov — but computing $b$ needs the model $P$ and $O$. Without them you learn a statistic (an RNN state) and get no sufficiency guarantee."
+check:
+  - id: mdp_l2_c1
+    prompt: "Why does $\\gamma < 1$ guarantee the return is finite, and what is the bound?"
+    options:
+      - "Because rewards are assumed non-negative, so the sum converges"
+      - "Because $\\sum_{k\\ge0}\\gamma^k = 1/(1-\\gamma)$ converges for $|\\gamma| < 1$, so with bounded rewards $|G_t| \\le R_{\\max}/(1-\\gamma)$"
+      - "Because episodes are finite in practice"
+      - "Because the value function is defined as an average rather than a sum"
+    answer: 1
+    explanation: "It is the geometric series, and it needs bounded rewards to apply — the two assumptions travel together. The bound also tells you something practical: at $\\gamma = 0.99$, values live on a scale roughly 100x the per-step reward, which is why value networks want normalised targets and why changing $\\gamma$ silently rescales everything the critic is fitting. Option 3 is a real observation but not what makes the *discounted* formulation well-posed for continuing tasks."
+  - id: mdp_l2_c2
+    prompt: "Frame stacking $k$ observations recovers the Markov property for which class of problems?"
+    options:
+      - "All POMDPs"
+      - "Processes whose dependence on history has finite extent $k$ — enough for velocity, not enough for anything requiring memory of an event arbitrarily far back"
+      - "Only deterministic processes"
+      - "Only problems with discrete state spaces"
+    answer: 1
+    explanation: "Two frames give velocity, three give acceleration, and $k$ frames make any $k$-th order dependence first-order by definition. What it cannot do is remember that a door was locked 500 steps ago, or what is inside a container you looked in earlier. Those need a statistic that summarises the whole history — a belief state if you have the model, a recurrent or attention-based memory if you do not. Knowing which of the two situations you are in tells you whether to reach for frame stacking or for memory."
+  - id: mdp_l2_c3
+    prompt: "The belief-state construction says every POMDP can be written as an MDP over beliefs. Why is that less useful than it sounds?"
+    options:
+      - "Because belief states are not sufficient statistics"
+      - "Because computing $b_t$ requires knowing $P$ and the observation model $O$ — exactly what you do not have in a learning setting — and the belief space is a continuous simplex, so it is not solvable by tabular means either"
+      - "Because the belief MDP is not Markov"
+      - "Because it only holds for finite state spaces"
+    answer: 1
+    explanation: "The theorem is correct and constructive, and both of its requirements are things a learning agent lacks. Bayes-filtering the belief needs a model, and the resulting state space is a probability simplex over $\\mathcal{S}$ — continuous and high-dimensional even when $\\mathcal{S}$ is small. Its real value is as a target: it tells you what an RNN hidden state or a transformer's context is *trying to approximate*, which is the right way to think about memory in a policy."
 ---
 
-## Formal definition
+## The tuple
 
-An MDP is the formal mathematical framework for sequential decision making, defined by the tuple $(\mathcal{S}, \mathcal{A}, P, R, \gamma)$: state space $\mathcal{S}$, action space $\mathcal{A}$, transition dynamics $P(s'|s,a): \mathcal{S} \times \mathcal{A} \times \mathcal{S} \to [0,1]$, reward function $R(s,a,s'): \mathcal{S} \times \mathcal{A} \times \mathcal{S} \to \mathbb{R}$, and discount factor $\gamma \in [0,1)$. The Markov property states that $P(s_{t+1}|s_t, a_t, s_{t-1}, a_{t-1}, \ldots) = P(s_{t+1}|s_t, a_t)$ — the future is conditionally independent of the past given the present state and action.
+$$
+\mathcal{M} = (\mathcal{S},\ \mathcal{A},\ P,\ R,\ \gamma),
+\qquad
+P: \mathcal{S}\times\mathcal{A}\times\mathcal{S} \to [0,1],
+\qquad
+\gamma \in [0,1)
+$$
+
+with the defining conditional independence
+
+$$
+P(s_{t+1} \mid s_t, a_t, s_{t-1}, a_{t-1}, \ldots, s_0) = P(s_{t+1}\mid s_t, a_t)
+$$
+
+A policy $\pi(a\mid s)$ induces a distribution over trajectories, and the object
+being optimised is the discounted return from time $t$:
+
+$$
+G_t = \sum_{k=0}^{\infty} \gamma^k\, r_{t+k}
+$$
+
+## What $\gamma$ is actually doing
+
+<Derivation title="Boundedness and the effective horizon">
+
+**Step 1 — the return is finite.** Assume rewards are bounded,
+$|r_t| \le R_{\max}$. Then
+
+$$
+|G_t| \;\le\; \sum_{k=0}^{\infty}\gamma^k R_{\max}
+\;=\; R_{\max}\,\frac{1}{1-\gamma}
+$$
+
+using the geometric series, which converges precisely because $\gamma < 1$.
+Note both assumptions are load-bearing: unbounded rewards break the bound even
+with discounting.
+
+**Step 2 — read the same sum as a horizon.** The total discount weight is
+$1/(1-\gamma)$, and it is distributed over time as $\gamma^k$. The number of
+steps that carry most of that weight is therefore $\approx 1/(1-\gamma)$: about
+20 steps at $\gamma = 0.95$, 100 at $0.99$, 1000 at $0.999$.
+
+**Step 3 — the half-life, if you want it sharper.** Rewards are discounted to
+half their value after $k_{1/2} = \ln(0.5)/\ln \gamma$ steps — about 69 steps at
+$\gamma = 0.99$.
+
+</Derivation>
+
+<KeyIdea>
+$\gamma$ appears in the problem definition but behaves like a hyperparameter,
+and it moves three things at once: the planning horizon, the scale of the value
+function ($\sim R_{\max}/(1-\gamma)$), and the variance of return estimates.
+Raising it to fix myopia buys you a harder estimation problem, which is why
+GAE exists.
+</KeyIdea>
+
+## Making a process Markov
+
+The Markov property is a property of $\mathcal{S}$, so the constructive question
+is what to put in it.
+
+<Derivation title="Finite-history augmentation, and its limit">
+
+Suppose the true dependence has finite extent $k$:
+
+$$
+P(o_{t+1}\mid o_{1:t}, a_{1:t}) = P(o_{t+1} \mid o_{t-k+1:t},\, a_{t-k+1:t})
+$$
+
+Define the augmented state $\tilde s_t = (o_{t-k+1}, \ldots, o_t)$. Then
+$P(\tilde s_{t+1}\mid \tilde s_t, a_t)$ is well defined — the new state contains
+exactly what the old dependence needed — and the process is first-order Markov
+over $\tilde{\mathcal{S}}$ by construction.
+
+That is all frame stacking is. Two frames for velocity, three for acceleration.
+
+**The assumption doing the work is that $k$ is finite and known.** It fails for
+any dependence on an event at unbounded distance: a door you unlocked, an object
+you saw inside a container, a mode you switched the machine into. No fixed $k$
+covers those.
+
+</Derivation>
+
+## POMDPs, and what memory is approximating
+
+When observations are not states, add an observation space and model:
+$(\mathcal{S}, \mathcal{A}, P, R, \Omega, O, \gamma)$ with
+$O(o \mid s', a)$. Define the **belief**
+
+$$
+b_t(s) = P\big(s_t = s \;\big|\; o_{1:t},\, a_{1:t-1}\big)
+$$
+
+updated by Bayes' rule:
+
+$$
+b_{t+1}(s') \;\propto\; O(o_{t+1}\mid s', a_t) \sum_{s} P(s'\mid s, a_t)\, b_t(s)
+$$
+
+<Derivation title="Why the belief MDP is Markov, and why that is not a solution">
+
+$b_{t+1}$ is computed from $b_t$, $a_t$, and $o_{t+1}$ alone — the whole history
+enters only through $b_t$. So $b_t$ is a **sufficient statistic** for the
+history, and the process over belief states satisfies the Markov property. An
+optimal policy can be written as $\pi(a \mid b)$.
+
+Two problems, both fatal for a learning agent:
+
+1. The update requires $P$ and $O$. If you had those you would not be doing RL.
+2. $b$ lives on the probability simplex over $\mathcal{S}$ — continuous and
+   high-dimensional even for a small $\mathcal{S}$.
+
+</Derivation>
+
+<Warning>
+The construction is still worth knowing, because it names what a recurrent
+policy's hidden state or a transformer's context window is *trying* to be: a
+sufficient statistic of the history. The difference is that it is learned from
+the task loss rather than computed from a model, so nothing guarantees
+sufficiency. That gap is the honest reason memory-based policies are finicky,
+and saying it precisely is worth more in an interview than "we used an LSTM".
+</Warning>
+
+## Two variations worth having straight
+
+<Steps>
+<Step title="Episodic vs. continuing">
+Episodic tasks terminate, so $\gamma = 1$ is legitimate and the return is a
+finite sum. Continuing tasks do not, and $\gamma < 1$ (or an average-reward
+formulation) is what keeps the objective well defined. Most robotics work is
+episodic with $\gamma < 1$ anyway, using discounting as a variance-reduction
+and horizon-shaping device rather than out of necessity.
+</Step>
+
+<Step title="Reward on $(s,a)$ vs. $(s,a,s')$">
+Both appear; they are equivalent up to taking an expectation,
+$R(s,a) = \mathbb{E}_{s'\sim P}[R(s,a,s')]$. Worth recognising instantly,
+because papers switch between them without comment and the algebra looks
+different depending on which you assumed.
+</Step>
+</Steps>

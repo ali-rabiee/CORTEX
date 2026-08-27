@@ -1,26 +1,159 @@
 ---
 concept: mdp
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Markov Decision Process (MDP) fail in practice, and how would
-    you present it in an interview?
+  prompt: "Give your interview answer on MDPs. What is the one reframing that carries the answer, and how do you diagnose a broken state definition?"
   keyPoints:
-    - "Markov property violation: real-world states are often non-Markovian
-      because observations are partial."
-    - A robot using only RGB images as 'state' violates Markov — velocities,
-      occluded objects, and contact forces are hidden.
-    - "Symptoms: policy fails to learn or converges to suboptimal behavior
-      because the same observation maps to different optimal actions depending
-      on history."
-check: []
-papers: []
+    - "Lead with the tuple, then immediately with the reframing: Markov is a property of the state variable you chose, so it is engineered rather than discovered."
+    - "The diagnostic signature of a non-Markov state is inconsistency, not slowness: identical states with different correct actions, so the policy plateaus at a mediocre average and the value loss will not fall."
+    - "Match the fix to the memory horizon needed — frame stacking for finite-extent dependence like velocity, recurrence or attention for events at unbounded distance."
+    - "$\\gamma$ is a hyperparameter dressed as a problem parameter: it sets horizon $1/(1-\\gamma)$, value scale $R_{\\max}/(1-\\gamma)$, and return variance, all at once."
+interview:
+  answer: >-
+    An MDP is the tuple of states, actions, transition dynamics, reward, and a
+    discount factor, with the Markov property saying the next state depends on
+    the current state and action alone — the history adds nothing. That's what
+    makes dynamic programming and every Bellman backup legitimate, so it's the
+    assumption underneath essentially all of RL. The thing I'd emphasise is
+    that the Markov property isn't a fact about the world; it's a claim about
+    the variable you decided to call the state. The same physical system is
+    Markov or not depending on what you recorded. A single camera frame of a
+    moving object isn't Markov, because it fixes position and destroys
+    velocity, so two situations that need opposite actions map to the identical
+    state — and then no policy that's a function of the state can be optimal
+    for both. Two stacked frames is Markov. Nothing about the physics changed.
+    That reframing makes it an engineering question: what do I have to include
+    so the state is a sufficient statistic? For a manipulator, joint positions
+    and velocities, goal information, and often gripper and contact state.
+    Frame stacking handles anything with finite memory extent. When the
+    dependence is unbounded — a door you unlocked, something you saw inside a
+    container — you need a statistic that summarises the whole history, and
+    that's what a recurrent hidden state or a transformer context is
+    approximating. Formally the right object there is the belief state, which
+    is provably sufficient, but computing it needs the transition and
+    observation models you don't have, so in practice you learn a statistic and
+    accept that nothing guarantees it's sufficient. And on gamma — it looks
+    like part of the problem and behaves like a hyperparameter. It sets the
+    effective horizon at roughly one over one minus gamma, it scales the value
+    function by the same factor, and raising it increases return variance. For
+    50-step manipulation episodes I'd use 0.99; for long locomotion, 0.995 or
+    higher, and expect to need a better advantage estimator to pay for it.
+  followUps:
+    - q: "How would you tell, from training curves, that your state isn't Markov?"
+      a: >-
+        The signature is inconsistency rather than slowness. If the same state
+        appears with genuinely different correct actions, there's irreducible
+        error the policy can't remove, so returns plateau at a mediocre level
+        and the value loss flattens well above zero regardless of capacity or
+        training time. The cheap confirmation is to add memory — stack a couple
+        of frames, or append velocity — and see if the plateau moves. If it
+        does, that was it. If the curve is just slow but still climbing, it's a
+        different problem: exploration, reward scale, or optimisation.
+    - q: "Isn't every real problem a POMDP? Why does the MDP formalism matter?"
+      a: >-
+        Practically, yes — full state is almost never observable on a real
+        robot. The formalism matters for two reasons. First, it tells you what
+        you're violating and therefore what to do: if the missing information
+        has finite extent, augment the state and you're genuinely back in the
+        MDP setting with all its guarantees. Second, the POMDP theory says the
+        belief state is a sufficient statistic and the belief MDP is Markov, so
+        the memory in your policy has a well-defined target. Without the
+        formalism, "add an LSTM" is a superstition. With it, it's an
+        approximation to a specific object, and you know why it might fail.
+    - q: "You have a sparse success reward at step 200 and gamma is 0.99. Is that going to work?"
+      a: >-
+        Probably not on its own. At 0.99 the effective horizon is about a
+        hundred steps and 0.99 to the 200th is around 13%, so the signal
+        reaching the first action is weak but not zero — the harder problem is
+        that random exploration has to hit the success state at all before
+        there's anything to propagate. So I'd separate the two issues. For the
+        horizon, raise gamma to 0.995 or higher and accept the variance cost.
+        For the exploration problem, the real fixes are shaping, demonstrations
+        to seed the buffer, or hindsight relabelling if the task is
+        goal-conditioned — none of which are gamma problems.
+    - q: "When would you deliberately use a gamma lower than the task horizon suggests?"
+      a: >-
+        When I want the variance reduction more than the far-horizon
+        optimality. Discounting is also a regulariser: it shortens the credit
+        assignment path, which stabilises bootstrapped value learning and cuts
+        the variance of Monte Carlo returns. If the task genuinely only needs
+        local decisions — a reactive controller with dense reward — a lower
+        gamma trains faster and more stably, and the bias it introduces costs
+        nothing you cared about. That's a bias-variance decision, and it's
+        worth framing it that way rather than treating gamma as given.
+  traps:
+    - "Saying 'real problems aren't Markov' as if it were a limitation of the formalism. It is a statement about your state variable, and the formalism is what tells you how to fix it."
+    - "Claiming a bigger network or more data will fix a non-Markov state. The error is irreducible — the same state has two different correct actions — so no amount of capacity removes it."
+    - "Treating $\\gamma$ as a fixed constant to be looked up. It sets the horizon, the value scale, and the return variance simultaneously, and the right value depends on the episode length you actually have."
+    - "Reaching for an LSTM whenever memory is mentioned. If the missing information has finite extent — velocity, acceleration — frame stacking is simpler, has no optimisation pathologies, and provably restores the Markov property."
+check:
+  - id: mdp_l5_c1
+    prompt: "A policy's return plateaus well below expert level and the critic loss flattens far above zero, no matter the network size or training length. What should you suspect first?"
+    options:
+      - "The learning rate is too high"
+      - "The state is not Markov: identical states carry different correct actions and different returns, so there is irreducible error that no capacity can remove"
+      - "The replay buffer is too small"
+      - "The reward is misscaled"
+    answer: 1
+    explanation: "The diagnostic is that the floor is insensitive to capacity and training time. If two situations map to the same state but have different returns, the best possible value function predicts their average and the residual never vanishes — you are looking at a lower bound imposed by the representation, not an optimisation failure. Confirm cheaply by adding velocity or stacking frames and watching whether the floor moves."
+  - id: mdp_l5_c2
+    prompt: "Which fix is right for a policy that must remember whether a door was unlocked 500 steps ago?"
+    options:
+      - "Stack the last 8 frames"
+      - "A recurrent or attention-based memory, since the dependence has no bounded extent and no fixed stack size covers it"
+      - "Increase $\\gamma$ so the horizon covers 500 steps"
+      - "Add the door's position to the state vector"
+    answer: 1
+    explanation: "Frame stacking is exactly the finite-$k$ construction, and the point of this example is that $k$ is unbounded — the unlocking could have happened at any distance in the past. Raising $\\gamma$ changes how far *forward* the agent optimises and does nothing about memory of the past; those are independent axes, and conflating them is a common slip. Option 4 works only if the door's state is observable now, which is precisely what the scenario denies."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Markov property violation: real-world states are often non-Markovian because observations are partial. A robot using only RGB images as 'state' violates Markov — velocities, occluded objects, and contact forces are hidden. Symptoms: policy fails to learn or converges to suboptimal behavior because the same observation maps to different optimal actions depending on history. Fix: use recurrent policies (LSTM/GRU), frame stacking (concatenate $k$ recent observations), or proper state estimation. Also: choosing $\gamma$ too low truncates the effective planning horizon $\frac{1}{1-\gamma}$, causing myopic behavior.
+Almost every MDP-level bug shows up as one of three signatures.
 
-## Interview-ready answer
+<Steps>
+<Step title="Plateau insensitive to capacity → the state is not Markov">
+Returns flatten at a mediocre level and the critic loss flattens above zero
+regardless of network size or training time. Identical states with different
+returns force the value function to predict their average, and the residual is
+irreducible. Confirm by adding velocity or stacking frames and watching the
+floor move.
+</Step>
 
-An MDP is defined by $(\mathcal{S}, \mathcal{A}, P, R, \gamma)$ and is the foundational formalism for RL. The Markov property — $P(s'|s,a)$ depends only on the current state-action pair — is what makes dynamic programming and Bellman equations tractable. In robotics, the state space $\mathcal{S}$ must be carefully designed to satisfy Markov: including joint positions AND velocities (not just positions), adding goal information, and potentially including contact states. When Markov is violated (e.g., image observations), we need either state estimation or memory mechanisms (RNNs, transformers). The discount $\gamma$ controls the planning horizon $\frac{1}{1-\gamma}$ — for manipulation tasks with ~50-step episodes I use $\gamma=0.99$ (horizon $\approx 100$), for locomotion with longer horizons $\gamma=0.995$.
+<Step title="Locally sensible, never finishes → $\gamma$ too low">
+The policy does something reasonable for twenty steps and never reaches the
+goal. Compute $\gamma^{T}$ for your episode length; if the terminal reward
+arrives discounted to under a percent, it is not steering anything.
+</Step>
+
+<Step title="Unstable values, slow credit assignment → $\gamma$ too high">
+The other end of the same knob. Value targets scale as $R_{\max}/(1-\gamma)$ and
+return variance grows with the horizon, so 0.999 on a task that needed 0.99
+buys instability for optimality you did not need.
+</Step>
+
+<Step title="Reward being maximised, task not being done → the MDP is right and the reward is wrong">
+Not a Markov problem. The agent is doing exactly what you wrote. Read the
+learned behaviour as a bug report on the reward function.
+</Step>
+
+<Step title="Then match the memory fix to the memory horizon">
+Finite extent — velocity, acceleration, recent contact — is frame stacking, and
+it provably restores the Markov property. Unbounded extent is recurrence or
+attention, with no such guarantee. Reaching for the second when the first would
+do is a common and costly mistake.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+This concept is usually asked as a warm-up, and most candidates answer it by
+reciting the tuple — which is correct, forgettable, and tells the interviewer
+nothing. The answer that lands makes one claim: the Markov property is a
+property of the state variable you chose, which turns it from a fact you check
+into a thing you engineer. Everything else in the answer — frame stacking,
+belief states, why an LSTM is an approximation to something specific — follows
+from that one sentence.
+</Warning>

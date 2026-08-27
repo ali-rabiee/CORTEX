@@ -1,29 +1,195 @@
 ---
 concept: bellman_equations
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Bellman Equations, including the key
-    equations.
+  prompt: "Derive the Bellman expectation equation, prove the optimality operator is a $\\gamma$-contraction in the sup norm, and say what breaks under function approximation."
   keyPoints:
-    - The Bellman equations express the recursive relationship between value
-      functions at successive states.
-    - "For policy $\\pi$: $$V^\\pi(s) = \\mathbb{E}_{a \\sim
-      \\pi(\\cdot|s)}\\left[R(s,a) + \\gamma \\mathbb{E}_{s' \\sim
-      P(\\cdot|s,a)}[V^\\pi(s')]\\right]$$ $$Q^\\pi(s,a) = R(s,a) + \\gamma
-      \\mathbb{E}_{s' \\sim P(\\cdot|s,a)}\\left[\\sum_{a'} \\pi(a'|s')
-      Q^\\pi(s', a')\\right]$$ The Bellman optimality equations characterize the
-      optimal value functions: $$V^*(s) = \\max_a \\left[R(s,a) + \\gamma
-      \\mathbb{E}_{s'}[V^*(s')]\\right], \\quad Q^*(s,a) = R(s,a) + \\gamma
-      \\mathbb{E}_{s'}\\left[\\max_{a'} Q^*(s', a')\\right]$$ These are the
-      theoretical foundation for both value iteration ($V_{k+1}(s) = \\max_a [R
-      + \\gamma \\sum_{s'} P(s'|s,a) V_k(s')]$) and Q-learning ($Q(s,a)
-      \\leftarrow Q(s,a) + \\alpha [r + \\gamma \\max_{a'} Q(s',a') -
-      Q(s,a)]$)."
-check: []
-papers: []
+    - "$V^\\pi(s) = \\mathbb{E}_{a\\sim\\pi, s'\\sim P}[r + \\gamma V^\\pi(s')]$ follows from splitting $G_t = r_t + \\gamma G_{t+1}$ and applying the tower property — the Markov property is what lets you drop the history when conditioning."
+    - "$\\|\\mathcal{T}V_1 - \\mathcal{T}V_2\\|_\\infty \\le \\gamma\\|V_1 - V_2\\|_\\infty$, using $|\\max_a f - \\max_a g| \\le \\max_a|f-g|$ and the fact that $P(\\cdot\\mid s,a)$ sums to one."
+    - "Banach then gives a unique fixed point and geometric convergence $\\|V_k - V^*\\|_\\infty \\le \\gamma^k\\|V_0 - V^*\\|_\\infty$ — this is why value iteration works, and why $\\gamma \\to 1$ is slow."
+    - "With function approximation the update is $\\Pi\\mathcal{T}$, and the composition of an $L_\\infty$-contraction with an $L_2$-projection need not contract in any norm. That is the deadly triad, and Baird's counterexample makes it concrete."
+check:
+  - id: bell_l2_c1
+    prompt: "In the contraction proof, which step uses the fact that $P(\\cdot \\mid s,a)$ is a probability distribution?"
+    options:
+      - "The step that pulls $\\gamma$ out of the expectation"
+      - "Bounding $\\sum_{s'} P(s'\\mid s,a)\\,|V_1(s') - V_2(s')| \\le \\max_{s'}|V_1(s')-V_2(s')|$ — a weighted average is bounded by its largest term only because the weights are non-negative and sum to one"
+      - "The application of $|\\max_a f - \\max_a g| \\le \\max_a |f - g|$"
+      - "The final step invoking Banach's theorem"
+    answer: 1
+    explanation: "That inequality is the heart of the proof and it is exactly where stochasticity gets absorbed. If the transition rows did not sum to one — a common implementation bug where probability mass is dropped on blocked moves — the operator need not contract and value iteration can behave arbitrarily. It is also why asserting `P.sum(-1) == 1` catches a whole class of bugs before you ever debug the algorithm."
+  - id: bell_l2_c2
+    prompt: "The Bellman operator is a contraction, yet deep Q-learning can diverge. What is the precise reason?"
+    options:
+      - "Neural networks are not contractions"
+      - "The update is not $\\mathcal{T}$ but $\\Pi\\mathcal{T}$, where $\\Pi$ projects onto the representable functions in a weighted $L_2$ norm — and an $L_\\infty$-contraction composed with an $L_2$-projection is not guaranteed to contract in either norm"
+      - "The discount factor is too large in practice"
+      - "Sampling noise makes the operator stochastic"
+    answer: 1
+    explanation: "The mismatch of norms is the technical crux, and it is what people mean by the deadly triad. $\\mathcal{T}$ contracts in sup norm; $\\Pi$ is a non-expansion in the $L_2$ norm weighted by the *data* distribution. Off-policy data makes that weighting differ from the one the operator respects, and the composition can expand. Baird's counterexample is a tiny linear MDP where this provably diverges. Sampling noise is a real but separate issue — it costs you variance, not divergence."
+  - id: bell_l2_c3
+    prompt: "Why does $\\max_a \\hat{Q}(s,a)$ systematically overestimate $\\max_a Q(s,a)$ even when $\\hat Q$ is unbiased for each action?"
+    options:
+      - "Because the max amplifies the learning rate"
+      - "Because $\\max$ is convex, so by Jensen $\\mathbb{E}[\\max_a \\hat Q] \\ge \\max_a \\mathbb{E}[\\hat Q]$ — the max preferentially selects actions whose noise happened to be positive"
+      - "Because $\\gamma$ compounds the error over time"
+      - "Because the replay buffer is off-policy"
+    answer: 1
+    explanation: "The bias comes from the operator, not from the estimator: unbiasedness per action is assumed in the statement. Taking a max over noisy estimates is a selection process that favours upward errors, and Jensen's inequality makes it exact. Bootstrapping then propagates the inflated value backwards, so the bias compounds. Double Q-learning breaks it by using one network to *select* the action and another to *evaluate* it, so the selection noise and the evaluation noise are independent."
 ---
 
-## Formal definition
+## Deriving the expectation equation
 
-The Bellman equations express the recursive relationship between value functions at successive states. For policy $\pi$: $$V^\pi(s) = \mathbb{E}_{a \sim \pi(\cdot|s)}\left[R(s,a) + \gamma \mathbb{E}_{s' \sim P(\cdot|s,a)}[V^\pi(s')]\right]$$ $$Q^\pi(s,a) = R(s,a) + \gamma \mathbb{E}_{s' \sim P(\cdot|s,a)}\left[\sum_{a'} \pi(a'|s') Q^\pi(s', a')\right]$$ The Bellman optimality equations characterize the optimal value functions: $$V^*(s) = \max_a \left[R(s,a) + \gamma \mathbb{E}_{s'}[V^*(s')]\right], \quad Q^*(s,a) = R(s,a) + \gamma \mathbb{E}_{s'}\left[\max_{a'} Q^*(s', a')\right]$$ These are the theoretical foundation for both value iteration ($V_{k+1}(s) = \max_a [R + \gamma \sum_{s'} P(s'|s,a) V_k(s')]$) and Q-learning ($Q(s,a) \leftarrow Q(s,a) + \alpha [r + \gamma \max_{a'} Q(s',a') - Q(s,a)]$).
+Start from the definition of the return and notice it is self-similar:
+
+$$
+G_t = r_t + \gamma r_{t+1} + \gamma^2 r_{t+2} + \cdots
+    = r_t + \gamma\big(r_{t+1} + \gamma r_{t+2} + \cdots\big)
+    = r_t + \gamma G_{t+1}
+$$
+
+<Derivation title="From $G_t = r_t + \gamma G_{t+1}$ to the Bellman expectation equation">
+
+**Step 1 — definition.** $V^\pi(s) = \mathbb{E}_\pi[G_t \mid s_t = s]$.
+
+**Step 2 — substitute the recursion and use linearity of expectation.**
+
+$$
+V^\pi(s) = \mathbb{E}_\pi\big[r_t + \gamma G_{t+1} \mid s_t = s\big]
+= \mathbb{E}_\pi[r_t \mid s_t = s] + \gamma\, \mathbb{E}_\pi[G_{t+1}\mid s_t = s]
+$$
+
+**Step 3 — condition on where you land (the tower property).**
+
+$$
+\mathbb{E}_\pi[G_{t+1}\mid s_t = s]
+= \mathbb{E}_{a\sim\pi,\, s'\sim P}\Big[\; \mathbb{E}_\pi[G_{t+1}\mid s_{t+1}=s',\, s_t = s]\;\Big]
+$$
+
+**Step 4 — this is where Markov is spent.** The inner expectation conditions on
+both $s_{t+1}$ and $s_t$. The Markov property says the past adds nothing once
+you know $s_{t+1}$, so it equals $V^\pi(s')$. Drop the $s_t$ and assemble:
+
+$$
+\boxed{\;V^\pi(s) = \sum_a \pi(a\mid s)\sum_{s'} P(s'\mid s,a)\big[R(s,a,s') + \gamma V^\pi(s')\big]\;}
+$$
+
+</Derivation>
+
+Note that this is **linear** in $V^\pi$. In matrix form
+$V^\pi = R^\pi + \gamma P^\pi V^\pi$, so $V^\pi = (I - \gamma P^\pi)^{-1}R^\pi$
+whenever the inverse exists — which it does for $\gamma < 1$, since
+$\gamma P^\pi$ has spectral radius below one.
+
+## The optimality operator
+
+Define $\mathcal{T}: \mathbb{R}^{|\mathcal{S}|} \to \mathbb{R}^{|\mathcal{S}|}$ by
+
+$$
+(\mathcal{T}V)(s) = \max_a \sum_{s'} P(s'\mid s,a)\big[R(s,a,s') + \gamma V(s')\big]
+$$
+
+$V^*$ is by definition its fixed point, $\mathcal{T}V^* = V^*$. The max makes
+this nonlinear, so there is no inverse to take — and yet iterating it converges,
+for the following reason.
+
+<Derivation title="$\mathcal{T}$ is a $\gamma$-contraction in the sup norm">
+
+**Lemma.** $\big|\max_a f(a) - \max_a g(a)\big| \le \max_a |f(a) - g(a)|$.
+
+*Proof.* Let $a^\star = \arg\max_a f(a)$. Then
+$\max_a f - \max_a g \le f(a^\star) - g(a^\star) \le \max_a|f-g|$, since
+$\max_a g \ge g(a^\star)$. Swap the roles of $f$ and $g$ for the other
+direction.
+
+**Main argument.** For any two value functions $V_1, V_2$ and any state $s$:
+
+$$
+\big|(\mathcal{T}V_1)(s) - (\mathcal{T}V_2)(s)\big|
+\;\le\; \max_a\, \gamma \left|\sum_{s'} P(s'\mid s,a)\big[V_1(s') - V_2(s')\big]\right|
+$$
+
+by the lemma — the reward terms are identical and cancel. Move the absolute
+value inside:
+
+$$
+\le\; \gamma \max_a \sum_{s'} P(s'\mid s,a)\,\big|V_1(s') - V_2(s')\big|
+\;\le\; \gamma \max_{s'}\big|V_1(s') - V_2(s')\big|
+\;=\; \gamma\|V_1 - V_2\|_\infty
+$$
+
+**The assumption doing the work is in that last inequality**: $P(\cdot\mid s,a)$
+is a probability distribution, so a weighted average of $|V_1 - V_2|$ cannot
+exceed its maximum. Taking the max over $s$ on the left gives
+$\|\mathcal{T}V_1 - \mathcal{T}V_2\|_\infty \le \gamma\|V_1 - V_2\|_\infty$.
+
+**Consequence.** $(\mathbb{R}^{|\mathcal{S}|}, \|\cdot\|_\infty)$ is complete, so
+Banach's fixed-point theorem gives a *unique* $V^*$ and
+
+$$
+\|V_k - V^*\|_\infty \le \gamma^k \|V_0 - V^*\|_\infty
+$$
+
+Geometric convergence with modulus $\gamma$ — which also says that as
+$\gamma \to 1$, convergence slows like $1/(1-\gamma)$.
+
+</Derivation>
+
+## What breaks with function approximation
+
+Tabular value iteration applies $\mathcal{T}$ exactly. With a parametric $V_\theta$
+you cannot represent $\mathcal{T}V_\theta$, so you fit it — and the update is
+
+$$
+V \;\leftarrow\; \Pi\,\mathcal{T}\,V
+$$
+
+where $\Pi$ projects onto the representable functions, in the $L_2$ norm
+weighted by whatever distribution your data came from.
+
+<Warning>
+Each piece is individually harmless. $\mathcal{T}$ contracts in $\|\cdot\|_\infty$;
+$\Pi$ is a non-expansion in its own weighted $L_2$ norm. **The composition need
+not contract in either**, because the norms are different — and off-policy data
+makes the projection's weighting diverge from the distribution the operator
+respects. Baird's counterexample is a small linear MDP where the parameters
+provably diverge. This is the deadly triad stated precisely: bootstrapping,
+function approximation, and off-policy data. Any two are fine; all three have no
+guarantee.
+</Warning>
+
+## The max, and the bias it creates
+
+<Derivation title="Why $\max$ over noisy estimates overestimates">
+
+Suppose $\hat Q(s,a)$ is unbiased for every action: $\mathbb{E}[\hat Q(s,a)] = Q(s,a)$.
+The max function is convex, so Jensen's inequality gives
+
+$$
+\mathbb{E}\Big[\max_a \hat Q(s,a)\Big] \;\ge\; \max_a \mathbb{E}\big[\hat Q(s,a)\big]
+= \max_a Q(s,a)
+$$
+
+with strict inequality whenever the estimates carry independent noise. The max
+is a *selection* rule, and it selects whichever action's noise happened to be
+positive.
+
+Bootstrapping then makes it worse: the inflated value becomes a target for the
+previous state, and the bias propagates backwards through the whole chain.
+
+**Double Q-learning's fix follows directly.** Use one estimator to choose the
+action and a second, independent one to evaluate it:
+$r + \gamma\, Q_2\big(s', \arg\max_{a'} Q_1(s',a')\big)$. The selection noise and
+the evaluation noise are now independent, so the correlation Jensen exploited is
+broken.
+
+</Derivation>
+
+<KeyIdea>
+Three separate results, often blurred together. **Contraction** is why tabular
+methods converge. **The triad** is why deep versions can diverge. **Jensen** is
+why they overestimate even when they converge. Different problems, different
+fixes — target networks and ensembles for the second, double estimators for the
+third.
+</KeyIdea>

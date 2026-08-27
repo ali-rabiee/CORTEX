@@ -1,26 +1,147 @@
 ---
 concept: mdp
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Markov Decision Process (MDP) in plain language: what is it,
-    and why does it matter?"
+  prompt: "Explain what an MDP is and what the Markov property actually asserts. Whose property is it?"
   keyPoints:
-    - An MDP is the 'game board' of RL — it defines the rules.
-    - "The Markov property says: 'the current state tells you everything you
-      need to make an optimal decision; history doesn't help.' Think of chess:
-      the board position (state) is all you need; how you got there is
-      irrelevant."
-    - The discount factor $\gamma$ encodes impatience — $\gamma = 0.99$ values a
-      reward 100 steps away at $0.99^{100} \approx 0.37$ of its face value.
-check: []
-papers: []
+    - "Five objects: states, actions, transition dynamics $P(s' \\mid s, a)$, reward $R$, and discount $\\gamma$. Everything in RL is defined relative to this tuple."
+    - "The Markov property says the current state is a sufficient statistic for the future: knowing how you got here adds nothing. It is a claim about *your chosen state variable*, not about the world."
+    - "This makes it something you engineer, not something you check. Position alone is not Markov for a moving object; position plus velocity is. Nothing about the physics changed."
+    - "$\\gamma$ sets the effective horizon $\\approx 1/(1-\\gamma)$ — 0.99 means you are optimising over roughly the next hundred steps and are close to blind beyond that."
+media:
+  - kind: lecture
+    title: "RL Course by David Silver — Lecture 2: Markov Decision Process"
+    url: https://www.youtube.com/watch?v=lfHX2hHRMVQ
+    source: "Google DeepMind · David Silver"
+    minutes: 102
+    note: "The canonical treatment. If you watch only part of it, take the first 40 minutes — Markov chains to Markov reward processes to MDPs, built one piece at a time."
+  - kind: article
+    title: "Part 1: Key Concepts in RL"
+    url: https://spinningup.openai.com/en/latest/spinningup/rl_intro.html
+    source: "OpenAI Spinning Up"
+    note: "The most efficient written version, and it is honest about the notational conflicts you will meet across papers. Read it before Level 2."
+  - kind: article
+    title: "Reinforcement Learning: An Introduction (2nd ed.)"
+    url: http://incompleteideas.net/book/the-book-2nd.html
+    source: "Sutton & Barto"
+    note: "Chapter 3 is the reference for this concept. Free PDF. Worth owning the vocabulary exactly as it defines it, because every paper assumes you have."
+check:
+  - id: mdp_l1_c1
+    prompt: "You feed a single camera frame to a policy as its state. The frame shows a ball mid-flight. Why is this not a Markov state?"
+    options:
+      - "Because images are high-dimensional and neural networks cannot process them exactly"
+      - "Because the frame does not determine the ball's velocity, so two situations demanding opposite actions produce the identical state — and no policy $\\pi(a \\mid s)$ can be optimal for both"
+      - "Because the reward is not visible in the image"
+      - "Because camera images contain noise"
+    answer: 1
+    explanation: "Markov means the state is a sufficient statistic for the future. A single frame fixes positions and destroys their derivatives, so it maps many genuinely different situations onto one state. The consequence is precise and worth stating in those terms: an optimal policy is a function of the state, and if one state has two different correct actions, no such function exists. Dimensionality is a separate concern entirely."
+  - id: mdp_l1_c2
+    prompt: "What is the cleanest way to describe the relationship between the Markov property and the real world?"
+    options:
+      - "Some real systems are Markov and others are not; you check which"
+      - "The Markov property is a claim about the state variable you chose, so it is something you engineer — augment the state until it is a sufficient statistic"
+      - "The Markov property never holds outside of simulation"
+      - "The Markov property holds if the dynamics are deterministic"
+    answer: 1
+    explanation: "This reframing is the single most useful thing to take from this concept. The world does not come labelled Markov or not; you pick a representation, and that representation either is or is not sufficient. Position is not Markov for a moving object, position-plus-velocity is, and the physics is identical in both cases. Every practical fix — frame stacking, adding joint velocities, recurrent hidden state — is state augmentation aimed at restoring sufficiency."
+  - id: mdp_l1_c3
+    prompt: "Your manipulation episodes are 200 steps and you set $\\gamma = 0.95$. What behaviour should you expect?"
+    options:
+      - "Slower learning, but the same final policy"
+      - "Myopic behaviour: the effective horizon is about $1/(1-0.95) = 20$ steps, so a reward 100 steps away is discounted to roughly 0.6% of its value and barely influences early decisions"
+      - "Divergence, because $\\gamma$ must exceed 0.99 for convergence"
+      - "Higher variance in the gradient estimates"
+    answer: 1
+    explanation: "$0.95^{100} \\approx 0.006$. A sparse success reward at the end of a 200-step episode is nearly invisible from the start, so the policy optimises whatever it can see inside a 20-step window. The tell is a policy that looks locally sensible and never completes the task. Note the direction of the trade-off in the tempting wrong answer: raising $\\gamma$ *increases* variance and slows credit assignment, so 'just use 0.999' has its own cost."
 ---
 
-## Intuition
+## Five objects, and a promise
 
-An MDP is the 'game board' of RL — it defines the rules. The Markov property says: 'the current state tells you everything you need to make an optimal decision; history doesn't help.' Think of chess: the board position (state) is all you need; how you got there is irrelevant. The discount factor $\gamma$ encodes impatience — $\gamma = 0.99$ values a reward 100 steps away at $0.99^{100} \approx 0.37$ of its face value. Every RL algorithm implicitly or explicitly assumes some form of MDP structure.
+An MDP is the contract that says what kind of problem you are solving. It has
+five parts:
 
-## In practice
+$$
+(\mathcal{S},\; \mathcal{A},\; P(s' \mid s, a),\; R(s,a),\; \gamma)
+$$
 
-Formulating a robot reaching task as an MDP: $\mathcal{S} = (q, \dot{q}, x_{\text{goal}}) \in \mathbb{R}^{7+7+3}$ (joint positions, velocities, goal position), $\mathcal{A} = \tau \in \mathbb{R}^7$ (joint torques), $P$ is determined by the physics simulator (MuJoCo, Isaac Gym), $R = -\|x_{\text{ee}} - x_{\text{goal}}\|_2 + r_{\text{success}}$, $\gamma = 0.99$. The Markov property holds because $q, \dot{q}$ fully determine the robot's mechanical state. If we only observe end-effector position (not joint states), the Markov property is violated and we have a POMDP.
+states, actions, how the world responds, what you are paid, and how much you
+care about later versus now. Every RL algorithm you will meet is defined
+relative to this tuple, and every one of them breaks in a specific way when one
+of the five is misspecified.
+
+The promise is the fourth item's neighbour — the transition function depends on
+$s$ and $a$ **only**:
+
+$$
+P(s_{t+1} \mid s_t, a_t, s_{t-1}, a_{t-1}, \ldots) = P(s_{t+1} \mid s_t, a_t)
+$$
+
+## Whose property is it?
+
+Here is the part that most treatments bury, and that interviewers listen for.
+
+<KeyIdea>
+The Markov property is not a fact about the world. It is a claim about **the
+variable you decided to call the state**. Change the variable and the same
+physical system stops or starts being Markov.
+</KeyIdea>
+
+<Figure src="/figures/mdp-markov-or-not.svg"
+        alt="Left: a single frame showing a ball between two paddles, consistent with the ball moving left or right, so the same state demands two opposite actions. Right: two stacked frames revealing the direction of motion, so the state determines one action."
+        caption="Same physics, same camera, two different state variables. The left one is not Markov; the right one is. Nothing about the world was fixed — only what was recorded." />
+
+<Intuition>
+Chess is the standard example and it is a good one: the board position is
+enough, and how the pieces got there is irrelevant. But notice that this is
+only true because someone chose to define the state as the full board. Define
+it as "the position of my queen" and chess is emphatically not Markov.
+
+So the question is never "is this problem Markov?" It is "what do I have to
+include so that it is?"
+</Intuition>
+
+## Formulating a robot task as an MDP
+
+<Steps>
+<Step title="Choose the state so it is sufficient">
+For a 7-DoF arm: joint positions *and* velocities, plus goal information. Adding
+velocities is not a detail — with positions alone, the same configuration
+appears while swinging in either direction and demands different torques. If any
+task-relevant quantity is hidden (contact, occluded contents), you have a POMDP
+and must add memory.
+</Step>
+
+<Step title="Choose actions at the level you can actually command">
+Joint torques, joint velocities, or end-effector deltas. This decision sets what
+the transition function has to model and how far ahead a single action reaches —
+torques give the most authority and the hardest credit assignment.
+</Step>
+
+<Step title="Let the simulator be $P$">
+You almost never write $P$ down. MuJoCo or Isaac is your transition function,
+and the sim2real gap is exactly the statement that it is the wrong one.
+</Step>
+
+<Step title="Write a reward you would be happy to see maximised literally">
+The agent optimises what you wrote, not what you meant. A distance-to-goal
+reward with a success bonus is standard; every term you add is a new way to be
+gamed.
+</Step>
+
+<Step title="Set $\gamma$ from the horizon you need">
+Effective horizon $\approx 1/(1-\gamma)$. For 50-step episodes $\gamma = 0.99$
+(horizon 100) is comfortable; for a 1000-step locomotion task it is too myopic.
+</Step>
+</Steps>
+
+<Warning>
+$\gamma$ looks like a property of the problem and behaves like a hyperparameter.
+Lower it and the agent becomes short-sighted; raise it and returns have higher
+variance, value estimates take longer to propagate, and bootstrapped methods get
+less stable. There is no "correct" value to look up — pick it from the horizon
+the task actually needs, then check whether the pathologies at that end of the
+range have shown up.
+</Warning>
+
+<WatchThis />
