@@ -1,0 +1,180 @@
+---
+concept: value_functions
+level: 4
+status: final
+recall:
+  prompt: "Trace how value function estimation has been improved since 1988. What did each change target, and what is the modern concern that is not about the estimator at all?"
+  keyPoints:
+    - "Sutton (1988) established TD learning: predict from your own later predictions rather than waiting for the outcome. Everything below is a refinement of that object."
+    - "Dueling (2016) changed the *architecture* — separate $V$ and $A$ streams — so states whose action choice barely matters are learned efficiently. PopArt (2016) fixed the *scale* problem so one agent can span reward magnitudes."
+    - "Distributional RL (2017) changed the *object*: back up the whole return distribution rather than its mean. The policy still acts on the mean, so the gains appear to be a representation effect."
+    - "The modern concern is not estimator quality but network health — value networks trained on non-stationary targets lose effective rank and plasticity over long runs, which no better estimator addresses."
+papers:
+  - key: sutton1988td
+    title: "Learning to Predict by the Methods of Temporal Differences"
+    authors: "Richard S. Sutton"
+    venue: "Machine Learning"
+    year: 1988
+    url: http://incompleteideas.net/papers/sutton-88-with-erratum.pdf
+    takeaway: "Introduces TD learning and proves convergence for the linear case: learn a prediction by regressing it toward your own later prediction, rather than waiting for the outcome."
+  - key: wang2016dueling
+    title: "Dueling Network Architectures for Deep Reinforcement Learning"
+    authors: "Ziyu Wang, Tom Schaul, Matteo Hessel, Hado van Hasselt, Marc Lanctot, Nando de Freitas"
+    venue: ICML
+    year: 2016
+    arxiv: "1511.06581"
+    takeaway: "Splits the network into a state-value stream and an advantage stream, so the value of a state is learned once rather than separately for every action — with an explicit normalisation to make the split identifiable."
+  - key: vanhasselt2016popart
+    title: "Learning values across many orders of magnitude"
+    authors: "Hado van Hasselt, Arthur Guez, Matteo Hessel, Volodymyr Mnih, David Silver"
+    venue: NeurIPS
+    year: 2016
+    arxiv: "1602.07714"
+    takeaway: "Adaptively normalises value targets while correcting the output layer so past predictions stay valid — removing the reward clipping that had been quietly changing what agents optimised."
+  - key: bellemare2017distributional
+    title: "A Distributional Perspective on Reinforcement Learning"
+    authors: "Marc G. Bellemare, Will Dabney, Rémi Munos"
+    venue: ICML
+    year: 2017
+    arxiv: "1707.06887"
+    takeaway: "Replaces the scalar value with a distribution over returns and backs the whole distribution through the Bellman operator. Large empirical gains even though the policy still acts on the mean."
+  - key: espeholt2018impala
+    title: "IMPALA: Scalable Distributed Deep-RL with Importance Weighted Actor-Learner Architectures"
+    authors: "Lasse Espeholt, Hubert Soyer, Remi Munos, Karen Simonyan, Volodymyr Mnih, et al."
+    venue: ICML
+    year: 2018
+    arxiv: "1802.01561"
+    takeaway: "V-trace: truncated importance weights that make value learning correct when actors lag the learner, with the clipping thresholds bounding bias and variance separately."
+  - key: kumar2021iup
+    title: "Implicit Under-Parameterization Inhibits Data-Efficient Deep Reinforcement Learning"
+    authors: "Aviral Kumar, Rishabh Agarwal, Dibya Ghosh, Sergey Levine"
+    venue: ICLR
+    year: 2021
+    arxiv: "2010.14498"
+    takeaway: "Repeated bootstrapped value fitting drives the network's feature matrix toward low rank, so capacity is lost during training — a failure of the *network*, not of the estimator."
+  - key: lyle2022capacity
+    title: "Understanding and Preventing Capacity Loss in Reinforcement Learning"
+    authors: "Clare Lyle, Mark Rowland, Will Dabney"
+    venue: ICLR
+    year: 2022
+    arxiv: "2204.09560"
+    takeaway: "Characterises capacity loss under non-stationary targets and shows a regulariser toward the initial random features mitigates it — evidence that plasticity, not estimator design, is the current bottleneck."
+check:
+  - id: vf_l4_c1
+    prompt: "What problem does the dueling architecture actually solve?"
+    options:
+      - "It reduces overestimation bias from the max operator"
+      - "In states where the action choice barely matters, a plain $Q$ network must learn the same state value redundantly for every action; separating the streams learns it once, so the value estimate improves from every transition regardless of which action was taken"
+      - "It makes $Q$ learning applicable to continuous actions"
+      - "It removes the need for a target network"
+    answer: 1
+    explanation: "It is a statistical efficiency argument about parameter sharing. Most states in most tasks have one dominant value and small action-dependent differences; a flat $Q$ head has to rediscover that shared value in each action's output. The dueling split routes it through one stream, so every transition informs it. This is orthogonal to Double DQN, which is what actually addresses overestimation — the two were combined in Rainbow precisely because they are independent."
+  - id: vf_l4_c2
+    prompt: "Distributional RL learns the full return distribution but the policy still acts on its mean. Why does it help?"
+    options:
+      - "Because the mean of the learned distribution is more accurate than a directly-regressed mean"
+      - "The prevailing explanation is a representation-learning effect: predicting a whole distribution is a richer auxiliary task that shapes better features, rather than the distribution itself being used for decisions"
+      - "Because it eliminates the need for exploration"
+      - "Because it makes the Bellman operator a contraction"
+    answer: 1
+    explanation: "That the gains survive while the policy uses only the mean is exactly what makes the result interesting and slightly unsatisfying. The distributional Bellman operator is a contraction in the Wasserstein metric, so the theory is sound, but that does not explain why the *mean* extracted from it beats a mean learned directly. The auxiliary-task framing is the common explanation and it is worth flagging as an explanation rather than a settled fact."
+  - id: vf_l4_c3
+    prompt: "Kumar et al. and Lyle et al. identify a failure that better estimators do not fix. What is it?"
+    options:
+      - "Reward misspecification"
+      - "Networks trained on bootstrapped, non-stationary targets progressively lose effective rank and plasticity, so late in training they cannot fit new targets even though the estimator is unchanged — a property of the optimisation, not of the value estimate"
+      - "Overestimation bias from the max"
+      - "The deadly triad"
+    answer: 1
+    explanation: "This reframes what a value network is doing: not one regression problem but a long sequence of them, each initialised from the last solution. That process degrades the features, so the same architecture that fit targets fine at step 10k cannot at step 10M. It is worth knowing because it predicts symptoms — late-training plateaus insensitive to learning rate or capacity — that look like nothing else in this list, and because the mitigations are resets and regularisers rather than changes to the Bellman machinery."
+---
+
+## The founding idea
+
+<PaperCard refKey="sutton1988td" />
+
+Temporal-difference learning is the proposal that you can learn a prediction by
+regressing it toward your own *later* prediction, rather than waiting for the
+actual outcome. Every value function trained since is a variation on this, and
+the 1988 paper's convergence proof for the linear case is the last time the
+guarantees were unconditional.
+
+## Changing the architecture, and the scale
+
+<PaperGrid>
+<PaperCard refKey="wang2016dueling" />
+<PaperCard refKey="vanhasselt2016popart" />
+</PaperGrid>
+
+Dueling is a statistical efficiency argument. In most states the action choice
+barely matters — the state's value dominates and the action differences are
+small. A flat $Q$ head has to learn that shared value separately in every
+action's output; splitting the streams learns it once, so every transition
+improves the value estimate regardless of which action was taken. The
+normalisation term exists because the decomposition is otherwise unidentifiable.
+
+PopArt attacks something less glamorous and arguably more consequential. Value
+targets span orders of magnitude across tasks and across training, and the
+standard workaround had been reward clipping — which quietly changes the
+objective, making a reward of 1000 indistinguishable from one of 1. PopArt
+normalises adaptively and simultaneously adjusts the output layer's weights so
+the function the network represents is unchanged by the rescaling.
+
+<KeyIdea>
+Two very different kinds of contribution sit here. One changes what the network
+computes; the other changes nothing about the estimator and fixes a numerical
+problem that had been distorting what everybody was optimising. The second kind
+is less cited and, when you are debugging your own system, more often the one
+you need.
+</KeyIdea>
+
+## Changing the object
+
+<PaperCard refKey="bellemare2017distributional" />
+
+Instead of $Q(s,a)$ as a number, learn $Z(s,a)$ as a distribution over returns,
+and push the whole distribution through the Bellman operator — shift by $r$,
+shrink by $\gamma$, project back onto a fixed set of atoms. The distributional
+operator is a contraction in the Wasserstein metric, so the theory is intact.
+
+The interesting part is that the policy still acts on the mean, and the gains
+are large anyway. The usual explanation is that predicting a distribution is a
+richer auxiliary task that shapes better features. That is an explanation, not a
+settled result, and saying so is more honest than repeating it as fact.
+
+## Making value learning work off-policy at scale
+
+<PaperCard refKey="espeholt2018impala" />
+
+Once actors are distributed, their trajectories arrive under slightly stale
+policies, and the TD residual is only a valid signal for the policy that
+generated the transition. V-trace applies truncated importance weights, with two
+separate clipping thresholds that bound the bias of the fixed point and the
+variance of the update independently. Structurally it is the same backward
+recursion as GAE, extended to survive being off-policy.
+
+## The concern that is not about the estimator
+
+<PaperGrid>
+<PaperCard refKey="kumar2021iup" />
+<PaperCard refKey="lyle2022capacity" />
+</PaperGrid>
+
+This is the most useful recent shift and it is under-taught. A value network is
+not solving one regression problem; it is solving a long sequence of them, each
+initialised from the previous solution, against targets that move because the
+policy improves. That process degrades the network itself: the feature matrix
+drifts toward low effective rank, and the model progressively loses the ability
+to fit new targets. The architecture that fit fine at ten thousand steps cannot
+at ten million.
+
+<Warning>
+Nothing in the Bellman machinery addresses this, which is why it is worth
+knowing separately. The symptom is distinctive: a late-training plateau that is
+insensitive to learning rate, capacity, and $\lambda$, on a run that was
+learning normally earlier. The mitigations are also unlike anything else on this
+page — periodic resets of some layers, regularisation toward the initial random
+features, and larger update-to-data ratios paired with resets. If someone asks
+what is currently limiting deep value-based RL, this is a better answer than
+overestimation.
+</Warning>

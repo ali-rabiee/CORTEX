@@ -1,25 +1,148 @@
 ---
 concept: value_functions
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Value Functions ($V$ and $Q$) in plain language: what is it,
-    and why does it matter?"
+  prompt: "Explain $V$, $Q$, and the advantage in plain language. What is the relationship between them, and when do you need each?"
   keyPoints:
-    - $V(s)$ is like knowing the overall quality of a chess position.
-    - $Q(s,a)$ is knowing the quality of a specific move in that position.
-    - "The advantage $A(s,a) = Q(s,a) - V(s)$ tells you: 'was this move better
-      or worse than what you'd normally do here?' It's the signal that drives
-      policy improvement — positive $A > 0$ means 'do more of this,' negative $A
-      < 0$ means 'do less.'"
-check: []
-papers: []
+    - "$V^\\pi(s)$: expected return from $s$ if you follow $\\pi$. $Q^\\pi(s,a)$: expected return if you take $a$ first, then follow $\\pi$. $A^\\pi(s,a) = Q^\\pi(s,a) - V^\\pi(s)$."
+    - "$V$ is the policy-weighted average of $Q$ over actions — which makes the advantage average to exactly zero under $\\pi$. That is what makes it the right weight for a policy gradient."
+    - "$Q$ lets you act greedily with no model, since $\\arg\\max_a Q(s,a)$ needs nothing else. $V$ does not — picking an action from $V$ requires knowing where each action leads."
+    - "Every value function is defined *relative to a policy*. $V^\\pi$ and $V^*$ are different objects, and sloppiness about which one a symbol means is the most common source of confusion in this area."
+media:
+  - kind: lecture
+    title: "RL Course by David Silver — Lecture 2: Markov Decision Process"
+    url: https://www.youtube.com/watch?v=lfHX2hHRMVQ
+    source: "Google DeepMind · David Silver"
+    minutes: 102
+    note: "Defines $V^\\pi$, $Q^\\pi$, $V^*$, $Q^*$ and their four Bellman equations with backup diagrams. Getting these four objects cleanly separated is most of the battle."
+  - kind: article
+    title: "Part 1: Key Concepts in RL"
+    url: https://spinningup.openai.com/en/latest/spinningup/rl_intro.html
+    source: "OpenAI Spinning Up"
+    note: "The 'Value Functions' section states all four and the identities between them compactly. Worth having open the first few times you read a paper's derivations."
+  - kind: article
+    title: "Reinforcement Learning: An Introduction (2nd ed.)"
+    url: http://incompleteideas.net/book/the-book-2nd.html
+    source: "Sutton & Barto"
+    note: "Section 3.5 for the definitions, and Section 4.2 for the policy improvement theorem — the result that explains why an advantage is actionable at all."
+check:
+  - id: vf_l1_c1
+    prompt: "Why can you act greedily using $Q$ but not using $V$, without a model?"
+    options:
+      - "$V$ is less accurate than $Q$"
+      - "$\\arg\\max_a Q(s,a)$ only needs the current state, but choosing from $V$ means comparing $\\mathbb{E}[r + \\gamma V(s')]$ over actions — which requires knowing where each action leads"
+      - "$V$ is defined only for the optimal policy"
+      - "$Q$ is differentiable and $V$ is not"
+    answer: 1
+    explanation: "This is the practical reason $Q$-learning is the classic model-free method. $Q$ has already absorbed the one-step lookahead into its input: it is indexed by the action, so comparing actions is just comparing numbers. $V$ is indexed by state only, so to use it you must first predict which state each action produces — which is a model. The cost is that $Q$'s input space is $|\\mathcal{S}| \\times |\\mathcal{A}|$ rather than $|\\mathcal{S}|$, so it is a harder function to learn."
+  - id: vf_l1_c2
+    prompt: "Why is $\\mathbb{E}_{a\\sim\\pi}[A^\\pi(s,a)] = 0$, and why does it matter?"
+    options:
+      - "It is an approximation that holds when the policy is near-optimal"
+      - "$V^\\pi(s)$ is by definition the $\\pi$-weighted mean of $Q^\\pi(s,\\cdot)$, so subtracting it centres the values — and that centring is exactly what makes 'better than what I usually do' a meaningful signal with no free offset"
+      - "It holds only for deterministic policies"
+      - "It is a consequence of the discount factor being less than one"
+    answer: 1
+    explanation: "It is an identity, not an approximation, and it falls directly out of the definitions. Its importance is that it removes an arbitrary constant: an un-centred weight like $Q$ or the raw return makes *every* sampled action look good when returns are all positive, and only the relative differences carry information. Centring at zero means positive genuinely means 'do more of this' and negative means 'do less'."
+  - id: vf_l1_c3
+    prompt: "A paper writes $V(s)$ without a superscript. What should you immediately establish?"
+    options:
+      - "Whether it is discounted or undiscounted"
+      - "Which policy it is the value of — $V^\\pi$ for a specific policy and $V^*$ for the optimal one obey different Bellman equations, and results proved about one do not transfer to the other"
+      - "The dimensionality of the state space"
+      - "Whether it is estimated by Monte Carlo or TD"
+    answer: 1
+    explanation: "The two objects have different equations — $V^\\pi$'s is linear in $V$ and $V^*$'s has a max and is not — and different algorithms attach to each. Policy evaluation computes $V^\\pi$; value iteration computes $V^*$. Almost every confusion in this area traces back to a symbol whose policy was never pinned down, so making it explicit as you read is a cheap habit with a high return."
 ---
 
-## Intuition
+## Three objects, one definition
 
-$V(s)$ is like knowing the overall quality of a chess position. $Q(s,a)$ is knowing the quality of a specific move in that position. The advantage $A(s,a) = Q(s,a) - V(s)$ tells you: 'was this move better or worse than what you'd normally do here?' It's the signal that drives policy improvement — positive $A > 0$ means 'do more of this,' negative $A < 0$ means 'do less.'
+All three answer "how much reward do I expect from here?", differing only in
+what is held fixed.
 
-## In practice
+$$
+V^\pi(s) = \mathbb{E}_\pi\big[G_t \mid s_t = s\big]
+\qquad
+Q^\pi(s,a) = \mathbb{E}_\pi\big[G_t \mid s_t = s,\, a_t = a\big]
+$$
 
-In actor-critic methods for robot locomotion, the critic learns $V_\phi(s)$ and we estimate $\hat{A}$ using GAE: $$\hat{A}_t^{\text{GAE}(\gamma,\lambda)} = \sum_{l=0}^{\infty} (\gamma\lambda)^l \delta_{t+l}, \quad \delta_t = r_t + \gamma V_\phi(s_{t+1}) - V_\phi(s_t)$$ Using $\lambda = 0.95$ gives a good bias-variance trade-off. At $\lambda = 1$, GAE reduces to Monte Carlo returns minus baseline; at $\lambda = 0$, it reduces to the one-step TD residual $\delta_t$. The critic architecture typically shares early layers with the actor in simpler tasks.
+$V$ assumes you behave as $\pi$ from now on. $Q$ lets you take one specified
+action first, then behave as $\pi$. The advantage is their difference:
+
+$$
+A^\pi(s,a) = Q^\pi(s,a) - V^\pi(s)
+$$
+
+<Intuition>
+$V$ is "how good is this chess position for me". $Q$ is "how good is this
+position if I play knight-to-f3". The advantage is "is knight-to-f3 better or
+worse than my usual play here?"
+
+Only the third is directly actionable. The first two are dominated by how good
+the position is, which is not something this move can take credit for.
+</Intuition>
+
+## The identity that makes the advantage useful
+
+$V^\pi$ is not the best $Q$ — it is the **average** $Q$, weighted by how often
+$\pi$ actually takes each action:
+
+$$
+V^\pi(s) = \sum_a \pi(a\mid s)\, Q^\pi(s,a)
+$$
+
+<Figure src="/figures/value-v-q-advantage.svg"
+        alt="Bar chart of Q values for four actions at one state, with a horizontal line at the policy-weighted mean marking V, and arrows from that line to each bar showing the advantage of each action."
+        caption="V sits at the policy-weighted mean, so the positive and negative advantages exactly cancel. Note that V is the mean and not the max — the max is V*, a different object belonging to a different policy." />
+
+<KeyIdea>
+Because $V^\pi$ is the mean, $\mathbb{E}_{a\sim\pi}[A^\pi(s,a)] = 0$ exactly.
+That zero-centring is the whole reason the advantage is the right weight for a
+policy gradient: it removes an arbitrary per-state offset, so a positive weight
+genuinely means "more of this than usual" instead of "this state was good".
+</KeyIdea>
+
+## When you need which
+
+<Steps>
+<Step title="$Q$, when you must act without a model">
+$\arg\max_a Q(s,a)$ requires nothing but the current state. That is why $Q$
+is the object of choice for model-free value methods. The cost: its input space
+is $|\mathcal{S}|\times|\mathcal{A}|$, so it is a harder function to fit than
+$V$, and the argmax must be tractable.
+</Step>
+
+<Step title="$V$, when a policy already exists to be criticised">
+In actor-critic the actor chooses; the critic only has to score states. $V$ is
+a smaller, easier function than $Q$, and it is all a baseline needs. This is why
+PPO, A2C, and GAE are built on $V$ and never learn $Q$ at all.
+</Step>
+
+<Step title="$A$, whenever you are updating a policy">
+Both alternatives are worse. Raw returns make every action in a good state look
+good; $Q$ has the same problem with a smaller constant. The advantage is the
+only one of the three whose sign means what you want it to mean.
+</Step>
+</Steps>
+
+## The one that gets people
+
+<Warning>
+Every value function is defined **relative to a policy**, and $V^\pi$ and $V^*$
+are different objects obeying different equations. $V^\pi$ satisfies a linear
+Bellman equation you can solve by matrix inversion; $V^*$ satisfies one with a
+max in it and cannot be solved directly. Policy evaluation computes the first,
+value iteration computes the second. When a paper writes a bare $V(s)$, work out
+which one it means before you read the next line — almost all confusion in this
+area starts there.
+</Warning>
+
+There is a second habit worth forming early: distrust a critic before you
+distrust a policy. A value function trained concurrently on a moving target is
+the least reliable component of most RL systems, and "explained variance" — how
+much of the return's variance the critic actually accounts for — is the one
+number that tells you whether anything downstream of it can be trusted. Level 3
+covers measuring it.
+
+<WatchThis />

@@ -1,24 +1,165 @@
 ---
 concept: value_functions
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Value Functions ($V$ and $Q$) fail in practice, and how would
-    you present it in an interview?
+  prompt: "Give your interview answer on value functions. What identities do you state, and what is the first number you look at when RL is not working?"
   keyPoints:
-    - Value function overestimation leading to policy degradation.
-    - "In Q-learning: the $\\max$ operator causes systematic overestimation
-      since $\\mathbb{E}[\\max_a Q(s,a)] \\geq \\max_a \\mathbb{E}[Q(s,a)]$."
-    - "In actor-critic: the critic can overfit to limited data in early
-      training."
-check: []
-papers: []
+    - "State the three objects and the two identities: $V$ is the policy-weighted mean of $Q$, and therefore the advantage is zero-mean under $\\pi$."
+    - "$Q$ lets you act without a model; $V$ is smaller and easier and is all a baseline needs. That is why value-based methods learn $Q$ and actor-critic methods learn $V$."
+    - "Explained variance is the first diagnostic, not the value loss — the loss is in units of squared return and grows as the policy improves."
+    - "Have the policy improvement theorem ready: a local advantage condition bootstraps into a global guarantee, which is why acting on advantages is licensed at all."
+interview:
+  answer: >-
+    There are three objects and they differ only in what's held fixed. V of s is
+    the expected return from a state if you follow the policy. Q of s and a is
+    the expected return if you take a specific action first and then follow the
+    policy. And the advantage is their difference. The identity I'd put front
+    and centre is that V is the policy-weighted average of Q over actions — not
+    the max, which is a different object belonging to the optimal policy. That
+    matters because it means the advantage is exactly zero-mean under the
+    policy, and that centring is what makes it the right weight for a policy
+    gradient: it removes an arbitrary per-state offset, so positive genuinely
+    means better than what I usually do here rather than this state is good. On
+    when you need which: Q has absorbed the one-step lookahead into its input,
+    so argmax over Q needs nothing but the current state — that's why value-
+    based model-free methods learn Q. The cost is that Q's input space is states
+    times actions, so it's a harder function to fit, and the argmax has to be
+    tractable, which it isn't in continuous control. V is smaller and easier and
+    it's all a baseline needs, which is why PPO and GAE are built on V and never
+    learn Q at all. The result that licenses any of this is the policy
+    improvement theorem: if at every state the new policy's action is at least
+    as good as the old policy's average — that is, non-negative advantage — then
+    the new policy's value is at least as good everywhere. It's proved by
+    unrolling the inequality one step at a time, and the point is that a purely
+    local condition bootstraps into a global guarantee about full returns.
+    Practically, the critic is usually the least reliable component in an RL
+    system, and the first number I look at is explained variance, not the value
+    loss. The loss is in units of squared return, so it grows as the policy
+    improves and isn't comparable across time. Explained variance tells you what
+    fraction of return variance the critic accounts for — near zero means every
+    advantage downstream is noise, and I've seen it go negative early in
+    training, which invalidates everything.
+  followUps:
+    - q: "Would you share a trunk between actor and critic?"
+      a: >-
+        Usually not in continuous control, and yes with pixel inputs where the
+        encoder dominates the cost. The reason to be careful is that it's a
+        multi-task problem where the two tasks disagree, and the value loss is
+        the dangerous partner because its scale is set by the return magnitude
+        and grows as the policy improves. So the value gradient can capture the
+        trunk and degrade the policy's representation. If I share, I'd put a
+        coefficient on the value loss, normalise the value targets so the scale
+        stops drifting, and log the per-loss gradient norms separately. The tell
+        that the trunk has been captured is policy entropy collapsing whenever
+        the value loss spikes.
+    - q: "Your returns are flat and you don't know whether it's the policy or the critic. How do you split it?"
+      a: >-
+        Explained variance separates them almost immediately. If it's near zero
+        or negative, the critic isn't tracking returns, so the advantages are
+        noise and the policy updates are effectively random — fix the critic
+        first and don't touch policy hyperparameters. If explained variance is
+        healthy, say above 0.7, then the critic is doing its job and the problem
+        is upstream: exploration, reward specification, or the state not being
+        Markov. The other cheap check is to look at the advantage distribution —
+        if it's nearly all one sign, either the baseline is badly offset or
+        advantage normalisation isn't on.
+    - q: "Why normalise value targets rather than just clipping rewards?"
+      a: >-
+        Because clipping changes the objective. If you clip rewards to plus or
+        minus one, a reward of a thousand and a reward of one become the same
+        thing, and the agent is now optimising a different problem than the one
+        you specified — which was standard practice in early Atari work and
+        quietly explains some odd behaviours. Target normalisation keeps the
+        relative magnitudes intact and only fixes the numerical scale. PopArt is
+        the careful version: it adjusts the output layer's weights whenever the
+        running statistics change, so rescaling doesn't invalidate what the
+        network has already learned. The implementation hazard is bookkeeping —
+        the network predicts normalised values and every consumer has to
+        un-normalise, and one place that forgets gives you advantages wrong by a
+        scale factor, which looks exactly like a mistuned learning rate.
+    - q: "What do you think is actually limiting deep value-based RL right now?"
+      a: >-
+        I'd point at network health rather than estimator design. A value
+        network isn't solving one regression problem, it's solving a long
+        sequence of them against targets that move because the policy improves,
+        each initialised from the last solution. Kumar and colleagues showed
+        that process drives the feature matrix toward low effective rank, and
+        Lyle and colleagues characterised the same thing as capacity loss — the
+        network progressively loses the ability to fit new targets. What makes
+        it worth naming is that nothing in the Bellman machinery touches it, the
+        symptom is distinctive — a late-training plateau insensitive to learning
+        rate, capacity, and lambda — and the mitigations are unusual: periodic
+        layer resets, regularising toward the initial random features.
+  traps:
+    - "Saying $V(s) = \\max_a Q(s,a)$. That is $V^*$, not $V^\\pi$. $V^\\pi$ is the policy-weighted mean, and the whole zero-mean advantage property depends on it."
+    - "Reporting the value loss as evidence the critic is good. It scales with return magnitude, so it grows as the policy improves. Explained variance is the comparable number."
+    - "Treating the advantage as an optimisation trick. The policy improvement theorem is what makes acting on it a guarantee rather than a heuristic."
+    - "Forgetting to say which policy a value function belongs to. $V^\\pi$ and $V^*$ satisfy different Bellman equations and are computed by different algorithms."
+check:
+  - id: vf_l5_c1
+    prompt: "A candidate writes $V(s) = \\max_a Q(s,a)$ on the board while explaining actor-critic. What is wrong?"
+    options:
+      - "Nothing; it is a standard identity"
+      - "That is $V^*$. For a general policy $V^\\pi(s) = \\sum_a \\pi(a\\mid s)Q^\\pi(s,a)$ — the policy-weighted *mean* — and the max version would break the zero-mean advantage property the critic is there to provide"
+      - "The max should be a min"
+      - "It only holds for continuous action spaces"
+    answer: 1
+    explanation: "The two coincide only for a policy that puts all its mass on maximising actions. In actor-critic the critic evaluates the *current* policy, which is deliberately stochastic, so the mean is the right object. If $V$ were the max, then $A = Q - V$ would be non-positive everywhere and no action would ever look better than average — which shows immediately that the mean is what the machinery requires."
+  - id: vf_l5_c2
+    prompt: "Your PPO run has flat returns. Explained variance is 0.05 and the value loss is falling smoothly. What do you do?"
+    options:
+      - "Increase the clip epsilon, since the policy is not moving enough"
+      - "Fix the critic: explained variance near zero means it explains almost none of the return variance, so the advantages are noise regardless of the loss curve looking healthy — and every policy hyperparameter is downstream of that"
+      - "Lower $\\lambda$ so the advantages rely more on the critic"
+      - "Add an entropy bonus"
+    answer: 1
+    explanation: "The two numbers together are the point: a smoothly falling loss with near-zero explained variance means the critic is confidently predicting something close to a constant, and the loss is falling because it is converging to the mean return. Nothing downstream can work. Option 3 is the trap and it makes things worse, since a low $\\lambda$ leans harder on exactly the component that is failing."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Value function overestimation leading to policy degradation. In Q-learning: the $\max$ operator causes systematic overestimation since $\mathbb{E}[\max_a Q(s,a)] \geq \max_a \mathbb{E}[Q(s,a)]$. In actor-critic: the critic can overfit to limited data in early training. Fix: double Q-learning ($Q_{\text{target}}(s', \arg\max_{a'} Q(s',a'))$), target networks with slow update ($\tau = 0.005$), large replay buffers, proper normalization.
+<Steps>
+<Step title="Explained variance near zero or negative → the critic, before anything else">
+Every advantage is noise while this holds, so no policy-side hyperparameter can
+help. Check target normalisation, learning rate, and capacity. Negative means
+worse than predicting the mean return, which is common in the first few thousand
+steps and should not persist.
+</Step>
 
-## Interview-ready answer
+<Step title="Value loss rising while returns improve → not a problem">
+The loss is in units of squared return, so it grows as returns grow. This is the
+single most commonly misread curve in RL logs. Read explained variance instead.
+</Step>
 
-Value functions are the backbone of most RL algorithms. $V^\pi(s)$ and $Q^\pi(s,a)$ estimate expected returns, and the advantage $A = Q - V$ drives policy updates. In practice, GAE with $\lambda = 0.95$ provides the best bias-variance trade-off for advantage computation: $\hat{A}^{\text{GAE}} = \sum (\gamma\lambda)^l \delta_l$. Key implementation details: normalize advantages per batch ($\hat{A} \leftarrow (\hat{A} - \mu)/\sigma$), use separate target networks with Polyak averaging ($\theta' \leftarrow \tau\theta + (1-\tau)\theta'$) for stability, and consider shared vs separate actor-critic architectures based on the task complexity.
+<Step title="Advantages nearly all one sign → baseline offset or missing normalisation">
+The true $A^\pi$ is zero-mean under $\pi$; a fitted one will not be exactly, but
+it should not be systematically shifted. Check per-batch advantage normalisation
+is on, and that the critic's normalisation is applied consistently in both
+directions.
+</Step>
+
+<Step title="Policy entropy collapses whenever the value loss spikes → shared trunk captured">
+The value gradient is dominating the shared representation. Add or lower the
+value-loss coefficient, normalise targets, or stop sharing.
+</Step>
+
+<Step title="Late-training plateau insensitive to everything → capacity loss">
+Learning rate, capacity, and $\lambda$ all fail to move it, on a run that was
+learning normally earlier. This is the value network losing effective rank under
+non-stationary targets. Resets and feature regularisation, not estimator
+changes.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The single highest-value habit from this concept is diagnostic rather than
+theoretical: when RL is not working, check the critic first, and check it with
+explained variance rather than the loss. It splits "the policy is bad" from "the
+learning signal is noise" in one number, and candidates who volunteer it sound
+like they have debugged an RL system rather than read about one. Pair it with
+the $V^\pi$-is-a-mean identity and the policy improvement theorem, and you have
+covered both why the machinery is licensed and how you would know it was broken.
+</Warning>

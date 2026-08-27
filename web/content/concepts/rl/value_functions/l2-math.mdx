@@ -1,24 +1,193 @@
 ---
 concept: value_functions
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Value Functions ($V$ and $Q$), including
-    the key equations.
+  prompt: "State the four value functions and the identities linking them. Prove the policy improvement theorem."
   keyPoints:
-    - The state-value function $V^\pi(s) =
-      \mathbb{E}_\pi\left[\sum_{t=0}^{\infty} \gamma^t r_t \,\middle|\, s_0 =
-      s\right]$ estimates expected cumulative discounted reward from state $s$
-      under policy $\pi$.
-    - The action-value function $Q^\pi(s,a) =
-      \mathbb{E}_\pi\left[\sum_{t=0}^{\infty} \gamma^t r_t \,\middle|\, s_0 =
-      s,\, a_0 = a\right]$ conditions on the initial action.
-    - The advantage $A^\pi(s,a) = Q^\pi(s,a) - V^\pi(s)$ measures how much
-      better action $a$ is compared to average.
-check: []
-papers: []
+    - "$V^\\pi(s) = \\sum_a \\pi(a\\mid s)Q^\\pi(s,a)$ and $Q^\\pi(s,a) = \\mathbb{E}_{s'}[r + \\gamma V^\\pi(s')]$ — one is an average over actions, the other over next states."
+    - "$V^*(s) = \\max_a Q^*(s,a)$: for the optimal policy the average becomes a max, because an optimal policy puts all its mass on maximising actions."
+    - "Policy improvement theorem: if $Q^\\pi(s,\\pi'(s)) \\ge V^\\pi(s)$ for all $s$, then $V^{\\pi'}(s) \\ge V^\\pi(s)$ for all $s$. Proved by repeatedly unrolling the inequality one step at a time."
+    - "$Q = V + A$ is not identifiable — adding $c$ to $V$ and subtracting it from $A$ leaves $Q$ unchanged — so a dueling architecture must impose a normalisation to pin the split down."
+check:
+  - id: vf_l2_c1
+    prompt: "What is the essential step in the proof of the policy improvement theorem?"
+    options:
+      - "Showing the Bellman operator is a contraction"
+      - "Repeatedly applying the hypothesis: substitute $V^\\pi(s) \\le Q^\\pi(s,\\pi'(s))$, expand $Q^\\pi$ one step to expose $V^\\pi(s_{t+1})$, apply the hypothesis again, and telescope out to the full return under $\\pi'$"
+      - "Assuming the policy is deterministic"
+      - "Taking the limit as $\\gamma \\to 1$"
+    answer: 1
+    explanation: "It is an unrolling argument, and the elegance is that a *local* condition — at every state, the new action is at least as good as the old policy's average — is bootstrapped into a *global* one about full returns. Each expansion converts one more step from $\\pi$ to $\\pi'$, and the discounted remainder shrinks geometrically so the limit is $V^{\\pi'}$. No contraction argument is needed, and the result holds for stochastic $\\pi'$ with the obvious change of notation."
+  - id: vf_l2_c2
+    prompt: "A dueling network outputs $V(s)$ and $A(s,a)$ separately and sets $Q = V + A$. What goes wrong without a normalisation term?"
+    options:
+      - "The network cannot represent negative advantages"
+      - "The decomposition is unidentifiable: adding any constant to $V$ and subtracting it from $A$ gives the same $Q$, so the two heads can drift arbitrarily and neither means what its name says"
+      - "The gradient of $Q$ becomes zero"
+      - "The advantage stream overfits faster than the value stream"
+    answer: 1
+    explanation: "Only the sum is constrained by the loss, so the split is free — nothing forces the $V$ head to learn a value or the $A$ head to be zero-mean, and in practice they drift. The standard remedy is $Q = V + (A - \\text{mean}_a A)$, which restores the identity $\\mathbb{E}[A] = 0$ up to using a uniform rather than policy-weighted mean. Subtracting the max instead is the other option in the paper and is less stable, since the reference point then jumps whenever the argmax changes."
+  - id: vf_l2_c3
+    prompt: "Why does $V^*(s) = \\max_a Q^*(s,a)$ while $V^\\pi(s) = \\sum_a \\pi(a\\mid s)Q^\\pi(s,a)$?"
+    options:
+      - "Because the optimal policy is deterministic and puts all its probability on a maximising action, so the weighted average collapses to the maximum"
+      - "Because $V^*$ is defined differently from $V^\\pi$"
+      - "Because the max operator is a special case of an expectation"
+      - "Because optimal policies have zero entropy by assumption"
+    answer: 0
+    explanation: "Both are the same definition — the $\\pi$-weighted mean of $Q$ — applied to different policies. For an optimal policy, any action with $Q^*(s,a) < \\max_{a'}Q^*(s,a')$ must have zero probability, so the mean *is* the max. A finite MDP always admits a deterministic optimal policy, which is why this collapse is guaranteed rather than assumed. It is also exactly what maximum-entropy RL gives up: adding an entropy term makes the optimal policy stochastic and replaces the max with a log-sum-exp."
 ---
 
-## Formal definition
+## Four objects and the identities between them
 
-The state-value function $V^\pi(s) = \mathbb{E}_\pi\left[\sum_{t=0}^{\infty} \gamma^t r_t \,\middle|\, s_0 = s\right]$ estimates expected cumulative discounted reward from state $s$ under policy $\pi$. The action-value function $Q^\pi(s,a) = \mathbb{E}_\pi\left[\sum_{t=0}^{\infty} \gamma^t r_t \,\middle|\, s_0 = s,\, a_0 = a\right]$ conditions on the initial action. The advantage $A^\pi(s,a) = Q^\pi(s,a) - V^\pi(s)$ measures how much better action $a$ is compared to average. These satisfy the Bellman equation: $$V^\pi(s) = \mathbb{E}_{a \sim \pi}\left[R(s,a) + \gamma \mathbb{E}_{s'}[V^\pi(s')]\right]$$
+$$
+V^\pi(s) = \sum_a \pi(a\mid s)\,Q^\pi(s,a)
+\qquad
+Q^\pi(s,a) = \sum_{s'} P(s'\mid s,a)\big[R(s,a,s') + \gamma V^\pi(s')\big]
+$$
+
+The pair alternates between two kinds of averaging: over actions using $\pi$,
+and over next states using $P$. Substituting each into the other gives the two
+Bellman expectation equations.
+
+For the optimal policy the first identity collapses:
+
+$$
+V^*(s) = \max_a Q^*(s,a),
+\qquad
+Q^*(s,a) = \sum_{s'}P(s'\mid s,a)\Big[R + \gamma\max_{a'}Q^*(s',a')\Big]
+$$
+
+<KeyIdea>
+The collapse is not a new definition. It is the same $\pi$-weighted mean applied
+to a policy that assigns zero probability to any non-maximising action — and a
+finite MDP always admits such a deterministic optimal policy. Maximum-entropy RL
+is precisely the choice to give this up: add an entropy term and the optimal
+policy becomes stochastic, and the max becomes a log-sum-exp.
+</KeyIdea>
+
+## The advantage is zero-mean by construction
+
+$$
+\mathbb{E}_{a\sim\pi}\big[A^\pi(s,a)\big]
+= \sum_a \pi(a\mid s)\big[Q^\pi(s,a) - V^\pi(s)\big]
+= V^\pi(s) - V^\pi(s) = 0
+$$
+
+using $\sum_a \pi(a\mid s) = 1$. This is an identity for the *true* $A^\pi$; an
+estimated $\hat A$ from a fitted critic will not be exactly zero-mean, which is
+one reason per-batch advantage normalisation is standard rather than optional.
+
+## Why an advantage is actionable
+
+Knowing an action is above average is only useful if acting on it improves the
+policy. That is a theorem.
+
+<Derivation title="The policy improvement theorem">
+
+**Hypothesis.** Let $\pi$ and $\pi'$ be policies with
+
+$$
+Q^\pi\big(s, \pi'(s)\big) \;\ge\; V^\pi(s) \qquad \text{for all } s
+$$
+
+That is: at every state, taking $\pi'$'s action and then reverting to $\pi$ is
+at least as good as following $\pi$ throughout. Equivalently
+$A^\pi(s,\pi'(s)) \ge 0$.
+
+**Claim.** $V^{\pi'}(s) \ge V^\pi(s)$ for all $s$.
+
+**Proof by unrolling.** Start from the hypothesis and expand $Q^\pi$ by its
+definition:
+
+$$
+V^\pi(s) \;\le\; Q^\pi(s,\pi'(s))
+= \mathbb{E}_{\pi'}\big[r_t + \gamma V^\pi(s_{t+1}) \mid s_t = s\big]
+$$
+
+The expectation is over $\pi'$ choosing the action at time $t$. Now apply the
+hypothesis again, this time at $s_{t+1}$, replacing $V^\pi(s_{t+1})$ with
+$Q^\pi(s_{t+1}, \pi'(s_{t+1}))$ and expanding once more:
+
+$$
+\le\; \mathbb{E}_{\pi'}\big[r_t + \gamma r_{t+1} + \gamma^2 V^\pi(s_{t+2}) \mid s_t = s\big]
+$$
+
+Each application converts one more timestep from "behave as $\pi$" to "behave as
+$\pi'$". Repeating indefinitely:
+
+$$
+\le\; \mathbb{E}_{\pi'}\big[r_t + \gamma r_{t+1} + \gamma^2 r_{t+2} + \cdots \mid s_t = s\big]
+= V^{\pi'}(s)
+$$
+
+**The assumptions doing the work.** Bounded rewards and $\gamma < 1$, so the
+trailing $\gamma^k V^\pi(s_{t+k})$ term vanishes and the limit is the full
+return. Notice what is *not* assumed: nothing about $\pi'$ being greedy,
+deterministic, or close to $\pi$.
+
+</Derivation>
+
+<KeyIdea>
+A **local** condition — at each state separately, the new action is no worse
+than the old policy's average — is bootstrapped into a **global** guarantee
+about full returns. This is the theorem that licenses "estimate the advantage,
+then move probability toward positive-advantage actions", and therefore the
+theoretical footing under policy iteration and every actor-critic method.
+</KeyIdea>
+
+## The identifiability problem in $Q = V + A$
+
+Dueling architectures split the network into a value stream and an advantage
+stream and add them. The loss only ever sees the sum, which creates a problem:
+
+$$
+Q(s,a) = V(s) + A(s,a) = \big(V(s) + c\big) + \big(A(s,a) - c\big)
+$$
+
+for any $c$. The decomposition is unidentifiable — nothing forces the $V$ head
+to learn a value or the $A$ head to be zero-mean, and in practice they drift
+apart while $Q$ stays fine.
+
+<Warning>
+The fix is to impose the missing constraint in the architecture:
+
+$$
+Q(s,a) = V(s) + \Big(A(s,a) - \tfrac{1}{|\mathcal{A}|}\textstyle\sum_{a'} A(s,a')\Big)
+$$
+
+which restores $\mathbb{E}[A] = 0$, albeit under a uniform rather than
+policy-weighted average. Subtracting $\max_{a'}A(s,a')$ is the alternative and
+is less stable, because the reference point jumps discontinuously whenever the
+argmax changes. This is a good miniature lesson: when a decomposition has a free
+gauge, the loss will not pick one for you.
+</Warning>
+
+## What breaks when the critic is wrong
+
+<Steps>
+<Step title="Scale">
+Values live on a scale of roughly $R_{\max}/(1-\gamma)$, so a reward in the
+hundreds at $\gamma = 0.99$ gives targets in the tens of thousands, and a
+network initialised near zero spends a long time just reaching the right order
+of magnitude. Return normalisation — or adaptive schemes like PopArt that
+rescale the output layer while preserving the function — is what stops the
+scale from dominating the learning problem.
+</Step>
+
+<Step title="Non-stationarity">
+The critic is fitted to a target that moves as the policy improves, so it is
+solving a sequence of regression problems rather than one. This is not a bug to
+remove; it is what distinguishes value learning from supervised learning, and it
+is why value networks empirically lose effective capacity over long training
+runs.
+</Step>
+
+<Step title="Explained variance, not loss">
+The value loss is uninterpretable — it scales with return magnitude, which
+changes as the policy improves. $1 - \operatorname{Var}(G - V)/\operatorname{Var}(G)$
+is the right diagnostic: near 1 means the critic explains the returns, near 0
+means the advantages downstream of it are noise.
+</Step>
+</Steps>

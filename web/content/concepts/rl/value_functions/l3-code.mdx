@@ -1,0 +1,178 @@
+---
+concept: value_functions
+level: 3
+status: final
+recall:
+  prompt: "Implement a critic and its diagnostics. Why is the value loss uninterpretable, and what do you watch instead?"
+  keyPoints:
+    - "Explained variance $1 - \\operatorname{Var}(G - V)/\\operatorname{Var}(G)$ is the diagnostic. The value loss itself scales with return magnitude, which changes as the policy improves, so it is not comparable across time or across runs."
+    - "Normalise value *targets* with running statistics and predict the normalised quantity, un-normalising for use — otherwise the network spends most of training just reaching the right order of magnitude."
+    - "Shared actor-critic trunks are cheaper and sometimes better, but the two losses compete for the trunk and their gradient scales differ by orders of magnitude — separate networks are the safer default in continuous control."
+    - "A dueling head must subtract the mean advantage, or the $V$ / $A$ split is unidentifiable and both heads drift."
+check:
+  - id: vf_l3_c1
+    prompt: "Why report explained variance rather than the value loss?"
+    options:
+      - "Explained variance is cheaper to compute"
+      - "The value loss is in units of squared return, so it scales with return magnitude — which changes as the policy improves — making it incomparable across time and across runs; explained variance is a unitless fraction of return variance accounted for"
+      - "The value loss cannot be computed for continuous states"
+      - "Explained variance is differentiable and the loss is not"
+    answer: 1
+    explanation: "A value loss that rises from 0.1 to 50 over training usually means the policy got better and returns got larger, not that the critic got worse. Explained variance normalises that away: 0 means the critic is no better than predicting the mean return, 1 means it predicts returns exactly, and negative means it is actively worse than the mean — which happens more often than people expect early in training and immediately invalidates every advantage downstream."
+  - id: vf_l3_c2
+    prompt: "You share a trunk between actor and critic. What is the specific risk?"
+    options:
+      - "The actor and critic will produce identical outputs"
+      - "The two losses have very different gradient magnitudes and different optima for the shared features, so one can dominate the trunk — commonly the value loss, whose scale grows with returns, degrading the policy's representation"
+      - "Gradients cannot flow through a shared trunk to two heads"
+      - "Shared trunks cannot be used with GAE"
+    answer: 1
+    explanation: "It is a multi-task learning problem with two tasks that disagree, and the value loss is the more dangerous partner because its scale is set by the return magnitude and grows as the policy improves. The usual mitigations are a coefficient on the value loss (0.5 is the common default), normalising value targets so the scale stops drifting, and simply not sharing — separate networks are standard in continuous control precisely because the sharing rarely pays for the interference."
+  - id: vf_l3_c3
+    prompt: "Your normalised value targets use running mean and variance updated every batch. What must you be careful about?"
+    options:
+      - "The statistics must be recomputed from scratch each epoch"
+      - "The network's outputs are in normalised units, so every consumer — the advantage computation, the bootstrap in the TD target, any logging — must un-normalise consistently; a single place that forgets produces advantages that are wrong by a scale factor"
+      - "Normalisation makes the critic non-differentiable"
+      - "Running statistics cannot be used with a target network"
+    answer: 1
+    explanation: "The bug is bookkeeping, not mathematics, and it is quiet: mixing normalised and un-normalised values does not crash, it just scales your advantages wrongly, which looks like a badly tuned learning rate. Keeping the normalisation inside the critic module — a `predict()` that always returns un-normalised values and a separate `predict_normalised()` used only by the loss — makes the mistake hard to write. PopArt goes further and adjusts the output layer's weights when the statistics change, so past predictions stay valid."
+---
+
+## A critic worth trusting
+
+<CodeWalk title="Value network with target normalisation">
+
+```python title="critic.py"
+import torch, torch.nn as nn
+
+class Critic(nn.Module):
+    """Predicts NORMALISED values internally; exposes un-normalised ones."""
+
+    def __init__(self, obs_dim, hidden=256):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(obs_dim, hidden), nn.Tanh(),
+            nn.Linear(hidden, hidden), nn.Tanh(),
+            nn.Linear(hidden, 1),
+        )
+        # Running statistics of the value TARGETS, not of the observations.
+        self.register_buffer("ret_mean", torch.zeros(()))
+        self.register_buffer("ret_var", torch.ones(()))
+        self.count = 1e-4
+
+    def forward(self, obs):                       # un-normalised: the public API
+        return self.net(obs).squeeze(-1) * self.ret_var.sqrt() + self.ret_mean
+
+    def forward_norm(self, obs):                  # normalised: only the loss uses this
+        return self.net(obs).squeeze(-1)
+
+    @torch.no_grad()
+    def update_stats(self, returns):
+        # Welford-style running update; values live on a scale of
+        # R_max / (1 - gamma), so without this the net spends most of
+        # training just reaching the right order of magnitude.
+        batch_mean, batch_var, n = returns.mean(), returns.var(), returns.numel()
+        delta = batch_mean - self.ret_mean
+        tot = self.count + n
+        self.ret_mean += delta * n / tot
+        m_a = self.ret_var * self.count
+        m_b = batch_var * n
+        self.ret_var.copy_((m_a + m_b + delta.pow(2) * self.count * n / tot) / tot)
+        self.count = tot
+
+
+def value_loss(critic, obs, returns):
+    critic.update_stats(returns)
+    target = (returns - critic.ret_mean) / critic.ret_var.sqrt().clamp(min=1e-6)
+    return nn.functional.mse_loss(critic.forward_norm(obs), target)
+```
+
+</CodeWalk>
+
+The design decision worth copying is that `forward` is un-normalised. Every
+consumer — the advantage computation, the TD bootstrap, the logging — gets real
+values, and only the loss reaches for the normalised head. Mixing the two does
+not crash; it silently scales your advantages, which then looks exactly like a
+mistuned learning rate.
+
+## The number to actually watch
+
+```python title="diagnostics.py"
+@torch.no_grad()
+def explained_variance(values, returns):
+    """1.0 = perfect, 0.0 = no better than predicting the mean, <0 = worse.
+
+    The value LOSS is in units of squared return, so it grows as the policy
+    improves and is not comparable across time. This is.
+    """
+    var_returns = returns.var()
+    if var_returns == 0:
+        return float("nan")
+    return (1 - (returns - values).var() / var_returns).item()
+```
+
+<Warning>
+Negative explained variance means the critic is worse than a constant predictor.
+It happens more often than people expect in the first few thousand steps, and
+while it holds, every advantage downstream is noise and every policy update is
+effectively random. Log it from step one; a run whose returns are flat while
+explained variance sits near zero is a critic problem, not a policy problem.
+</Warning>
+
+## Dueling head, with the gauge fixed
+
+<CodeWalk title="Q = V + A, made identifiable">
+
+```python title="dueling.py"
+class DuelingQ(nn.Module):
+    def __init__(self, obs_dim, n_actions, hidden=256):
+        super().__init__()
+        self.trunk = nn.Sequential(nn.Linear(obs_dim, hidden), nn.ReLU())
+        self.v_head = nn.Linear(hidden, 1)
+        self.a_head = nn.Linear(hidden, n_actions)
+
+    def forward(self, obs):
+        h = self.trunk(obs)
+        v = self.v_head(h)                        # (B, 1)
+        a = self.a_head(h)                        # (B, n_actions)
+        # Without this subtraction the split is unidentifiable: adding c to v
+        # and subtracting it from a leaves Q unchanged, so neither head means
+        # what its name says. Subtracting the mean restores E[A] = 0.
+        return v + (a - a.mean(dim=1, keepdim=True))
+```
+
+</CodeWalk>
+
+Subtracting the *max* instead also fixes the gauge and is less stable in
+practice, because the reference point jumps discontinuously whenever the argmax
+changes.
+
+## Shared trunk or not
+
+<Steps>
+<Step title="Separate networks — the safe default">
+Two independent networks, two optimisers. No interference, twice the parameters,
+and the standard choice in continuous control. Start here.
+</Step>
+
+<Step title="Shared trunk — cheaper, and a multi-task problem">
+One encoder, two heads. Common with pixel inputs where the encoder dominates the
+cost. But the two losses now compete for the same features and their gradient
+magnitudes differ by orders of magnitude — and the value loss is the dangerous
+one, because its scale grows with returns as the policy improves.
+</Step>
+
+<Step title="If you share, control the balance">
+A coefficient on the value loss (0.5 is the usual default), normalised value
+targets so the scale stops drifting, and per-loss gradient-norm logging so you
+can see which one is winning. If policy entropy collapses whenever the value
+loss spikes, the trunk is being captured.
+</Step>
+</Steps>
+
+```python title="train.py"
+loss = policy_loss + vf_coef * value_loss - ent_coef * entropy
+# Log the three separately AND their gradient norms. An aggregate loss that
+# falls while the policy gets worse is the signature of one term dominating.
+```
