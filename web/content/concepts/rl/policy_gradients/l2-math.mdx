@@ -1,23 +1,190 @@
 ---
 concept: policy_gradients
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Policy Gradient Methods, including the
-    key equations.
+  prompt: "Derive the policy gradient theorem from the log-derivative trick. Prove that a state-dependent baseline is unbiased, and state the on-policy constraint."
   keyPoints:
-    - "Policy gradient methods directly optimize the policy $\\pi_\\theta(a|s)$
-      by estimating the gradient of expected return via the policy gradient
-      theorem: $$\\nabla_\\theta J(\\theta) = \\mathbb{E}_{\\tau \\sim
-      \\pi_\\theta}\\left[\\sum_{t=0}^{T} \\nabla_\\theta \\log
-      \\pi_\\theta(a_t|s_t) \\cdot \\hat{A}(s_t, a_t)\\right]$$ where
-      $\\hat{A}(s_t, a_t)$ is the advantage function."
-    - "The policy is updated via gradient ascent: $\\theta \\leftarrow \\theta +
-      \\alpha \\nabla_\\theta J(\\theta)$."
-check: []
-papers: []
+    - "Log-derivative trick: $\\nabla_\\theta p_\\theta = p_\\theta \\nabla_\\theta \\log p_\\theta$ turns $\\nabla_\\theta \\mathbb{E}_{p_\\theta}[f]$ into an expectation you can sample."
+    - "$\\log p_\\theta(\\tau)$ splits into policy terms and dynamics terms; only the first depend on $\\theta$, so $\\nabla_\\theta \\log p_\\theta(\\tau) = \\sum_t \\nabla_\\theta \\log\\pi_\\theta(a_t\\mid s_t)$. That cancellation is why the method is model-free."
+    - "Baselines are unbiased because $\\mathbb{E}_{a\\sim\\pi}[\\nabla_\\theta \\log \\pi_\\theta(a\\mid s)] = \\nabla_\\theta \\sum_a \\pi_\\theta(a\\mid s) = \\nabla_\\theta 1 = 0$. The baseline must not depend on the action, or the sum no longer telescopes."
+    - "The expectation is taken under $p_\\theta$, so one gradient step invalidates the data. Importance sampling reweights it, and unbounded ratios are what PPO's clipping bounds."
+check:
+  - id: pg_l2_c1
+    prompt: "Which property of the trajectory distribution makes $\\nabla_\\theta \\log p_\\theta(\\tau)$ contain no dynamics terms?"
+    options:
+      - "That the dynamics are deterministic"
+      - "That $p_\\theta(\\tau) = \\rho(s_0)\\prod_t \\pi_\\theta(a_t \\mid s_t) P(s_{t+1}\\mid s_t, a_t)$ factorises, so taking the log gives a sum in which the $P$ terms are constants with respect to $\\theta$"
+      - "That the reward does not depend on $\\theta$"
+      - "That the discount factor is less than one"
+    answer: 1
+    explanation: "It is the factorisation plus the log turning a product into a sum. The $\\log P(s_{t+1}\\mid s_t,a_t)$ terms are functions of the environment alone, so they differentiate to zero — no assumption of determinism is needed anywhere. Note that the reward not depending on $\\theta$ (option 3) is also true and also used, but at a different step: it is why $R(\\tau)$ can sit outside the gradient as a coefficient."
+  - id: pg_l2_c2
+    prompt: "Why must a policy-gradient baseline depend only on the state and not on the action?"
+    options:
+      - "Because action-dependent baselines are computationally expensive"
+      - "The unbiasedness proof relies on $\\sum_a \\pi_\\theta(a \\mid s) = 1$ so that $\\mathbb{E}[\\nabla \\log \\pi \\cdot b(s)] = b(s)\\nabla 1 = 0$; if $b$ depends on $a$ it cannot be pulled out of the sum and the term no longer vanishes"
+      - "Because the advantage function is defined only over states"
+      - "Because action-dependent baselines make the variance larger"
+    answer: 1
+    explanation: "The whole proof is that $b(s)$ is a constant with respect to the action sum, so it factors out and multiplies $\\nabla_\\theta 1 = 0$. Make it depend on $a$ and it stays inside, leaving a residual term that biases the gradient. This is worth being precise about because 'action-dependent baselines' periodically resurface as a research idea — and they require an explicit correction term to stay unbiased, which is where the subtlety lives."
+  - id: pg_l2_c3
+    prompt: "After one gradient step, why is the collected data no longer valid for another update?"
+    options:
+      - "Because the returns become stale"
+      - "Because the gradient is an expectation under $p_\\theta$, and $\\theta$ has changed — the samples now come from a different distribution than the one the estimator assumes"
+      - "Because the value function has not been retrained"
+      - "Because PyTorch frees the computation graph"
+    answer: 1
+    explanation: "This is the definition of on-policy, and it is the method's core inefficiency: every batch of expensive environment interaction buys one update. Importance sampling repairs it in principle, reweighting by $\\pi_{\\theta_{\\text{new}}}/\\pi_{\\theta_{\\text{old}}}$, but that ratio has unbounded variance when the policies drift apart. PPO's clipped objective is precisely a device for reusing data a few times while keeping the ratio in a range where the correction is trustworthy."
 ---
 
-## Formal definition
+## The objective and the trick
 
-Policy gradient methods directly optimize the policy $\pi_\theta(a|s)$ by estimating the gradient of expected return via the policy gradient theorem: $$\nabla_\theta J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta}\left[\sum_{t=0}^{T} \nabla_\theta \log \pi_\theta(a_t|s_t) \cdot \hat{A}(s_t, a_t)\right]$$ where $\hat{A}(s_t, a_t)$ is the advantage function. The policy is updated via gradient ascent: $\theta \leftarrow \theta + \alpha \nabla_\theta J(\theta)$.
+Maximise the expected return over trajectories drawn from the policy:
+
+$$
+J(\theta) = \mathbb{E}_{\tau \sim p_\theta}\big[R(\tau)\big],
+\qquad
+p_\theta(\tau) = \rho(s_0)\prod_{t} \pi_\theta(a_t\mid s_t)\, P(s_{t+1}\mid s_t, a_t)
+$$
+
+The difficulty is that $\theta$ appears in the *distribution*, not in the
+integrand. You cannot differentiate under the expectation directly.
+
+<Derivation title="The score-function estimator, and where the dynamics go">
+
+**Step 1 — write the expectation as an integral and differentiate.**
+
+$$
+\nabla_\theta J(\theta) = \nabla_\theta \int p_\theta(\tau) R(\tau)\, d\tau
+= \int \nabla_\theta p_\theta(\tau)\, R(\tau)\, d\tau
+$$
+
+$R(\tau)$ does not depend on $\theta$, so it stays put as a coefficient.
+
+**Step 2 — the log-derivative identity.** Since
+$\nabla_\theta \log p_\theta = \nabla_\theta p_\theta / p_\theta$, we have
+$\nabla_\theta p_\theta = p_\theta \nabla_\theta \log p_\theta$. Substituting
+turns the integral back into an expectation — which is the entire point,
+because expectations can be sampled:
+
+$$
+\nabla_\theta J(\theta) = \mathbb{E}_{\tau\sim p_\theta}
+\big[\nabla_\theta \log p_\theta(\tau)\, R(\tau)\big]
+$$
+
+**Step 3 — expand the log of the factorised trajectory probability.**
+
+$$
+\log p_\theta(\tau) = \log\rho(s_0)
++ \sum_t \log \pi_\theta(a_t\mid s_t)
++ \sum_t \log P(s_{t+1}\mid s_t, a_t)
+$$
+
+**Step 4 — differentiate, and watch the world disappear.** The initial-state
+distribution and every transition term are functions of the environment, not of
+$\theta$:
+
+$$
+\nabla_\theta \log p_\theta(\tau) = \sum_t \nabla_\theta \log \pi_\theta(a_t\mid s_t)
+$$
+
+giving
+
+$$
+\boxed{\;\nabla_\theta J(\theta) = \mathbb{E}_{\tau\sim p_\theta}
+\Big[\Big(\textstyle\sum_t \nabla_\theta \log\pi_\theta(a_t\mid s_t)\Big) R(\tau)\Big]\;}
+$$
+
+**No assumption of determinism, linearity, or differentiability of the
+dynamics** was used — only that the trajectory distribution factorises and that
+you can sample from it.
+
+</Derivation>
+
+## Two variance reductions that cost no bias
+
+<Derivation title="Causality: rewards before $t$ carry no information about $a_t$">
+
+Expand $R(\tau) = \sum_{t'} r_{t'}$ and consider a cross term with $t' < t$:
+
+$$
+\mathbb{E}\big[\nabla_\theta \log\pi_\theta(a_t\mid s_t)\; r_{t'}\big]
+$$
+
+Condition on everything up to time $t$. Then $r_{t'}$ is already determined and
+comes out of the inner expectation as a constant, leaving
+
+$$
+\mathbb{E}\Big[r_{t'}\; \underbrace{\mathbb{E}_{a_t\sim\pi_\theta}\big[\nabla_\theta \log\pi_\theta(a_t\mid s_t)\big]}_{=\;0}\Big] = 0
+$$
+
+The inner expectation vanishes by the same identity used below. So past rewards
+contribute nothing in expectation and only add variance. Drop them:
+
+$$
+\nabla_\theta J = \mathbb{E}\Big[\sum_t \nabla_\theta \log\pi_\theta(a_t\mid s_t)
+\underbrace{\textstyle\sum_{t'\ge t}\gamma^{t'-t} r_{t'}}_{G_t,\ \text{return-to-go}}\Big]
+$$
+
+</Derivation>
+
+<Derivation title="Why a state-dependent baseline is free">
+
+Claim: $\mathbb{E}_{a\sim\pi_\theta}\big[\nabla_\theta \log \pi_\theta(a\mid s)\, b(s)\big] = 0$
+for any $b$ not depending on $a$.
+
+$$
+\mathbb{E}_{a\sim\pi_\theta}\big[\nabla_\theta \log\pi_\theta(a\mid s)\big]
+= \sum_a \pi_\theta(a\mid s)\,\frac{\nabla_\theta \pi_\theta(a\mid s)}{\pi_\theta(a\mid s)}
+= \nabla_\theta \sum_a \pi_\theta(a\mid s)
+= \nabla_\theta 1 = 0
+$$
+
+Since $b(s)$ does not depend on $a$, it factors out of the sum and multiplies
+zero. Therefore $G_t - b(s_t)$ is an unbiased weight for any such $b$.
+
+**The assumption doing the work is that $b$ is constant with respect to the
+action.** If $b$ depended on $a$ it would stay inside the sum, the telescoping
+to $\nabla_\theta 1$ would fail, and a bias term would remain.
+
+</Derivation>
+
+The variance-minimising baseline is close to $V^\pi(s)$, which makes the weight
+$G_t - V(s_t)$ — a single-sample estimate of the advantage
+$A^\pi(s,a) = Q^\pi(s,a) - V^\pi(s)$. Fitting $V$ with a critic is what turns
+REINFORCE into actor-critic, and GAE is the generalisation that trades bias
+against variance with a $\lambda$ knob.
+
+<KeyIdea>
+Three estimators of the same gradient, in increasing sophistication and
+decreasing variance: weight by the full return $R(\tau)$, by the return-to-go
+$G_t$, or by the advantage $\hat A_t$. All three are unbiased for the same
+quantity. Everything that separates REINFORCE from PPO is variance reduction
+plus step-size control — the underlying gradient never changed.
+</KeyIdea>
+
+## The on-policy constraint
+
+The expectation is taken under $p_\theta$. Change $\theta$ and your samples are
+from the wrong distribution. Formally you can repair this with importance
+sampling:
+
+$$
+\nabla_\theta J(\theta) = \mathbb{E}_{\tau \sim p_{\theta_{\text{old}}}}
+\left[\frac{p_\theta(\tau)}{p_{\theta_{\text{old}}}(\tau)}\,
+\nabla_\theta \log p_\theta(\tau)\, R(\tau)\right]
+$$
+
+and the dynamics cancel in the ratio too, leaving a product of per-step policy
+ratios.
+
+<Warning>
+A product of $T$ ratios has variance that grows exponentially in the horizon —
+one unlikely action early on can dominate the whole batch. This is why nobody
+uses the full-trajectory correction. PPO uses the per-step ratio with a clip
+that bounds how far the update can exploit it, TRPO bounds a KL divergence
+instead, and V-trace truncates the ratios explicitly. All three are answering
+the same question: how far can I move before my data stops being usable?
+</Warning>

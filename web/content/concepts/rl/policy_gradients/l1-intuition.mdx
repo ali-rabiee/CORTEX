@@ -1,26 +1,148 @@
 ---
 concept: policy_gradients
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Policy Gradient Methods in plain language: what is it, and why
-    does it matter?"
+  prompt: "Explain policy gradients in plain language. What is the update actually doing, and why is the variance so high?"
   keyPoints:
-    - Instead of figuring out the value of every state (value-based), policy
-      gradients directly tune the knobs $\theta$ that control behavior.
-    - Think of a robot arm — rather than mapping every joint angle to a value,
-      you directly adjust the parameters that choose which angle to move to.
-    - "The advantage $\\hat{A}(s,a)$ tells you: 'was this action better or worse
-      than average?' Positive advantage means 'do more of this,' so we increase
-      $\\log \\pi_\\theta(a|s)$."
-check: []
-papers: []
+    - "Sample trajectories from the current policy, then increase the log-probability of the actions taken in good ones and decrease it in bad ones, weighted by how good."
+    - "It never needs the dynamics. The environment's transition probabilities do not depend on the policy parameters, so they drop out of the gradient — that is what makes it model-free."
+    - "The variance is high because one scalar return has to assign credit across every action in an episode, and the estimator is a product of many sampled quantities."
+    - "Two nearly free fixes: only count rewards that came *after* an action (causality), and subtract a state-dependent baseline so weights are centred on zero."
+media:
+  - kind: lecture
+    title: "RL Course by David Silver — Lecture 7: Policy Gradient Methods"
+    url: https://www.youtube.com/watch?v=KHZVXao4qXs
+    source: "Google DeepMind · David Silver"
+    minutes: 94
+    note: "Derives the score-function estimator and the policy gradient theorem cleanly, then builds up to actor-critic. The likelihood-ratio section in the first half is the part to watch twice."
+  - kind: article
+    title: "Part 3: Intro to Policy Optimization"
+    url: https://spinningup.openai.com/en/latest/spinningup/rl_intro3.html
+    source: "OpenAI Spinning Up"
+    note: "The best written derivation, and it goes step by step through exactly why the dynamics cancel and why the baseline is unbiased. Read it before Level 2, then read Level 2 for the proofs."
+  - kind: article
+    title: "Reinforcement Learning: An Introduction (2nd ed.)"
+    url: http://incompleteideas.net/book/the-book-2nd.html
+    source: "Sutton & Barto"
+    note: "Chapter 13. The policy gradient theorem is stated and proved there in the form most papers cite."
+check:
+  - id: pg_l1_c1
+    prompt: "Why do policy gradient methods not need a model of the environment's dynamics?"
+    options:
+      - "Because they only work in deterministic environments"
+      - "Because the trajectory probability factors into policy terms and dynamics terms, and the dynamics do not depend on $\\theta$ — so they vanish when you take the gradient of the log"
+      - "Because the value function implicitly encodes the dynamics"
+      - "Because they use Monte Carlo sampling, which does not require probabilities"
+    answer: 1
+    explanation: "This is the single most important structural fact about the method. $\\log p_\\theta(\\tau)$ is a sum of $\\log \\pi_\\theta(a_t \\mid s_t)$ terms plus $\\log P(s_{t+1}\\mid s_t,a_t)$ terms, and only the first depend on $\\theta$. The dynamics terms differentiate to zero. You never estimate $P$, never invert it, and never assume anything about it beyond being able to sample from it."
+  - id: pg_l1_c2
+    prompt: "All your episode returns are positive — say between 95 and 105. What does the un-baselined policy gradient do?"
+    options:
+      - "It correctly increases the probability of the best trajectories only"
+      - "It increases the probability of every sampled action, since every weight is positive; the useful information is a small difference between large numbers, so the estimator has enormous variance"
+      - "It produces zero gradient, since all returns are similar"
+      - "It diverges, because returns must be normalised to $[-1,1]$"
+    answer: 1
+    explanation: "Every action taken gets pushed up, including the ones in the worst trajectory. Relative probabilities still shift the right way — normalisation across the action distribution means pushing everything up is partly self-cancelling — but the useful signal is 5% of the magnitude of the update, so you need enormously many samples to see it through the noise. Subtracting a baseline centres the weights so worse-than-average actions are actively pushed *down*."
+  - id: pg_l1_c3
+    prompt: "What is the fundamental difference between policy gradients and value-based methods like Q-learning?"
+    options:
+      - "Policy gradients only work with discrete actions"
+      - "Policy gradients optimise the policy's parameters directly against the return, so they handle continuous actions naturally and produce stochastic policies; value methods learn a value function and derive the policy by maximising it, which requires a tractable $\\arg\\max$"
+      - "Value-based methods do not need a reward function"
+      - "Policy gradients are always more sample-efficient"
+    answer: 1
+    explanation: "The $\\arg\\max$ is the crux. In a continuous action space, $\\arg\\max_a Q(s,a)$ is itself an optimisation problem you must solve at every timestep — which is why continuous-control value methods like DDPG bolt on an actor network to approximate it. Policy gradients sidestep this entirely. The cost is on-policy sample inefficiency: every update invalidates the data that produced it. Option 4 has it backwards."
 ---
 
-## Intuition
+## Trial, error, and a nudge
 
-Instead of figuring out the value of every state (value-based), policy gradients directly tune the knobs $\theta$ that control behavior. Think of a robot arm — rather than mapping every joint angle to a value, you directly adjust the parameters that choose which angle to move to. The advantage $\hat{A}(s,a)$ tells you: 'was this action better or worse than average?' Positive advantage means 'do more of this,' so we increase $\log \pi_\theta(a|s)$.
+Value-based methods learn how good things are, then act greedily. Policy
+gradients skip the middleman: adjust the policy's parameters so that good
+behaviour becomes more likely.
 
-## In practice
+The loop is almost embarrassingly simple.
 
-REINFORCE algorithm for a CartPole task. Sample trajectories, compute returns $G_t = \sum_{k=t}^{T} \gamma^{k-t} r_k$, estimate advantage $\hat{A} = G_t - V_\phi(s_t)$ using a learned baseline $V_\phi$, update policy. With a learned value function baseline, gradient variance drops significantly. For continuous actions, output mean $\mu_\theta(s)$ and std $\sigma_\theta(s)$ of a Gaussian $\pi_\theta(a|s) = \mathcal{N}(\mu_\theta(s), \sigma_\theta^2(s))$.
+<Steps>
+<Step title="Run the current policy and collect trajectories">
+Sample $N$ episodes. Record every state, action, and reward. Nothing clever.
+</Step>
+
+<Step title="Score each trajectory by its return">
+One number per trajectory: how much reward it collected.
+</Step>
+
+<Step title="Push up the good, push down the bad">
+Increase $\log \pi_\theta(a_t \mid s_t)$ for actions in high-return
+trajectories, decrease it for low-return ones, in proportion to the return.
+</Step>
+
+<Step title="Throw the data away and repeat">
+The policy has changed, so the trajectories no longer come from it. This is the
+on-policy constraint, and it is what makes the method expensive.
+</Step>
+</Steps>
+
+<Intuition>
+You are training a dog with no vocabulary in common. You cannot explain what you
+want. You can only let it try things and reward what you liked, and it adjusts
+the odds of doing that again.
+
+The awkward part is that you rewarded a whole *sequence*. The dog did nine
+things and got one treat, and now every one of the nine gets a little more
+likely — including the three that were actively unhelpful.
+</Intuition>
+
+## Why the dynamics disappear
+
+Here is the fact that makes the method possible, and it is worth being able to
+state without the algebra.
+
+The probability of a trajectory is the policy's choices multiplied by the
+world's responses. When you take the log, that becomes a sum. When you
+differentiate with respect to the policy's parameters, every term involving the
+world's responses is a constant and vanishes.
+
+<KeyIdea>
+You are left with a gradient that mentions only $\log \pi_\theta$ and the
+observed returns. **You never need to know, estimate, or invert the transition
+dynamics** — only to sample from them, which is what running the robot does for
+free. This is the whole reason policy gradients are model-free.
+</KeyIdea>
+
+## The variance problem
+
+One scalar return has to explain the goodness of every action in an episode.
+That is a brutal credit assignment problem, and it shows up as gradient
+estimates so noisy that naive REINFORCE needs thousands of episodes for tasks
+that look trivial.
+
+Two fixes are close to free.
+
+**Causality.** An action at time $t$ cannot have influenced rewards collected
+before $t$. Weight each action by the return *from that point on* rather than by
+the whole episode's return, and you have removed a chunk of pure noise without
+introducing any bias.
+
+**A baseline.** Subtract a state-dependent number $b(s)$ from the weight.
+
+<Figure src="/figures/pg-baseline-variance.svg"
+        alt="Left: three trajectories with returns 95, 100, 105, all pushed up by large positive arrows. Right: the same trajectories weighted by return minus a baseline of 100, giving one downward arrow, one zero, one upward arrow."
+        caption="Without a baseline every sampled action is reinforced and the signal is a small difference between large numbers. Centring the weights turns 'slightly less good' into an actual push in the other direction." />
+
+<Warning>
+Subtracting a baseline that depends only on the state leaves the gradient
+**unbiased** — the proof is two lines and is in Level 2. This surprises people,
+because it looks like you are changing what you optimise. You are not; you are
+changing the variance of an estimator of the same quantity. Subtracting anything
+that depends on the *action* would bias it, which is exactly the mistake to
+avoid.
+</Warning>
+
+The natural choice of baseline is the value function $V(s)$, which makes the
+weight $G_t - V(s_t)$ — an estimate of the advantage. That single substitution
+turns REINFORCE into actor-critic, and every modern method from A2C to PPO to
+SAC is a descendant.
+
+<WatchThis />

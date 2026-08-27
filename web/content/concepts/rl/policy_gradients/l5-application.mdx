@@ -1,23 +1,162 @@
 ---
 concept: policy_gradients
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Policy Gradient Methods fail in practice, and how would you
-    present it in an interview?
+  prompt: "Give your interview answer on policy gradients. Why are they model-free, and what are the two things you always fix first?"
   keyPoints:
-    - High variance gradients causing unstable training.
-    - The variance of the estimator $\nabla \log \pi \cdot \hat{A}$ can be
-      enormous.
-    - "Symptoms: erratic reward curves, no convergence even with enough data."
-check: []
-papers: []
+    - "Lead with the estimator and the cancellation: the dynamics terms differentiate to zero, which is exactly why no model is needed."
+    - "Name the variance problem as the method's defining weakness, then the two free fixes — return-to-go from causality, and a state-dependent baseline that is provably unbiased."
+    - "State the on-policy constraint as a cost: one batch of environment interaction buys one update, and everything from PPO to V-trace exists to relax that safely."
+    - "Know the collapse mode: a high-variance step makes the policy near-deterministic, log-prob gradients vanish for the abandoned actions, and exploration ends permanently. Entropy bonus, smaller steps, better baseline."
+interview:
+  answer: >-
+    Policy gradients optimise the policy's parameters directly against expected
+    return, instead of learning a value function and acting greedily on it. The
+    derivation is the log-derivative trick: you can't differentiate through an
+    expectation whose distribution depends on theta, but you can rewrite grad p
+    as p times grad log p, which turns the gradient back into an expectation
+    you can sample. Then the key structural fact — the trajectory probability
+    factorises into the policy's choices and the environment's transitions, the
+    log makes that a sum, and the transition terms don't depend on theta so
+    they differentiate to zero. What's left mentions only grad log pi and the
+    observed return. That's why the method is model-free: you never estimate or
+    invert the dynamics, you only sample from them, which is what running the
+    robot does anyway. The practical character of the method is that it's
+    unbiased and extremely high variance. One scalar return has to assign
+    credit across every action in an episode. Two fixes are free in the sense
+    of costing no bias. Causality: an action can't have affected rewards that
+    came before it, so weight by return-to-go instead of the full episode
+    return. And a baseline: subtracting any function of the state leaves the
+    gradient unbiased, because the expected score function is the gradient of
+    the constant one, which is zero. It must not depend on the action or that
+    proof fails. Use the value function as the baseline and the weight becomes
+    the advantage — that's actor-critic, and GAE is the lambda dial between
+    high-bias and high-variance advantage estimates. The other cost is that
+    it's on-policy. The expectation is taken under the current policy, so one
+    gradient step invalidates the batch. Importance sampling fixes that in
+    principle, but a product of per-step ratios has variance exponential in the
+    horizon — which is why PPO clips the per-step ratio, TRPO bounds a KL, and
+    V-trace truncates. They're all answering the same question: how far can I
+    move before my data stops being usable?
+  followUps:
+    - q: "Your policy learns for a while, then collapses to always taking one action and never recovers. What happened?"
+      a: >-
+        A high-variance update pushed the policy near-deterministic, and once
+        the probability of the other actions is tiny, two things kill you: you
+        stop sampling them so you get no gradient information about them, and
+        the log-probability gradients for them are effectively gone. It's an
+        absorbing state of the optimisation. I'd attack it from three sides —
+        an entropy bonus to put a floor under the policy's stochasticity, a
+        smaller step size or a trust region so no single update can make that
+        jump, and a better baseline so the gradient variance that produced the
+        bad step is lower in the first place. If it's a Gaussian policy on
+        continuous actions, I'd also check whether the learned log-std is
+        collapsing and consider bounding it.
+    - q: "How do you decide between a policy gradient method and something off-policy like SAC?"
+      a: >-
+        Mostly by how expensive a sample is. On-policy methods throw away every
+        batch after one update, so they need a lot of interaction — which is
+        fine in a fast parallel simulator and painful on real hardware. SAC and
+        other off-policy methods reuse a replay buffer many times and are
+        typically an order of magnitude more sample-efficient, at the cost of
+        being more delicate: they bootstrap, they're off-policy, and they use
+        function approximation, so they're in deadly-triad territory and need
+        target networks and twin critics to stay stable. My default is PPO in
+        simulation where I can throw parallel environments at it, and SAC when
+        samples are the binding constraint.
+    - q: "Is the policy gradient theorem still relevant now that most RL is on language models?"
+      a: >-
+        It's more central than it was, just under different names. RLHF-style
+        fine-tuning is a policy gradient method where the policy is the
+        language model, the action is a token or a completion, and the reward
+        comes from a learned preference model. Everything from Level 2 carries
+        over unchanged — you still need a baseline or the variance is
+        unusable, and you still need to bound how far the policy moves, which
+        is why the objectives in that literature look like PPO with a KL
+        penalty back to the reference model. The variant that's become common
+        drops the learned value baseline and uses the mean return over a group
+        of sampled completions instead, which is exactly a baseline in the
+        sense of Level 2 — state-dependent, action-independent, and unbiased
+        for the same reason.
+    - q: "What would you try first if training is just slow rather than unstable?"
+      a: >-
+        Check the advantage estimator before touching anything else. If it's
+        raw returns-to-go with no baseline, adding a critic is the single
+        largest win available. If there's a critic, I'd look at whether the
+        advantages are normalised per batch, since unnormalised advantages
+        interact badly with a fixed learning rate. Then GAE lambda, which is
+        the actual bias-variance dial — 0.95 is the standard starting point.
+        After that it's parallel environments, because on-policy methods scale
+        almost linearly in batch throughput and that's usually cheaper than
+        algorithmic cleverness. Bigger networks come last; they rarely fix a
+        variance problem.
+  traps:
+    - "Saying policy gradients are model-free 'because they're sampling-based'. The precise reason is that the dynamics terms in $\\log p_\\theta(\\tau)$ don't depend on $\\theta$ and differentiate to zero — a structural cancellation, not a property of Monte Carlo."
+    - "Claiming a baseline reduces bias. It reduces *variance* and leaves the gradient unbiased; being able to give the two-line proof separates people who derived it from people who read it."
+    - "Forgetting that the baseline must not depend on the action. That constraint is exactly what makes the proof work, and interviewers probe it."
+    - "Presenting the on-policy constraint as a minor inefficiency. It is the defining cost of the method and the reason PPO, TRPO, and V-trace all exist."
+check:
+  - id: pg_l5_c1
+    prompt: "An interviewer asks why the policy gradient does not require a dynamics model. Which answer is strongest?"
+    options:
+      - "Because it uses Monte Carlo sampling, and sampling never needs probabilities"
+      - "Because $\\log p_\\theta(\\tau)$ separates into policy terms and transition terms, and only the policy terms depend on $\\theta$ — so the dynamics differentiate to zero and never appear in the estimator"
+      - "Because the value function implicitly captures the dynamics"
+      - "Because the environment is assumed to be deterministic"
+    answer: 1
+    explanation: "The answer they want is the cancellation, stated as a structural property of the factorisation. Option 1 sounds right and is not an argument — plenty of sampling-based estimators do need the dynamics. Option 4 is a stronger assumption than anything the derivation uses, and getting that wrong suggests you have memorised the result rather than derived it."
+  - id: pg_l5_c2
+    prompt: "You are told a team subtracts a baseline that depends on both state and action, and reports it reduces variance. What is the concern?"
+    options:
+      - "It cannot reduce variance"
+      - "An action-dependent baseline breaks the unbiasedness proof — $b$ no longer factors out of the sum over actions — so unless they add an explicit correction term, they are optimising something other than expected return"
+      - "It requires a larger network"
+      - "It only works for discrete action spaces"
+    answer: 1
+    explanation: "It may well reduce variance; the concern is what it is now an unbiased estimator *of*. The proof depends on pulling $b$ outside $\\sum_a \\pi_\\theta(a\\mid s)$ so it multiplies $\\nabla_\\theta 1 = 0$, and an action-dependent $b$ stays inside. Action-dependent baselines are a real research direction and they carry an explicit correction term for exactly this reason — asking whether that term is present is the right follow-up."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-High variance gradients causing unstable training. The variance of the estimator $\nabla \log \pi \cdot \hat{A}$ can be enormous. Symptoms: erratic reward curves, no convergence even with enough data. Fix: use advantage estimation (GAE with $\lambda = 0.95$), increase batch size $N$, add baseline $V_\phi(s)$. Also: for continuous actions, unconstrained $\sigma$ can collapse to zero (similar to PPO entropy collapse).
+<Steps>
+<Step title="Learns then collapses to one action → variance-driven determinism">
+A large update made the policy near-deterministic; the abandoned actions are no
+longer sampled and their log-prob gradients have vanished. Entropy bonus, trust
+region or smaller steps, better baseline. Check whether a Gaussian policy's
+log-std is collapsing.
+</Step>
 
-## Interview-ready answer
+<Step title="Very slow but stable → the advantage estimator">
+Raw returns-to-go with no baseline is the most common cause and the largest
+single win to fix. Then per-batch advantage normalisation, then GAE $\lambda$.
+</Step>
 
-Policy gradients are the foundation of modern RL for continuous control. The key equation is the policy gradient theorem: $\nabla J = \mathbb{E}[\nabla \log \pi_\theta \cdot \hat{A}]$. In practice, we use GAE with $\lambda = 0.95$ for advantage estimation and normalize advantages per batch: $\hat{A} \leftarrow (\hat{A} - \mu) / \sigma$. The main challenge is high variance — addressed by baselines $V_\phi(s)$, larger batches, and methods like PPO/TRPO that constrain update size. Policy gradients naturally handle continuous action spaces $\mathcal{A} \subseteq \mathbb{R}^n$, unlike DQN which requires discretization.
+<Step title="Learns in simulation, unusable sample count on hardware → on-policy cost">
+Not a bug. Every batch buys one update by construction. Either parallelise the
+simulator or move to an off-policy method and accept the stability trade.
+</Step>
+
+<Step title="Loss goes down, returns do not move → you are reading the wrong number">
+The policy-gradient 'loss' is a surrogate whose value is meaningless; only its
+gradient matters. Watch returns, entropy, and explained variance of the critic
+instead.
+</Step>
+
+<Step title="Critic loss falls, policy does not improve → check the detach">
+If gradients flow through the advantage into the critic, you are optimising a
+different objective entirely. This is the single most common implementation bug
+in the method.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The line that distinguishes this answer is the cancellation. Almost everyone can
+say policy gradients are model-free; very few can say *why* — that the log of a
+factorised trajectory probability separates into policy terms and transition
+terms, and only the former depend on $\theta$. Say that, then give the two-line
+baseline proof, and you have demonstrated you derived the method rather than
+memorised its shape.
+</Warning>
