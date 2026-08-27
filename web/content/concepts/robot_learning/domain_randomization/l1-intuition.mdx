@@ -1,25 +1,152 @@
 ---
 concept: domain_randomization
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Domain Randomization in plain language: what is it, and why
-    does it matter?"
+  prompt: "Explain domain randomisation in plain language. What does it convert the sim-to-real problem into, and what does it cost?"
   keyPoints:
-    - If you learn to cook in 1000 different kitchens — different stoves,
-      different pans, different temperatures — you'll handle any new kitchen
-      because you've seen enough variation.
-    - "The real world is just kitchen #1001."
-    - "The key: randomize enough that reality falls within your training
-      distribution."
-check: []
-papers: []
+    - "Randomise the simulator's parameters every episode and train across the distribution. If reality lies inside that distribution, deployment is one more sample from the training set."
+    - "It converts an unbounded modelling problem — 'is my simulator right?' — into a generalisation problem, which is one we know how to reason about."
+    - "The cost is peak performance: one policy must now serve a whole family of environments, so widening the support strictly lowers the achievable optimum, and past a point the task becomes unlearnable."
+    - "Visual randomisation is cheap and works well. Dynamics randomisation is where the real difficulty is, and it cannot cover physics the simulator has no parameter for."
+media:
+  - kind: article
+    title: "Domain Randomization for Transferring Deep Neural Networks from Simulation to the Real World"
+    url: https://arxiv.org/abs/1703.06907
+    source: "Tobin, Fong, Ray, Schneider, Zaremba, Abbeel"
+    note: "The originating paper and short enough to read in one sitting. The images of the deliberately garish training renders make the argument better than the text does."
+  - kind: video
+    title: "Learning Dexterity"
+    url: https://www.youtube.com/watch?v=jwSbzNHGflM
+    source: "OpenAI"
+    minutes: 4
+    note: "Randomisation pushed to its limit: a real Shadow Hand controlled by a policy that never saw a real object. Watch it for what is achievable, then note the compute cost, which is the honest other half."
+  - kind: article
+    title: "RMA: Rapid Motor Adaptation for Legged Robots"
+    url: https://ashish-kmr.github.io/rma-legged-robots/
+    source: "Kumar, Fu, Pathak, Malik"
+    note: "The counterpoint worth studying alongside. Rather than being robust to every environment, infer which one you are in and adapt — the same randomised simulator, a fundamentally different use of it."
+check:
+  - id: dr_l1_c1
+    prompt: "What does domain randomisation fundamentally change about the sim-to-real problem?"
+    options:
+      - "It makes the simulator more accurate"
+      - "It converts 'is my simulator right?' — which you cannot verify — into 'does my policy generalise across a distribution?', which is an ordinary machine-learning question with familiar tools"
+      - "It removes the need for real-world testing"
+      - "It reduces the number of simulator parameters you must specify"
+    answer: 1
+    explanation: "The reframing is the contribution. Chasing simulator accuracy is aiming at a target you cannot confirm you have hit, because you do not know the true parameters. Randomising makes reality one more draw from a distribution you trained on, so the question becomes generalisation — and you can reason about that, test it by holding out ranges, and know what failure looks like. Note it requires *more* parameters to be specified, not fewer: you now choose a range for each."
+  - id: dr_l1_c2
+    prompt: "Why does widening the randomisation ranges eventually stop helping and start hurting?"
+    options:
+      - "Training becomes computationally slower"
+      - "Because a single policy must work across the entire support, so widening it lowers the best achievable average — and past some point no single strategy works for every sampled environment, so the task becomes unlearnable"
+      - "Because the simulator becomes numerically unstable at extreme parameters"
+      - "Because the policy overfits to the extreme values"
+    answer: 1
+    explanation: "The objective is the expected return over the distribution, optimised by one set of weights. Environments that need incompatible strategies cannot both be served well, so more support means a lower ceiling — a strictly monotone effect, not a tuning artefact. That is why the discipline is 'wide enough to contain reality, no wider', and why needing extreme ranges is an argument for an *adaptive* policy rather than a more robust one."
+  - id: dr_l1_c3
+    prompt: "Which is generally easier to randomise effectively, and why?"
+    options:
+      - "Dynamics, because physics parameters are well defined and appearance is not"
+      - "Appearance, because pixels are an input you can flood with variation, whereas physics gaps are often effects the simulator has no parameter for at all"
+      - "They are equally difficult"
+      - "Neither can be randomised without real-world data"
+    answer: 1
+    explanation: "Visual randomisation works because you can generate essentially unlimited appearance variation and force the network to key on geometry instead. Dynamics randomisation has a hard ceiling: if the simulator lacks a model of gearbox backlash or cable stiffness, no distribution over the parameters it *does* have produces that behaviour. Randomising harder there buys robustness to variation that was never the problem, which is why the strongest dynamics results learn the missing physics from real data instead."
 ---
 
-## Intuition
+## Reality as one more sample
 
-If you learn to cook in 1000 different kitchens — different stoves, different pans, different temperatures — you'll handle any new kitchen because you've seen enough variation. The real world is just kitchen #1001. The key: randomize enough that reality falls within your training distribution.
+The obvious response to a simulator that does not match reality is to make it
+match better. Domain randomisation does the opposite: it makes the simulator
+match *worse*, on purpose, in every direction at once.
 
-## In practice
+Sample the physics parameters — masses, frictions, latencies, motor gains — and
+the visual parameters — textures, lighting, camera pose — afresh at every
+episode. Train across all of it. If reality falls inside the distribution you
+sampled from, then deploying on the real robot is simply one more draw from the
+training set.
 
-Sim2real for robotic grasping: randomize object mass $m \in [0.01, 2.0]$ kg, friction $\mu \in [0.3, 1.0]$, table height $h \pm 5$ cm, camera position $\pm 2$ cm, lighting direction, gripper finger friction. Train with PPO across 1024 parallel environments. The policy learns invariance to all these factors.
+<Intuition>
+Learn to cook in a thousand different kitchens: different stoves, different pans,
+different hob temperatures, different knives. You will be slower in any specific
+kitchen than someone who has cooked in that one kitchen for a decade.
+
+But drop you in a kitchen neither of you has seen and you will make dinner,
+because you never learned to depend on a particular stove. The specialist has
+learned things that are true only of their kitchen and cannot tell which ones
+those are.
+</Intuition>
+
+<KeyIdea>
+The reframing is the point. "Is my simulator accurate?" is a question you cannot
+answer, because answering it requires knowing the true parameters. "Does my
+policy generalise across this distribution?" is an ordinary machine-learning
+question — you can test it, hold out ranges, and recognise what failure looks
+like. Randomisation trades an unbounded modelling problem for a familiar one.
+</KeyIdea>
+
+## What it costs
+
+<Figure src="/figures/dr-support-tradeoff.svg"
+        alt="Three performance curves over a parameter axis: a tall narrow one that misses the real robot's parameter, a moderate one that covers it, and a very wide flat one that falls below the threshold needed to do the task."
+        caption="One policy has to serve the whole support, so widening it strictly lowers the ceiling. Past some width, no single strategy works for every sampled environment and the task stops being learnable at all." />
+
+This is not a tuning artefact, it is what the objective says. You are optimising
+the average return across the distribution using one set of weights, so
+environments that demand incompatible strategies cannot both be served well.
+
+<Warning>
+"Calibrate what you can measure, randomise what you cannot, and no wider than
+plausible." Every parameter you pin down by measurement is one you no longer
+have to be robust to, and therefore performance you get back. If you find
+yourself needing extreme ranges to transfer, read that as evidence you need an
+*adaptive* policy — one that infers the environment from recent history — rather
+than a more robust one.
+</Warning>
+
+## Two kinds, with very different difficulty
+
+<Steps>
+<Step title="Visual randomisation — cheap and effective">
+Textures, lighting, camera pose, distractor objects, colour jitter, noise. You
+can generate unlimited variation, and the effect is to make appearance
+unreliable so the network keys on geometry and relative position instead. This
+works well enough that deliberately non-photorealistic training renders transfer
+to real cameras.
+</Step>
+
+<Step title="Dynamics randomisation — where the difficulty is">
+Masses, inertias, friction coefficients, actuator gains, latency, external
+disturbances. Harder for a structural reason: the gap is often an effect the
+simulator has *no parameter for*. No distribution over masses produces gearbox
+backlash. Randomising other parameters harder buys robustness to variation that
+was not the problem.
+</Step>
+
+<Step title="Observation randomisation — cheap and neglected">
+Sensor noise, calibration bias, dropped frames, delayed observations. Often the
+single highest-return thing to add, and almost free. Note the distinction that
+matters: a calibration bias persists for a whole run, while thermal noise does
+not, so they should be sampled at different rates.
+</Step>
+</Steps>
+
+## The natural next question
+
+If narrow ranges do not cover reality and wide ranges make the task unlearnable,
+what do you do? Two answers, and both are live.
+
+**Automate the range selection.** Start narrow, and expand each range whenever
+the policy performs well at its current boundary. The distribution grows exactly
+as fast as the policy can absorb it, which is a curriculum rather than a fixed
+choice — this is what Automatic Domain Randomisation does.
+
+**Stop asking the policy to be robust.** Give it enough observation history to
+work out which environment it is in, and let it act as a specialist for that
+environment. This is strictly more powerful than robustness and it is what makes
+a legged robot recover within a step of walking onto oil. Level 2 shows why it
+is a different problem class, not just a better architecture.
+
+<WatchThis />

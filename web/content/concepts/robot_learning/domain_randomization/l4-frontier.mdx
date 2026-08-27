@@ -1,0 +1,183 @@
+---
+concept: domain_randomization
+level: 4
+status: final
+recall:
+  prompt: "Trace domain randomisation from 2017 to now. Which papers widened the ranges, which narrowed them with real data, and which removed the choice?"
+  keyPoints:
+    - "CAD2RL and Tobin et al. (2017) established visual randomisation independently — non-photorealistic renders with enough variation transfer to real cameras with no real training data."
+    - "Tan et al. (2018) is the counterweight: for legged locomotion, careful actuator modelling plus *narrow* randomisation transferred where wide randomisation was not needed."
+    - "SimOpt (2019) closes the loop — use real rollouts to update the randomisation distribution itself, rather than fixing it by hand."
+    - "ADR (2019) removes the choice with a curriculum: expand each range when the policy handles its boundary. The support becomes an output of training, not an input."
+papers:
+  - key: sadeghi2017cad2rl
+    title: "CAD2RL: Real Single-Image Flight without a Single Real Image"
+    authors: "Fereshteh Sadeghi, Sergey Levine"
+    venue: RSS
+    year: 2017
+    arxiv: "1611.04201"
+    takeaway: "A collision-avoidance policy for indoor drone flight trained entirely on randomised CAD renders, flown in real corridors with no real training images at all."
+  - key: tobin2017dr
+    title: "Domain Randomization for Transferring Deep Neural Networks from Simulation to the Real World"
+    authors: "Josh Tobin, Rachel Fong, Alex Ray, Jonas Schneider, Wojciech Zaremba, Pieter Abbeel"
+    venue: IROS
+    year: 2017
+    arxiv: "1703.06907"
+    takeaway: "Names the technique and shows object localisation accurate enough for grasping from deliberately unrealistic renders — randomised textures, lighting, camera pose, and distractors."
+  - key: tan2018agile
+    title: "Sim-to-Real: Learning Agile Locomotion For Quadruped Robots"
+    authors: "Jie Tan, Tingnan Zhang, Erwin Coumans, Atil Iscen, Yunfei Bai, Danijar Hafner, Steven Bohez, Vincent Vanhoucke"
+    venue: RSS
+    year: 2018
+    arxiv: "1804.10332"
+    takeaway: "Accurate actuator modelling and a *narrow*, well-chosen randomisation transferred agile gaits — the standing argument that wide randomisation is a fallback, not a first resort."
+  - key: peng2018dynamics
+    title: "Sim-to-Real Transfer of Robotic Control with Dynamics Randomization"
+    authors: "Xue Bin Peng, Marcin Andrychowicz, Wojciech Zaremba, Pieter Abbeel"
+    venue: ICRA
+    year: 2018
+    arxiv: "1710.06537"
+    takeaway: "Carries randomisation from appearance to physics, and observes that a recurrent policy identifies the dynamics from history rather than merely averaging over them."
+  - key: chebotar2019simopt
+    title: "Closing the Sim-to-Real Loop: Adapting Simulation Randomization with Real World Experience"
+    authors: "Yevgen Chebotar, Ankur Handa, Viktor Makoviychuk, Miles Macklin, Jan Issac, Nathan Ratliff, Dieter Fox"
+    venue: ICRA
+    year: 2019
+    arxiv: "1810.05687"
+    takeaway: "Treats the randomisation distribution as something to be learned: update $p(\\xi)$ so simulated rollouts match real ones, alternating with policy training."
+  - key: openai2019rubik
+    title: "Solving Rubik's Cube with a Robot Hand"
+    authors: "OpenAI: Ilge Akkaya, Marcin Andrychowicz, Maciek Chociej, Mateusz Litwin, Bob McGrew, et al."
+    venue: arXiv
+    year: 2019
+    arxiv: "1910.07113"
+    takeaway: "Introduces Automatic Domain Randomization — expand each range when the policy handles its boundary — turning the randomisation support into an output of training rather than a hyperparameter."
+check:
+  - id: dr_l4_c1
+    prompt: "Tan et al. transferred agile quadruped gaits using *narrow* randomisation plus careful actuator modelling. What does that establish?"
+    options:
+      - "That domain randomisation does not work for locomotion"
+      - "That randomisation is a way of covering uncertainty you could not remove, so reducing the uncertainty first — by modelling the actuators accurately — lets you keep the performance that wide ranges would have cost"
+      - "That quadrupeds are easier to transfer than manipulators"
+      - "That visual randomisation is unnecessary for locomotion"
+    answer: 1
+    explanation: "It is the standing counterweight to 'randomise everything harder'. Wide ranges buy robustness by giving up peak performance, so every source of uncertainty you eliminate by measurement or modelling is performance you get to keep. The paper's actuator modelling removed the single largest unmodelled effect, after which only modest randomisation was needed. The practical rule that follows is to spend effort on modelling first and treat randomisation as covering the residual."
+  - id: dr_l4_c2
+    prompt: "SimOpt updates the randomisation distribution using real rollouts. How does that differ from system identification?"
+    options:
+      - "It does not differ; both fit simulator parameters to real data"
+      - "System ID fits a point estimate of $\\xi$; SimOpt fits a *distribution* $p(\\xi)$ so that simulated trajectory statistics match real ones — retaining the uncertainty that randomisation needs while centring and shaping it with evidence"
+      - "SimOpt requires no real data"
+      - "SimOpt optimises the policy rather than the simulator"
+    answer: 1
+    explanation: "The distinction is point estimate versus distribution, and it matters because randomisation needs a distribution to sample from. Fitting a point and then randomising around it by hand leaves the width arbitrary; SimOpt shapes the width itself against real evidence. It also inherits system ID's ceiling — it can only move probability mass around inside the simulator's model class, so an unmodelled effect remains unmodelled however the distribution is tuned."
+  - id: dr_l4_c3
+    prompt: "In an ADR run, the mean episode return stays roughly constant for hours. Is the run working?"
+    options:
+      - "No — a flat return curve means learning has stalled"
+      - "Probably yes: the curriculum holds difficulty between its thresholds by design, so flat return is the expected signature and the thing to check is whether the entropy of $p(\\xi)$ is still growing"
+      - "Only if the entropy is also flat"
+      - "It is impossible to tell without evaluating on the real robot"
+    answer: 1
+    explanation: "This is the reading-the-curves question, and getting it backwards leads people to kill healthy runs. ADR expands ranges precisely when performance is high and contracts when it is low, so success shows up as difficulty rising to meet ability rather than as return rising. The support is what is improving, so the support is what you measure — per-dimension, since a single stalled dimension is invisible in the aggregate."
+---
+
+## Two independent origins, one idea
+
+<PaperGrid>
+<PaperCard refKey="sadeghi2017cad2rl" />
+<PaperCard refKey="tobin2017dr" />
+</PaperGrid>
+
+Both make the same argument from different tasks. CAD2RL flies a real drone
+through real corridors using a collision-avoidance policy trained purely on
+randomised CAD renderings — no real images anywhere in training. Tobin et al.
+localise objects accurately enough to grasp them, from renders with randomised
+textures, lighting, camera poses, and distractors.
+
+<KeyIdea>
+The shared insight is that photorealism is the wrong target. Aiming at realism
+means aiming at a single point in appearance space that you cannot verify you
+have reached. Randomising makes appearance unreliable during training, so the
+network is forced to key on geometry and relative position — and reality becomes
+one more sample from a distribution it already handles.
+</KeyIdea>
+
+## The counterweight
+
+<PaperCard refKey="tan2018agile" />
+
+Worth reading immediately after, because it argues the opposite emphasis. Tan et
+al. transferred agile quadruped gaits using an accurate actuator model and
+*narrow* randomisation — and make the case that identifying the dynamics
+properly is better than being robust to a wide range of wrong ones.
+
+<Warning>
+Both are right, and the reconciliation is the rule to carry: randomisation is a
+way of covering uncertainty you could not remove. Every source you eliminate by
+measurement or modelling is peak performance you keep, because wide ranges buy
+robustness by giving it up. Model first, randomise the residual. A candidate who
+only knows the randomisation papers will over-randomise; one who only knows this
+one will spend months on a simulator instead.
+</Warning>
+
+## Randomise the physics, and notice adaptation
+
+<PaperCard refKey="peng2018dynamics" />
+
+Extending randomisation from appearance to dynamics produced the observation
+that mattered most: a recurrent policy does not merely average over the sampled
+physics, it *infers* them. The response to recent actions is a measurement of the
+dynamics, so a policy with memory behaves as a specialist for whatever
+environment it deduces it is in. Everything adaptive downstream — teacher-student
+distillation, RMA — is a way of making that inference explicit and cheap.
+
+## Learning the distribution instead of guessing it
+
+<PaperCard refKey="chebotar2019simopt" />
+
+The hand-tuning problem is that the ranges are arbitrary. SimOpt alternates
+policy training with an update to $p(\xi)$ itself, chosen so that simulated
+trajectory statistics match real rollouts — fitting a distribution rather than a
+point estimate, which is exactly what randomisation needs and what system
+identification does not provide.
+
+<PaperCard refKey="openai2019rubik" />
+
+Automatic Domain Randomisation removes the choice a different way, without real
+data. Sample at the boundary of one range at a time; expand it when the policy
+handles that boundary and contract when it does not. The support becomes an
+*output* of training rather than an input, and its entropy is a progress metric
+that mean return cannot give you — because the curriculum keeps return pinned
+between its thresholds by construction.
+
+<Steps>
+<Step title="What ADR gets right">
+It answers "how wide should the ranges be?" with "as wide as the policy can
+currently absorb", discovered rather than guessed, and it never pays the
+over-randomisation cost up front.
+</Step>
+
+<Step title="What it does not answer">
+Which dimensions to randomise at all, and where to start. A curriculum cannot
+invent a dimension of variation you did not implement — if your simulator has no
+latency model, ADR will never discover that latency was the gap.
+</Step>
+
+<Step title="The cost, stated honestly">
+The Rubik's-cube result required a very large amount of compute, and boundary
+sampling means a substantial fraction of episodes are spent in environments
+harder than the ones you deploy in. It buys robustness with simulation time.
+</Step>
+</Steps>
+
+<Warning>
+The whole line has a ceiling worth naming. $\Xi$ parameterises the *simulator's
+model class*, not reality. No distribution over masses and frictions produces
+gearbox backlash if the simulator has no notion of it, so a gap caused by
+missing physics is invisible to every method on this page — ADR will simply
+widen the wrong ranges forever. That is why the strongest recent results pair
+randomisation with a learned dynamics component fitted on real data, and why
+"what does my simulator not model?" is the more useful question than "are my
+ranges wide enough?"
+</Warning>

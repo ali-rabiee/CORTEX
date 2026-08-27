@@ -1,23 +1,190 @@
 ---
 concept: domain_randomization
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Domain Randomization, including the key
-    equations.
+  prompt: "State the domain randomisation objective, prove why widening the support lowers the optimum, and contrast it with the robust and adaptive formulations."
   keyPoints:
-    - Training with randomized simulation parameters $\xi \sim \mathcal{U}(\Xi)$
-      so the policy treats the real world as just another random variation.
-    - "The objective becomes: $$\\pi^* = \\arg\\max_\\pi \\mathbb{E}_{\\xi \\sim
-      p(\\xi)} \\left[ \\mathbb{E}_{\\tau \\sim \\pi, T_\\xi} \\left[
-      \\sum_{t=0}^H \\gamma^t R(s_t, a_t) \\right] \\right]$$ Parameters
-      randomized include: mass $m$, friction $\\mu$, damping $d$, visual
-      textures, lighting, camera pose, observation noise $\\epsilon \\sim
-      \\mathcal{N}(0, \\sigma^2)$, action delays $\\Delta t$."
-check: []
-papers: []
+    - "$\\max_\\theta \\mathbb{E}_{\\xi\\sim p}[J_{\\mathcal{M}_\\xi}(\\pi_\\theta)]$ — one policy, an average over environments."
+    - "The generalisation gap: $\\mathbb{E}_\\xi[\\max_\\theta J_\\xi] \\ge \\max_\\theta \\mathbb{E}_\\xi[J_\\xi]$. The difference is exactly the price of using one policy instead of a specialist per environment, and it grows with the support."
+    - "Robust control replaces the expectation with a minimum, $\\max_\\theta \\min_\\xi J_\\xi$ — guarantees, and usually far too conservative since one implausible $\\xi$ dominates."
+    - "Adaptive policies change the problem class: with $\\xi$ hidden, $\\pi(a\\mid s)$ must hedge, while $\\pi(a \\mid h_t)$ can infer $\\xi$ and its optimum is bounded by the *specialist* value, not the compromise one."
+check:
+  - id: dr_l2_c1
+    prompt: "Why is $\\mathbb{E}_\\xi[\\max_\\theta J_\\xi(\\pi_\\theta)] \\ge \\max_\\theta \\mathbb{E}_\\xi[J_\\xi(\\pi_\\theta)]$, and what does the gap represent?"
+    options:
+      - "It follows from Jensen's inequality applied to the reward function"
+      - "Because a max of an average cannot exceed the average of maxima: on the left each $\\xi$ gets its own best policy, on the right one policy must serve all of them — so the gap is exactly the price of a single policy covering the whole support"
+      - "Because expectations are always smaller than maxima"
+      - "Because the policy class is not expressive enough"
+    answer: 1
+    explanation: "It is the standard max-average exchange: for any fixed $\\theta$, $J_\\xi(\\pi_\\theta) \\le \\max_{\\theta'} J_\\xi(\\pi_{\\theta'})$ pointwise in $\\xi$, so taking expectations and then the max on the left preserves the inequality. The gap is zero only when a single policy happens to be optimal for every environment in the support. Widening the support can only add more terms to the average that a single policy must compromise on, so the gap is non-decreasing — which is the formal content of 'over-randomisation hurts'."
+  - id: dr_l2_c2
+    prompt: "How does the achievable optimum change when the policy is conditioned on history $h_t$ rather than only on $s_t$?"
+    options:
+      - "It is unchanged; history only speeds up learning"
+      - "The ceiling rises from the best single compromise policy toward the expected *specialist* value, because the policy can estimate $\\xi$ from history and behave differently in different environments"
+      - "It decreases, because the policy has more to learn"
+      - "It becomes equal to the robust minimax value"
+    answer: 1
+    explanation: "This is the reason to reach for history, and it is a statement about the optimum rather than about optimisation. With $\\xi$ unobservable and no memory, $\\pi_\\theta$ is one function that must serve every environment, so its ceiling is the compromise value. With history, the policy can implement a *different* behaviour per inferred $\\xi$, so its ceiling approaches $\\mathbb{E}_\\xi[\\max_\\theta J_\\xi]$ — the upper side of the previous inequality. It is bounded by how identifiable $\\xi$ actually is from the history available."
+  - id: dr_l2_c3
+    prompt: "Automatic Domain Randomisation expands a range's boundary when performance at that boundary exceeds a threshold. Why sample at the boundaries specifically?"
+    options:
+      - "Boundary values are more physically realistic"
+      - "The boundaries are where the policy is weakest and where the decision to expand must be made — sampling uniformly across the interior would mostly re-test parameters the policy already handles, giving a much noisier signal about whether the range can grow"
+      - "It reduces the variance of the return estimate"
+      - "Interior values are already covered by interpolation"
+    answer: 1
+    explanation: "The quantity being estimated is 'can the policy handle the hardest environment currently in the support?', and that lives at the edges. Uniform interior sampling dilutes it with easy cases and makes the expansion decision slow and noisy. The mechanism is a curriculum: the support grows exactly as fast as the policy can absorb, so you get the coverage benefits without paying the over-randomisation cost up front — which is the practical answer to 'how wide should the ranges be?'"
 ---
 
-## Formal definition
+## The objective
 
-Training with randomized simulation parameters $\xi \sim \mathcal{U}(\Xi)$ so the policy treats the real world as just another random variation. The objective becomes: $$\pi^* = \arg\max_\pi \mathbb{E}_{\xi \sim p(\xi)} \left[ \mathbb{E}_{\tau \sim \pi, T_\xi} \left[ \sum_{t=0}^H \gamma^t R(s_t, a_t) \right] \right]$$ Parameters randomized include: mass $m$, friction $\mu$, damping $d$, visual textures, lighting, camera pose, observation noise $\epsilon \sim \mathcal{N}(0, \sigma^2)$, action delays $\Delta t$.
+Parameterise the simulator by $\xi \in \Xi$ and put a distribution on it:
+
+$$
+\max_\theta\; \mathcal{J}(\theta) = \mathbb{E}_{\xi \sim p(\xi)}
+\Big[\, J_{\mathcal{M}_\xi}(\pi_\theta) \,\Big]
+$$
+
+One set of weights, an average over environments. Every property of the method
+follows from those two facts.
+
+<Derivation title="Why widening the support lowers the ceiling">
+
+Compare against the fantasy in which you could deploy a different policy in each
+environment. For any fixed $\theta$ and any $\xi$,
+
+$$
+J_\xi(\pi_\theta) \;\le\; \max_{\theta'} J_\xi(\pi_{\theta'})
+$$
+
+pointwise. Take the expectation over $\xi$ on both sides — the inequality is
+preserved — and then maximise the left over $\theta$:
+
+$$
+\max_\theta\, \mathbb{E}_{\xi}\big[J_\xi(\pi_\theta)\big]
+\;\le\;
+\mathbb{E}_{\xi}\Big[\max_{\theta'} J_\xi(\pi_{\theta'})\Big]
+$$
+
+The gap between the two sides is precisely **the price of using one policy for
+the whole family**. It vanishes only when a single policy is simultaneously
+optimal everywhere in the support.
+
+**Now widen the support.** Adding environments to $\Xi$ adds terms the single
+policy must compromise on, so the gap is non-decreasing in the support. Once the
+support contains environments requiring genuinely incompatible strategies — a
+gait that works on ice and one that works on gravel — the compromise can fall
+below the threshold for doing the task at all.
+
+**The assumption doing the work is that $\theta$ is shared and $\xi$ is
+unobserved.** Relax either and the argument changes, which is exactly what the
+adaptive formulation does.
+
+</Derivation>
+
+## Three formulations, three different ceilings
+
+<Steps>
+<Step title="Randomised (expectation)">
+$\max_\theta \mathbb{E}_{\xi\sim p}[J_\xi(\pi_\theta)]$. Optimises the average.
+Tolerates poor performance on a small-probability region of $\Xi$, which is
+usually what you want — but note that "small probability under $p$" is a
+statement about *your chosen* $p$, not about reality.
+</Step>
+
+<Step title="Robust (minimax)">
+$\max_\theta \min_{\xi\in\Xi} J_\xi(\pi_\theta)$. Gives a worst-case guarantee
+and is dominated by the least favourable $\xi$ you allowed, so a single
+implausible corner of the parameter space sets your whole performance. Almost
+always too conservative for robotics; the useful middle ground is a CVaR
+objective, optimising the average over the worst $\alpha$-fraction.
+</Step>
+
+<Step title="Adaptive (history-conditioned)">
+$\max_\theta \mathbb{E}_\xi[J_\xi(\pi_\theta(\cdot \mid h_t))]$ where
+$h_t = (s_{t-k:t}, a_{t-k:t-1})$. A *different problem class*: the policy can
+represent a different behaviour per inferred environment, so its ceiling
+approaches the specialist value $\mathbb{E}_\xi[\max_\theta J_\xi]$ rather than
+the compromise value.
+</Step>
+</Steps>
+
+<KeyIdea>
+The three differ in what they optimise, not in how hard you tune them. The
+expectation form buys average-case coverage; the minimax form buys a guarantee
+you probably cannot afford; the adaptive form changes the ceiling itself. If a
+randomised policy is transferring but sluggish, the answer is usually the third
+row, not a wider $p$.
+</KeyIdea>
+
+## What history buys, precisely
+
+With $\xi$ unobserved, the true state is $(s,\xi)$ and the agent sees $s$ — a
+POMDP. Recent history is informative because the *response* to actions depends
+on $\xi$: the same commanded torque yields different accelerations at different
+effective masses.
+
+$$
+p(\xi \mid h_t) \;\propto\; p(\xi)\prod_{i} P_\xi\big(s_{i+1} \mid s_i, a_i\big)
+$$
+
+A policy conditioned on $h_t$ can in principle implement
+$\pi(a \mid s, \hat\xi(h_t))$ — estimate, then act as a specialist.
+
+<Warning>
+The assumption doing the work is **identifiability**: the history has to contain
+information about $\xi$. A parameter that only matters in situations the robot
+has not yet encountered cannot be inferred before it matters, and a parameter
+whose effect is masked by feedback control may never show up in the history at
+all. This is why adaptation results are strongest in locomotion, where every
+step is an informative excitation, and weaker in quasi-static manipulation where
+the robot may simply not probe the dynamics.
+</Warning>
+
+## Choosing $p$ automatically
+
+Fixing the ranges by hand trades two failure modes against each other. A
+curriculum removes the choice.
+
+$$
+\text{if } \mathbb{E}\big[J_\xi\big] > \tau_{\text{high}} \text{ at the boundary of range } i:
+\quad \text{widen range } i
+$$
+$$
+\text{if } \mathbb{E}\big[J_\xi\big] < \tau_{\text{low}}:
+\quad \text{narrow it}
+$$
+
+Two details make this work. **Sample at the boundaries**, because the question
+being answered is "can the policy handle the hardest environment currently in
+the support?", and uniform interior sampling dilutes that signal with cases the
+policy already handles. And **expand one dimension at a time**, so the resulting
+entropy of $p$ is a readable measure of how much variation the policy currently
+tolerates — a progress metric that mean return does not give you.
+
+<KeyIdea>
+Automatic randomisation is a curriculum in disguise, and it is the practical
+answer to "how wide should the ranges be?": as wide as the policy can currently
+absorb, discovered rather than guessed. The residual judgement is where to
+*start* and which parameters to include at all — a curriculum cannot invent a
+dimension of variation you did not implement.
+</KeyIdea>
+
+## The limit that no distribution fixes
+
+$$
+\Xi \text{ parameterises the simulator's model class, not reality.}
+$$
+
+If the simulator has no representation of gearbox backlash, cable stiffness, or
+deformable contact, then no $p(\xi)$ produces those behaviours, and widening the
+ranges on the parameters you *do* have makes the policy conservative about the
+wrong things. The formal statement is the same one as for system identification:
+you are working inside a model class, and randomising over it cannot escape it.
+
+The escape is to enlarge the class using real data — a learned actuator model
+inserted into the simulator — or to make the policy adaptive so it can
+compensate for what the simulator never told it about.

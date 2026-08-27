@@ -1,24 +1,169 @@
 ---
 concept: domain_randomization
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Domain Randomization fail in practice, and how would you
-    present it in an interview?
+  prompt: "Give your interview answer on domain randomisation. What does it cost, and what question would you ask before widening any range?"
   keyPoints:
-    - "Randomization range too wide: policy becomes overly conservative,
-      performing worst-case behavior everywhere."
-    - "Randomization range too narrow: doesn't cover real-world variation, i.e.,
-      $\\xi_{\\text{real}} \\notin \\Xi$."
-    - "Symptoms: either cautious/slow policy or failed transfer."
-check: []
-papers: []
+    - "Lead with the reframing — an unverifiable modelling question becomes an ordinary generalisation question — then immediately name the cost, which is peak performance."
+    - "The max-average inequality is the formal content: one policy for a whole family is strictly worse than a specialist per environment, and the gap grows with the support."
+    - "Before widening, ask what the gap actually is. If it is physics the simulator has no parameter for, no range covers it and you are trading performance for nothing."
+    - "Whether the policy sees history determines whether randomisation buys robustness or adaptation — a POMDP argument, and the usual fix for a policy that transfers but is sluggish."
+interview:
+  answer: >-
+    Domain randomisation is training across a distribution of simulators rather
+    than one. You sample the physics and appearance parameters fresh each
+    episode — masses, frictions, latencies, textures, lighting, camera pose —
+    and optimise the expected return over that distribution. The idea is that if
+    reality falls inside your support, then deployment is just one more sample
+    from the training set. What I like about it as a framing is that it converts
+    a question you can't answer into one you can. "Is my simulator accurate?"
+    requires knowing the true parameters, which you don't. "Does my policy
+    generalise across this distribution?" is an ordinary machine-learning
+    question — you can hold out ranges, test outside the support, and recognise
+    what failure looks like. The cost is peak performance, and it's structural
+    rather than a tuning artefact. You're optimising the average over
+    environments with one set of weights, and a max of an average is at most the
+    average of maxima — the gap between them is exactly the price of using one
+    policy where a specialist per environment would do better. Widening the
+    support can only add terms the single policy has to compromise on, so more
+    randomisation strictly lowers the ceiling, and past some point no single
+    strategy works everywhere and the task stops being learnable. So the
+    discipline is calibrate what you can measure, randomise what you can't, and
+    no wider than plausible. Tan and colleagues' locomotion work is the
+    counterweight to randomising harder — they modelled the actuators carefully
+    and needed only narrow ranges, which is the general lesson: randomisation
+    covers uncertainty you couldn't remove, so every source you eliminate by
+    modelling is performance you keep. Two things I'd add. Whether the policy
+    sees observation history changes what you're getting: memoryless, the
+    physics parameters are a hidden variable, it's a POMDP, and the best policy
+    hedges — that's robustness, and it's why a randomised policy often transfers
+    but moves stiffly. With history, the policy can infer the environment from
+    how the robot has been responding and act as a specialist, which raises the
+    ceiling rather than just tuning it. And ADR removes the range-picking
+    problem: sample at the boundary of one dimension at a time, expand when the
+    policy handles it, contract when it doesn't. The support becomes an output
+    of training. Worth knowing the diagnostic that goes with it — mean return
+    stays flat by construction, so what you watch is the entropy of the
+    distribution.
+  followUps:
+    - q: "Your policy still doesn't transfer after widening every range. What now?"
+      a: >-
+        I'd stop widening, because if wider ranges haven't helped, the gap is
+        probably in a dimension I'm not randomising at all — and every extra bit
+        of width is costing performance for nothing. The diagnostic I'd run is
+        replay: take a logged real rollout, feed the identical actions to the
+        simulator from the same initial state, and see where the trajectories
+        diverge. If they diverge immediately on any commanded motion, it's
+        latency or actuator dynamics. If only at contact, it's the contact
+        model. That tells me whether I need a new randomisation dimension or a
+        larger model class — a learned actuator network fitted on real data,
+        say. The version of this that traps people is randomising the parameters
+        you happen to have rather than the ones the gap is in.
+    - q: "How do you pick the ranges initially?"
+      a: >-
+        Measure first. CAD masses, motor constants from the datasheet, control
+        latency from a step-response test on the real robot — every parameter I
+        pin down is one I don't have to be robust to. Then randomise
+        multiplicatively around those nominals, so a range means plus or minus a
+        percentage rather than an absolute band I retune per robot. I'd start
+        dynamics tight and visuals wide, because they're asymmetric:
+        over-randomising appearance costs almost nothing since the policy can
+        just learn to ignore it, while over-randomising dynamics costs
+        performance directly. And if I can afford the compute, ADR removes the
+        starting-point problem for the widths — though not for which dimensions
+        to include, which is still on me.
+    - q: "Is domain randomisation still relevant given how good simulators have got?"
+      a: >-
+        For locomotion it's arguably more relevant, because GPU-parallel physics
+        made the compute cheap enough that ADR-scale curricula are routine
+        rather than a datacentre project. For contact-rich manipulation I'd be
+        more sceptical, and I'd say why: the physics that matters there —
+        deformation, stiction, precise contact geometry — is what simulators
+        model worst, and randomising parameters can't cover an effect with no
+        parameter. That asymmetry is a decent part of why the field's
+        manipulation results lean on imitation from real demonstrations while
+        its locomotion results lean on sim-to-real RL. Where I'd expect it to
+        keep mattering in manipulation is for the visual side and for
+        pretraining that gets fine-tuned on real data.
+    - q: "Isn't this just data augmentation?"
+      a: >-
+        It's the same idea and the difference is worth naming. Image
+        augmentation perturbs a fixed dataset to encode invariances you believe
+        in — the label shouldn't change under a small crop. Domain randomisation
+        perturbs the data-generating process, so it changes the *dynamics* the
+        policy interacts with, not just its inputs. That has a consequence
+        augmentation doesn't: the optimal behaviour genuinely differs across the
+        randomisation, which is why it becomes a POMDP and why memory changes
+        the ceiling. Visual randomisation really is augmentation and behaves
+        like it; dynamics randomisation is a different animal.
+  traps:
+    - "Presenting wider ranges as always safer. The achievable optimum falls monotonically with the support, and past a point the task becomes unlearnable."
+    - "Randomising the parameters you happen to have rather than the ones the gap is in. If the mismatch is unmodelled physics, no distribution over existing parameters covers it."
+    - "Ignoring whether the policy has observation history. It decides whether you get robustness or adaptation, and it is the usual explanation for a policy that transfers but is sluggish."
+    - "Reading a flat return curve in an ADR run as a stall. The curriculum pins return between its thresholds by design; the entropy of $p(\\xi)$ is the progress metric."
+check:
+  - id: dr_l5_c1
+    prompt: "A team reports that widening every randomisation range by 2x fixed nothing and their sim performance dropped noticeably. What is the most useful next step?"
+    options:
+      - "Widen further; the ranges still may not contain reality"
+      - "Stop widening and localise the gap — replay a logged real rollout through the simulator from the same initial state and find where the trajectories diverge, since a gap in an unmodelled dimension is invisible to any range on the parameters you do have"
+      - "Switch to a robust minimax objective"
+      - "Increase training time proportionally"
+    answer: 1
+    explanation: "The pattern — no transfer benefit, clear sim-performance cost — is exactly what you see when the gap lies outside the randomised dimensions. Widening further pays more performance for coverage of variation that was never the issue. Replay localises the divergence in time, which points at the mechanism: immediate divergence on commanded motion means latency or actuators, divergence only at contact means the contact model. Then you add a dimension or enlarge the model class."
+  - id: dr_l5_c2
+    prompt: "Your randomised policy transfers reliably but moves slowly and stiffly compared with a policy tuned to the lab robot. What is the principled fix?"
+    options:
+      - "Narrow the ranges until performance recovers"
+      - "Give the policy observation and action history so it can infer which environment it is in and act as a specialist — the stiffness is a memoryless policy hedging across the whole support, which is a ceiling on the policy class rather than a tuning problem"
+      - "Increase the entropy coefficient"
+      - "Retrain with a larger network"
+    answer: 1
+    explanation: "Stiff and conservative is the signature of hedging under partial observability over $\\xi$, and no amount of capacity fixes a ceiling imposed by the policy class. Adding history changes what the optimal policy can be — from one compromise serving every environment to a different behaviour per inferred environment — which raises the achievable optimum rather than moving along the same curve. Narrowing the ranges would help performance and cost you the transfer you were paying for."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Randomization range too wide: policy becomes overly conservative, performing worst-case behavior everywhere. Randomization range too narrow: doesn't cover real-world variation, i.e., $\xi_{\text{real}} \notin \Xi$. Symptoms: either cautious/slow policy or failed transfer. Fix: use automatic domain randomization (ADR) that expands ranges based on performance thresholds $\phi$, or use system identification to set realistic ranges.
+<Steps>
+<Step title="Transfers, but stiff and conservative → memoryless hedging">
+The policy cannot tell which environment it is in, so it compromises. Add
+observation and action history, or a teacher-student adaptation module. This
+raises the ceiling; narrowing ranges only moves you back along the trade.
+</Step>
 
-## Interview-ready answer
+<Step title="Widening ranges costs sim performance and buys no transfer → wrong dimension">
+The gap is in something you are not randomising. Replay a real rollout through
+the simulator and find where divergence starts before touching any range.
+</Step>
 
-Domain randomization makes sim2real work at scale. The insight: if the policy has seen enough variation during training, the real world becomes just another sample from the training distribution $p(\xi)$. In practice, I randomize physics ($m, \mu, d$), dynamics (action delay $\Delta t$, control frequency), and visual properties (textures, lighting, camera). The critical design choice is the randomization distribution — too narrow and $\xi_{\text{real}} \notin \Xi$, too wide and the policy becomes conservative. ADR (Automatic Domain Randomization) addresses this by expanding ranges when the policy exceeds a success threshold and narrowing when it fails.
+<Step title="Task stops being learnable in sim → over-randomised">
+The support now contains environments needing incompatible strategies. Narrow
+it, calibrate more, or go adaptive.
+</Step>
+
+<Step title="Flat mean return in an ADR run → expected, check entropy instead">
+The curriculum holds difficulty at the edge of ability by design. Log the
+per-dimension range widths; a single stalled dimension is invisible in the
+aggregate.
+</Step>
+
+<Step title="Adaptive architecture, no adaptive behaviour → check identifiability">
+Feed the policy a zeroed or shuffled history and measure the drop. Near zero
+means it is ignoring history. Then probe whether $\xi$ is predictable from the
+latent at all — if the robot never excites the dynamics, there is nothing to
+infer.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The move that distinguishes a strong answer is volunteering the cost before
+being asked, and being able to say why it is structural — the max-average
+inequality, one policy serving a family. Almost everyone can describe
+randomisation; the informative question is what you would check *before*
+widening a range, and the answer is what the gap actually is. If it is physics
+with no parameter, no range covers it and every extra bit of width is
+performance spent for nothing.
+</Warning>

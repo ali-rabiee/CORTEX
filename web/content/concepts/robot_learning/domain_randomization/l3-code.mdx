@@ -1,0 +1,200 @@
+---
+concept: domain_randomization
+level: 3
+status: final
+recall:
+  prompt: "Implement automatic domain randomisation. What is sampled where, and what is the progress metric?"
+  keyPoints:
+    - "ADR keeps a per-dimension interval. With probability $p_b$ pick one dimension, set it to a boundary, and sample the rest normally — that boundary episode's return is the evidence for expanding or contracting."
+    - "Expand when boundary performance exceeds a high threshold, contract below a low one. Buffer the returns per boundary; a single episode is far too noisy to resize on."
+    - "The entropy of $p(\\xi)$ is the progress metric. Mean return stays roughly constant by construction, because the curriculum keeps difficulty at the edge of ability."
+    - "Randomise visuals, dynamics, and observations separately — different mechanisms, different sampling rates, and calibration bias is per-episode while sensor noise is per-step."
+check:
+  - id: dr_l3_c1
+    prompt: "In ADR, why set only *one* dimension to its boundary per boundary episode, rather than all of them?"
+    options:
+      - "It is faster to simulate"
+      - "The return has to be attributable to a specific dimension for the resize decision to be meaningful; with all dimensions at their extremes you learn only that the joint worst case is hard, and cannot tell which range to grow"
+      - "Multiple boundaries make the simulator unstable"
+      - "Because the dimensions are correlated"
+    answer: 1
+    explanation: "Each range's resize decision needs its own evidence. Setting everything to an extreme simultaneously produces a much harder environment than any single-boundary case, so performance will be poor regardless of which individual ranges the policy could have handled — and every range stalls. The single-dimension protocol is a credit assignment device, and it is also why the entropy of $p$ increases dimension by dimension in a readable way."
+  - id: dr_l3_c2
+    prompt: "Why is the entropy of $p(\\xi)$ a better progress metric for ADR than mean episode return?"
+    options:
+      - "Entropy is easier to compute"
+      - "The curriculum holds difficulty at the edge of current ability, so mean return stays roughly flat by construction — while entropy measures how much environmental variation the policy has become able to tolerate, which is the thing actually improving"
+      - "Return is not defined for randomised environments"
+      - "Entropy is less noisy"
+    answer: 1
+    explanation: "This is a general property of curricula and a common source of confusion when reading training curves. A well-functioning ADR run keeps performance near its thresholds by design, so a flat return curve is the *expected* signature of success rather than a plateau. What is growing is the support, so measuring the support is what tells you the run is working."
+  - id: dr_l3_c3
+    prompt: "Which of these should be sampled once per episode rather than per timestep?"
+    options:
+      - "Sensor thermal noise"
+      - "Camera calibration bias and physics parameters — both are properties of the setup that persist within a run, and resampling them per step destroys the identifiability that lets an adaptive policy infer them"
+      - "Motor torque noise"
+      - "All randomisation should be per timestep for maximum coverage"
+    answer: 1
+    explanation: "The sampling rate encodes what kind of quantity something is. A miscalibrated camera offset is fixed for the whole run and a policy could learn to estimate and compensate for it; thermal noise is not and cannot. Resampling the persistent quantities per step converts them into white noise the policy can only average over, which silently downgrades an adaptive setup into a robust one — and the training curves look fine either way."
+---
+
+## The randomisation config
+
+<CodeWalk title="Structured ranges with calibrated nominals">
+
+```python title="config.py"
+from dataclasses import dataclass
+
+@dataclass
+class Range:
+    lo: float
+    hi: float
+    step: float          # how much ADR grows or shrinks it per resize
+
+
+# Multiplicative around measured nominals, so "±30%" transfers across robots.
+DYNAMICS = {
+    "mass_scale":     Range(0.95, 1.05, 0.05),
+    "friction_scale": Range(0.90, 1.10, 0.05),
+    "motor_kp_scale": Range(0.95, 1.05, 0.05),
+    "latency_steps":  Range(0.0,  1.0,  1.0),     # the cheapest large win
+}
+
+# Visuals get wide ranges from the start: appearance is an input you can
+# flood with variation, and there is no performance cost to over-covering it.
+VISUAL = {
+    "light_intensity": Range(0.3, 2.0, 0.1),
+    "texture_id":      Range(0, 1000, 50),
+    "camera_pos_cm":   Range(-1.0, 1.0, 0.5),
+}
+```
+
+</CodeWalk>
+
+Note the asymmetry: dynamics ranges start tight and grow, visual ranges start
+wide. Over-randomising appearance costs almost nothing because the policy can
+simply learn to ignore it; over-randomising dynamics costs performance directly,
+because it demands one strategy work across incompatible physics.
+
+## Automatic Domain Randomisation
+
+<CodeWalk title="Boundary sampling and the resize rule">
+
+```python title="adr.py"
+import numpy as np
+from collections import defaultdict, deque
+
+class ADR:
+    def __init__(self, ranges, p_boundary=0.5, lo_thresh=0.3, hi_thresh=0.7,
+                 buffer_size=20):
+        self.ranges = {k: [r.lo, r.hi] for k, r in ranges.items()}
+        self.step = {k: r.step for k, r in ranges.items()}
+        self.p_boundary, self.lo, self.hi = p_boundary, lo_thresh, hi_thresh
+        # One buffer per (dimension, which end) — resizing on a single noisy
+        # episode return would thrash the ranges.
+        self.buffers = defaultdict(lambda: deque(maxlen=buffer_size))
+
+    def sample(self, rng):
+        xi = {k: rng.uniform(*v) for k, v in self.ranges.items()}
+        if rng.random() > self.p_boundary:
+            return xi, None
+
+        # ONE dimension at a boundary. With everything at its extreme the
+        # return says only that the joint worst case is hard, and no
+        # individual range can be credited or blamed.
+        dim = rng.choice(list(self.ranges))
+        end = rng.integers(2)
+        xi[dim] = self.ranges[dim][end]
+        return xi, (dim, end)
+
+    def update(self, tag, success):
+        if tag is None:
+            return
+        buf = self.buffers[tag]
+        buf.append(float(success))
+        if len(buf) < buf.maxlen:
+            return
+
+        dim, end = tag
+        mean = np.mean(buf)
+        sign = -1 if end == 0 else +1        # widen: lower end down, upper up
+        if mean > self.hi:
+            self.ranges[dim][end] += sign * self.step[dim]
+            buf.clear()
+        elif mean < self.lo:
+            self.ranges[dim][end] -= sign * self.step[dim]
+            buf.clear()
+
+    def entropy(self):
+        """The progress metric. Mean return stays flat by construction —
+        the curriculum holds difficulty at the edge of ability — so what
+        you watch is how much variation the policy has come to tolerate."""
+        return float(np.mean([np.log(hi - lo + 1e-8)
+                              for lo, hi in self.ranges.values()]))
+```
+
+</CodeWalk>
+
+<Warning>
+A flat mean-return curve is the *expected* signature of a healthy ADR run, not a
+plateau. The curriculum deliberately keeps difficulty pinned between the two
+thresholds, so return should hover there while the support grows underneath it.
+Log `entropy()` per dimension; a dimension whose range has stopped growing is
+telling you either that the policy cannot absorb more of that variation, or that
+your step size for it is too large.
+</Warning>
+
+## Sampling rates encode what a quantity is
+
+```python title="env.py"
+def reset(self):
+    # PER EPISODE: properties of the setup that persist for the whole run.
+    self.xi = adr_sample()                       # physics parameters
+    self.cam_bias = rng.normal(0, 0.005, 3)      # calibration offset
+    self.latency = int(self.xi["latency_steps"])
+    self.action_queue = [np.zeros(self.act_dim)] * (self.latency + 1)
+    return self._obs()
+
+def _obs(self):
+    raw = self.sim.get_obs()
+    # PER STEP: genuinely stochastic, nothing to infer.
+    noise = rng.normal(0, self.obs_noise_std, raw.shape)
+    return raw + self.cam_bias + noise           # persistent bias + fresh noise
+```
+
+<KeyIdea>
+Resampling a persistent quantity per step converts it from an inferable hidden
+variable into white noise. The policy can then only average over it, which
+silently downgrades an adaptive setup into a robust one — and the training
+curves look identical either way. This is the most consequential
+five-line decision in a randomisation implementation.
+</KeyIdea>
+
+## Verifying the randomisation is doing what you think
+
+<Steps>
+<Step title="Hold out a range and evaluate outside it">
+Train on $[0.9, 1.1]$, evaluate at $1.2$. A cliff just outside the support means
+the policy interpolated rather than generalised — informative, and it tells you
+reality had better be inside.
+</Step>
+
+<Step title="Per-dimension ablation">
+Fix one dimension at its nominal and re-evaluate. Dimensions whose removal
+changes nothing are costing you performance for no transfer benefit, and can be
+narrowed or dropped.
+</Step>
+
+<Step title="Check that history is being used">
+For an adaptive policy, feed it a constant history — zeros, or a shuffled one —
+and measure the drop. Near zero means the policy is ignoring history and you
+have a robust policy wearing an adaptive architecture.
+</Step>
+
+<Step title="Probe identifiability directly">
+Train a small probe to predict $\xi$ from the policy's internal latent. If the
+probe cannot, the policy has not identified the environment, and no amount of
+extra history will make it adaptive — the excitation is not there.
+</Step>
+</Steps>
