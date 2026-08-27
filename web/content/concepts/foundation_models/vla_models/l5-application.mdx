@@ -1,24 +1,172 @@
 ---
 concept: vla_models
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Vision-Language-Action (VLA) Models fail in practice, and how
-    would you present it in an interview?
+  prompt: "Give your interview answer on VLAs. What is the bet, what is it still underneath, and what would you push back on?"
   keyPoints:
-    - "Action space mismatch: VLA trained on one robot's action space (e.g.,
-      7-DOF absolute joint positions) fails on different embodiments."
-    - "Language grounding failure: model correctly identifies objects but maps
-      to wrong physical actions."
-    - "Symptoms: correct object identification but wrong grasp approach."
-check: []
-papers: []
+    - "State the bet precisely: semantics from the web, motor skill from robot data — and RT-2's evidence for it is behaviour the robot dataset cannot explain."
+    - "Deflate it honestly: it is behaviour cloning with a large pretrained initialiser, so covariate shift and the inability to exceed demonstrators carry over."
+    - "Separate what generalises (objects, phrasings, categories) from what does not (precision, contact-rich dexterity), and say why the pretraining data explains the asymmetry."
+    - "Name latency as $T_{\\text{prefill}} + Hd\\,T_{\\text{decode}}$ and evaluation weakness as the field's two live problems."
+interview:
+  answer: >-
+    A vision-language-action model is a VLM pretrained on web image-text data
+    with actions added as an output modality — usually by discretising each
+    action dimension into bins and emitting them as tokens in the existing
+    vocabulary, so the embedding table, the attention, and the softmax head are
+    all untouched. The bet is specific: robot data is tiny compared to the web
+    and always will be, so let the web teach concepts and let demonstrations
+    teach motor skill. If the backbone already knows what a mug is, your
+    demonstrations only have to teach grasping. RT-2 is the evidence, and what
+    makes it convincing is that the behaviour can't be explained by the robot
+    dataset — responding correctly to "pick up the extinct animal" requires a
+    concept that appears nowhere in the demonstrations, so no amount of scaling
+    them produces it. Two things I'd want to be precise about. First, it's still
+    behaviour cloning. The objective is maximum likelihood on a fixed set of
+    demonstrations, so covariate shift applies unchanged — the policy generates
+    its own state distribution at test time — and it can't exceed its
+    demonstrators. Pretraining changes the prior and the sample efficiency, not
+    the structure of what's being optimised. One genuine improvement over naive
+    cloning is that a categorical distribution over bins represents
+    multimodality, which MSE regression structurally can't — so discretisation
+    buys the same thing diffusion policies buy, by a different route. Second,
+    what generalises is semantics, not dexterity. VLAs handle unseen objects and
+    rephrased instructions well and are not obviously more precise than a good
+    task-specific policy on contact-rich work. That asymmetry follows from the
+    pretraining data: web images are rich in what things are and silent on how
+    they behave under contact. On the engineering side, the thing that bites is
+    latency. Autoregressive decoding of H times d action tokens means H times d
+    sequential passes through a seven-billion-parameter backbone, so the budget
+    is prefill plus H-d times the per-token decode, amortised over however many
+    actions you execute per chunk. Every speedup in the area attacks that
+    multiplier — longer chunks, parallel decoding, compressing the chunk into
+    fewer tokens like FAST does, or replacing the decode loop entirely with a
+    flow-matching action expert the way pi-zero does. That's the live
+    disagreement in the field right now, and it's about the action interface
+    rather than the backbone.
+  followUps:
+    - q: "Discrete action tokens or a continuous head — which would you pick?"
+      a: >-
+        It depends on precision and on how much I care about reusing the
+        pretrained output head. The quantisation cost is worth computing rather
+        than arguing about: 256 uniform bins over a plus-or-minus five
+        centimetre end-effector delta gives a worst case of about 0.2
+        millimetres, which is irrelevant for picking up a mug and on the same
+        order as the clearance in a tight connector insertion. So for
+        pick-and-place I'd stay discrete — nothing about the model changes, you
+        get multimodality free from the softmax, and the tooling is simpler. For
+        precise assembly, or if I need a control rate the decode loop can't
+        support, a continuous head is the right call, and I'd expect to pay for
+        it with a new component that has its own training dynamics and its own
+        multimodality machinery.
+    - q: "You fine-tune on 300 demos for a new task and it gets worse at everything else. What happened?"
+      a: >-
+        Catastrophic forgetting. The semantic knowledge lives in the shared
+        backbone, and 300 narrow demonstrations can't support updating seven
+        billion parameters without dragging the weights away from the pretrained
+        solution — you fit the demos perfectly and lose the generalisation you
+        adopted the model for. The two fixes are co-fine-tuning, keeping web
+        vision-language data in the training mixture so the pretrained solution
+        stays a constraint rather than a starting point, and LoRA, constraining
+        the update to a low-rank subspace on the attention projections. What
+        makes this easy to ship by accident is that held-out demonstration loss
+        looks fine — the forgetting only shows up if you evaluate on objects and
+        phrasings outside the fine-tuning set, which is the evaluation people
+        skip.
+    - q: "How would you evaluate a VLA properly?"
+      a: >-
+        I'd be honest that this is the weakest part of the field. Real rollouts
+        are expensive so samples are small, every lab has different hardware and
+        task lists, and the details that most move the number — which objects,
+        how many attempts, who resets the scene, how partial success is scored —
+        are usually underspecified. So cross-paper rankings are much softer than
+        the tables suggest. What I'd insist on for my own evaluation is
+        stratifying by generalisation axis rather than reporting one success
+        rate: seen objects and seen instructions, unseen objects with seen
+        instructions, seen objects with rephrased instructions, and genuinely
+        novel combinations. Those four tell you what the model actually bought
+        you, and they'd expose the case where a model looks good only because
+        the test set is close to training.
+    - q: "Given all that, would you use a VLA on a real project?"
+      a: >-
+        For a task set that's broad and semantically varied — many objects, many
+        instructions, humans phrasing things differently — yes, because that's
+        exactly the axis where the pretraining pays and where per-task policies
+        get unmanageable. For one high-precision task in a fixed cell, I'd
+        expect a task-specific diffusion or ACT-style policy to match or beat it
+        at a fraction of the inference cost, and I'd want the comparison run
+        before committing. The middle path I'd actually reach for is a VLA as a
+        pretrained initialiser adapted with LoRA on a few hundred
+        demonstrations, evaluated specifically for out-of-set generalisation to
+        confirm the pretraining survived the fine-tuning.
+  traps:
+    - "Presenting a VLA as something other than behaviour cloning. It is cloning with a large pretrained initialiser, and covariate shift is untouched."
+    - "Claiming VLAs generalise better at dexterity. What generalises is semantics; the pretraining data explains why, and conflating the two is the most common overclaim."
+    - "Ignoring inference latency. $H \\times d$ sequential decode steps through a 7B model is the engineering reality, and the whole current literature is organised around it."
+    - "Citing cross-paper success-rate comparisons as settled. Real-robot evaluation is small-sample and uncontrolled; the qualitative results are solid and the rankings are not."
+check:
+  - id: vla_l5_c1
+    prompt: "An interviewer says: 'VLAs solve the generalisation problem in robot learning.' What is the precise correction?"
+    options:
+      - "They solve nothing; the results are artefacts"
+      - "They deliver *semantic* generalisation — unseen objects, categories, phrasings — because that is what web pretraining contains. Motor generalisation is not improved, and covariate shift is untouched since the objective is still behaviour cloning"
+      - "They solve generalisation only for locomotion"
+      - "They solve it, but only with enough robot data"
+    answer: 1
+    explanation: "The correction has to be specific to be useful, and it has two halves. Web image-text data is rich in what objects are and silent on how they behave under contact, so the pretraining transfers concepts rather than skill. And the training objective is unchanged maximum likelihood on demonstrations, so the policy still creates its own test distribution and still cannot exceed its demonstrators. Naming both halves separates someone who has used these from someone who has read the abstracts."
+  - id: vla_l5_c2
+    prompt: "You must run a VLA at 10 Hz on an onboard GPU and currently manage 2 Hz. Rank the interventions by expected effect."
+    options:
+      - "Smaller images, then lower precision, then a smaller model"
+      - "Reduce sequential decode steps first — parallel action decoding, chunk compression, or a continuous head — since latency is $T_{\\text{prefill}} + Hd\\,T_{\\text{decode}}$ and $Hd$ is in the dozens; then quantisation and resolution, which scale both terms by a constant"
+      - "Increase the batch size to improve GPU utilisation"
+      - "Reduce the number of camera views"
+    answer: 1
+    explanation: "The structure of the latency expression decides the ranking. With $H = 8$ and $d = 7$ the decode term is 56 backbone passes against one prefill, so it dominates by roughly an order of magnitude, and only interventions that change $Hd$ alter the shape of the problem. Precision and resolution are worth doing and buy a constant factor. Batching does not help when you have one robot and need each chunk as soon as possible."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Action space mismatch: VLA trained on one robot's action space (e.g., 7-DOF absolute joint positions) fails on different embodiments. Language grounding failure: model correctly identifies objects but maps to wrong physical actions. Symptoms: correct object identification but wrong grasp approach. Fix: embodiment-specific fine-tuning, action space normalization ($a_{\text{norm}} = (a - \mu_a) / \sigma_a$), add proprioceptive input $q_t$ to the conditioning.
+<Steps>
+<Step title="Ignores the instruction → conditioning is dead">
+Feed an empty or scrambled instruction and measure the drop. Near zero means an
+expensive unconditional policy. Usually a data problem: each task collected in
+its own scene, so the image already determines the instruction.
+</Step>
 
-## Interview-ready answer
+<Step title="Fine-tuned well, lost general ability → catastrophic forgetting">
+Held-out demonstration loss looks fine; out-of-set objects and phrasings
+collapse. Co-fine-tune with web data, or switch to LoRA. This is invisible
+unless you evaluate outside the fine-tuning distribution.
+</Step>
 
-VLAs represent the convergence of foundation models and robotics — one model that sees, understands language, and acts. RT-2 showed that VLMs can be fine-tuned into effective robot policies by tokenizing actions. The key challenges: (1) action space generalization across embodiments (solved partially by datasets like Open X-Embodiment), (2) real-time inference (large models are slow — need distillation or efficient architectures), (3) safety (language understanding doesn't guarantee safe physical behavior). I think VLAs will become the default for high-level task policies, with specialized low-level controllers for precision.
+<Step title="Actions clipped or coarse → the tokeniser range">
+Histogram emitted bins. Mass at bin 0 or 255 means the quantile range is too
+narrow; mass in a few central bins means it is too wide and you are wasting
+resolution.
+</Step>
+
+<Step title="Drifts over long horizons → covariate shift, unchanged">
+Nothing about the VLA formulation addresses it. Chunking helps by reducing
+decision points; recovery data and perturbed demonstrations help more.
+</Step>
+
+<Step title="Too slow → count decode steps, not parameters">
+$H \times d$ sequential passes is the cost. Attack the multiplier before
+reaching for quantisation.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The strongest thing you can do in this answer is deflate your own topic
+accurately. Say what the bet is and give RT-2's evidence for it — behaviour the
+robot dataset cannot explain — then say plainly that it is behaviour cloning
+underneath, that what generalises is semantics rather than dexterity, and that
+the field's evaluation does not support fine-grained rankings. That combination
+reads as someone who has built with these. Unqualified enthusiasm reads as
+someone who has read the press releases, and blanket dismissal reads as someone
+who has not looked at the RT-2 rollouts.
+</Warning>

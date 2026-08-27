@@ -1,0 +1,189 @@
+---
+concept: vla_models
+level: 3
+status: final
+recall:
+  prompt: "Implement action tokenisation and the VLA inference loop. Where does the latency go, and what are the practical fine-tuning choices?"
+  keyPoints:
+    - "Bin each action dimension over dataset *quantiles* (1st-99th percentile), not min-max — outliers otherwise consume most of the resolution."
+    - "Action tokens overwrite the least-used slots of the existing vocabulary, so the embedding table, attention, and softmax head are untouched."
+    - "Latency is $T_{\\text{prefill}} + H\\cdot d\\cdot T_{\\text{decode}}$, amortised over $T_a$ executed actions. The decode term dominates and is what every mitigation targets."
+    - "LoRA on the attention projections is the standard adaptation recipe: a few hundred demonstrations, a fraction of a percent of the parameters, and the pretrained semantics survive."
+check:
+  - id: vla_l3_c1
+    prompt: "Why compute the binning range from dataset quantiles rather than from the observed min and max?"
+    options:
+      - "Quantiles are cheaper to compute"
+      - "A few outlier actions — a teleoperation glitch, a sharp recovery — would stretch the range so that nearly all normal actions fall into a handful of central bins, throwing away most of the resolution where the data actually is"
+      - "Min-max normalisation is not differentiable"
+      - "Quantiles guarantee a uniform distribution over bins"
+    answer: 1
+    explanation: "Real demonstration data has heavy tails, and uniform bins over the full observed range spend most of their resolution on values that occur a handful of times. Clipping at the 1st and 99th percentiles concentrates the bins where the mass is, at the cost of saturating genuinely extreme actions — which is the right trade, since those are usually artefacts. This is the same reasoning behind clipping in observation normalisation, applied to the output side."
+  - id: vla_l3_c2
+    prompt: "Your VLA runs at 2 Hz and you need 10 Hz. Which change attacks the dominant cost?"
+    options:
+      - "Reduce the image resolution fed to the vision encoder"
+      - "Reduce the number of sequentially decoded action tokens — longer chunks amortised over more executed steps, parallel decoding, chunk compression, or a continuous head the backbone conditions once"
+      - "Use a smaller batch size at inference"
+      - "Move the model to bfloat16"
+    answer: 1
+    explanation: "Latency is $T_{\\text{prefill}} + Hd\\,T_{\\text{decode}}$, and with $H\\cdot d$ in the dozens the decode term dominates by an order of magnitude. Lower resolution and reduced precision shrink both terms by a constant factor and are worth doing, but they do not change the structure. Every serious VLA speedup — parallel action decoding, FAST-style chunk compression, a flow-matching action expert — attacks the same multiplier."
+  - id: vla_l3_c3
+    prompt: "You have 300 demonstrations for a new task. Full fine-tuning or LoRA?"
+    options:
+      - "Full fine-tuning, since more trainable parameters always fit better"
+      - "LoRA: 300 demonstrations cannot support updating 7B parameters without drifting the backbone away from the pretrained solution, and low-rank adapters on the attention projections give the task-specific fit while leaving the semantic knowledge intact"
+      - "Neither; train from scratch"
+      - "Full fine-tuning of the vision encoder only"
+    answer: 1
+    explanation: "The failure mode with full fine-tuning at that data scale is not underfitting, it is catastrophic forgetting — the model learns the 300 demonstrations perfectly and loses the generalisation you adopted it for. LoRA constrains the update to a low-rank subspace, which both regularises and keeps the base weights recoverable. The practical tell is to evaluate on objects and phrasings outside the fine-tuning set: full fine-tuning at small scale characteristically collapses there while looking excellent on held-out demonstrations."
+---
+
+## Tokenising actions
+
+<CodeWalk title="Quantile binning, and reusing the language vocabulary">
+
+```python title="action_tokenizer.py"
+import numpy as np
+
+class ActionTokenizer:
+    """Continuous actions <-> token ids, occupying unused vocabulary slots."""
+
+    def __init__(self, dataset_actions, n_bins=256, vocab_size=32000):
+        # Quantiles, not min-max: a handful of teleop glitches would otherwise
+        # stretch the range so that all normal actions land in a few bins.
+        self.lo = np.percentile(dataset_actions, 1, axis=0)   # (d,)
+        self.hi = np.percentile(dataset_actions, 99, axis=0)
+        self.n_bins = n_bins
+        # Overwrite the least-frequent language tokens. No new embeddings,
+        # no resized softmax — the model does not know these are special.
+        self.offset = vocab_size - n_bins
+
+    def encode(self, actions):                     # (..., d) -> (..., d) ids
+        a = np.clip(actions, self.lo, self.hi)
+        frac = (a - self.lo) / (self.hi - self.lo + 1e-8)
+        idx = np.clip((frac * self.n_bins).astype(int), 0, self.n_bins - 1)
+        return idx + self.offset
+
+    def decode(self, token_ids):                   # ids -> bin centres
+        idx = np.clip(token_ids - self.offset, 0, self.n_bins - 1)
+        frac = (idx + 0.5) / self.n_bins           # centre, not edge
+        return self.lo + frac * (self.hi - self.lo)
+```
+
+</CodeWalk>
+
+Two details. The `+ 0.5` decodes to the bin *centre*, which halves the expected
+error against decoding to the edge. And `offset` is what makes this free: the
+action tokens are ordinary vocabulary entries, so the embedding table, the
+attention, and the softmax head are all untouched and the pretrained weights
+transfer without surgery.
+
+## The inference loop, and where the time goes
+
+<CodeWalk title="Autoregressive action decoding">
+
+```python title="infer.py"
+@torch.no_grad()
+def predict_chunk(model, tokenizer, image, instruction, H=8, d=7):
+    # Prefill: ONE pass over image patches + instruction tokens. Expensive,
+    # but paid once per chunk.
+    prompt = model.build_prompt(image, instruction)
+    kv_cache = model.prefill(prompt)
+
+    tokens = []
+    for _ in range(H * d):
+        # H*d SEQUENTIAL passes through a 7B backbone. This term dominates
+        # total latency by an order of magnitude — everything that makes a
+        # VLA fast attacks the H*d multiplier, not the parameter count.
+        logits = model.decode_step(kv_cache)
+        tokens.append(logits.argmax(-1))
+
+    ids = torch.stack(tokens).view(H, d)
+    return tokenizer.decode(ids.cpu().numpy())     # (H, d) continuous actions
+
+
+def run(model, tokenizer, env, instruction, H=8, T_a=4):
+    obs, done = env.reset(), False
+    while not done:
+        chunk = predict_chunk(model, tokenizer, obs["image"], instruction, H=H)
+        # Receding horizon: execute T_a of H, then re-plan with a fresh image.
+        for a in chunk[:T_a]:
+            obs, _, done, _ = env.step(a)
+            if done:
+                break
+```
+
+</CodeWalk>
+
+<Warning>
+Quote your latency as a budget, not a number:
+$T_{\text{prefill}} + H d\,T_{\text{decode}}$, amortised over $T_a$ executed
+actions. Every design choice in this area is a move inside it — longer $H$ with
+larger $T_a$, parallel decoding of action tokens (giving up within-chunk
+autoregressive dependency), compressing the chunk so fewer tokens represent it,
+or replacing the decode loop with a small continuous head the backbone
+conditions once.
+</Warning>
+
+## Co-fine-tuning
+
+```python title="train.py"
+# The web term is not regularisation in the usual sense — it is what keeps the
+# model able to do the thing you adopted it for. Drop it and you get a model
+# that has learned your demonstrations and forgotten what a mug is.
+for step in range(num_steps):
+    robot_batch = next(robot_loader)
+    web_batch = next(web_loader)
+
+    loss_robot = model.lm_loss(robot_batch.prompt, robot_batch.action_tokens)
+    loss_web = model.lm_loss(web_batch.prompt, web_batch.text_tokens)
+    loss = loss_robot + WEB_WEIGHT * loss_web
+
+    loss.backward(); opt.step(); opt.zero_grad()
+```
+
+The evaluation that catches a missing web term is not held-out demonstration
+loss — that looks fine. It is performance on objects and phrasings outside the
+robot dataset, which is the only place forgetting shows up.
+
+## Adapting to a new task
+
+<CodeWalk title="LoRA on the attention projections">
+
+```python title="adapt.py"
+from peft import LoraConfig, get_peft_model
+
+# 300 demonstrations cannot support updating 7B parameters. Full fine-tuning
+# at this scale fits the demos perfectly and loses the generalisation you
+# adopted the model for — visible only on out-of-set objects and phrasings.
+config = LoraConfig(
+    r=32, lora_alpha=64, lora_dropout=0.05,
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+)
+model = get_peft_model(base_vla, config)
+model.print_trainable_parameters()   # typically well under 1% of the total
+```
+
+</CodeWalk>
+
+<Steps>
+<Step title="Evaluate outside the fine-tuning distribution, always">
+Held-out demonstrations from the same session do not test what you care about.
+Swap the object, rephrase the instruction, change the lighting. Full fine-tuning
+at small data scale characteristically looks excellent on the first and collapses
+on the second.
+</Step>
+
+<Step title="Check the action-token distribution">
+Histogram the emitted bins. Mass piled at bin 0 or bin 255 means your quantile
+range is too narrow and actions are being clipped; mass concentrated in a few
+central bins means it is too wide.
+</Step>
+
+<Step title="Ablate the language input">
+Feed an empty or scrambled instruction and measure the drop. Near zero means the
+policy is ignoring language and you have an expensive unconditional policy —
+the same conditioning-sensitivity check that applies to any multi-task policy.
+</Step>
+</Steps>

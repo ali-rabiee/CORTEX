@@ -1,0 +1,196 @@
+---
+concept: vla_models
+level: 4
+status: final
+recall:
+  prompt: "Trace the VLA line from RT-1 to now. What did each step add, and what is still unresolved?"
+  keyPoints:
+    - "RT-1 (2022) scaled robot data and discretised actions into tokens; the generalisation was within the robot dataset's distribution."
+    - "PaLM-E and RT-2 (2023) added the web: co-fine-tune a pretrained VLM on robot data and semantic generalisation appears — objects and instructions absent from the robot data."
+    - "Open X-Embodiment (2023) pooled 22 embodiments and showed cross-body positive transfer; OpenVLA and Octo (2024) made generalist policies open and adaptable."
+    - "Since then the argument has been about the action head and latency: flow matching in $\\pi_0$, chunk compression in FAST, parallel decoding in OpenVLA-OFT. Evaluation remains the weakest part of the field."
+papers:
+  - key: brohan2022rt1
+    title: "RT-1: Robotics Transformer for Real-World Control at Scale"
+    authors: "Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen Chebotar, Chelsea Finn, Karol Hausman, et al."
+    venue: RSS
+    year: 2023
+    arxiv: "2212.06817"
+    takeaway: "130k demonstrations, 700+ instructions, one transformer emitting discretised action tokens — establishes that joint training over many tasks beats per-task policies once the data is large enough."
+  - key: driess2023palme
+    title: "PaLM-E: An Embodied Multimodal Language Model"
+    authors: "Danny Driess, Fei Xia, Mehdi S. M. Sajjadi, Corey Lynch, Aakanksha Chowdhery, Brian Ichter, et al."
+    venue: ICML
+    year: 2023
+    arxiv: "2303.03378"
+    takeaway: "Injects continuous sensor embeddings directly into a large language model's token stream, making embodied observations first-class inputs rather than a captioned description."
+  - key: brohan2023rt2
+    title: "RT-2: Vision-Language-Action Models Transfer Web Knowledge to Robotic Control"
+    authors: "Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen Chebotar, Xi Chen, Krzysztof Choromanski, et al."
+    venue: CoRL
+    year: 2023
+    arxiv: "2307.15818"
+    takeaway: "Co-fine-tunes a web-pretrained VLM on robot data with actions as tokens, and gets semantic generalisation the robot dataset cannot explain — the result that made VLAs the default framing."
+  - key: oneill2023openx
+    title: "Open X-Embodiment: Robotic Learning Datasets and RT-X Models"
+    authors: "Open X-Embodiment Collaboration (Abby O'Neill et al.)"
+    year: 2023
+    arxiv: "2310.08864"
+    takeaway: "Pools data from 22 robot embodiments and shows a single policy trained across all of them beats per-embodiment training — the dataset the open VLAs are built on."
+  - key: kim2024openvla
+    title: "OpenVLA: An Open-Source Vision-Language-Action Model"
+    authors: "Moo Jin Kim, Karl Pertsch, Siddharth Karamcheti, Ted Xiao, Ashwin Balakrishna, Suraj Nair, et al."
+    venue: CoRL
+    year: 2024
+    arxiv: "2406.09246"
+    takeaway: "A 7B open-weights VLA trained on Open X-Embodiment, with an explicit LoRA adaptation recipe — the model most people actually build on."
+  - key: black2024pi0
+    title: "π₀: A Vision-Language-Action Flow Model for General Robot Control"
+    authors: "Kevin Black, Noah Brown, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, et al."
+    venue: RSS
+    year: 2025
+    arxiv: "2410.24164"
+    takeaway: "Replaces token decoding with a flow-matching action expert conditioned on the VLM, generating continuous 50 Hz action chunks — the strongest case that the action head, not the backbone, is the current bottleneck."
+  - key: pertsch2025fast
+    title: "FAST: Efficient Action Tokenization for Vision-Language-Action Models"
+    authors: "Karl Pertsch, Kyle Stachowicz, Brian Ichter, Danny Driess, Suraj Nair, Quan Vuong, Oier Mees, Chelsea Finn, Sergey Levine"
+    year: 2025
+    arxiv: "2501.09747"
+    takeaway: "Compresses action chunks in a frequency-domain representation before binning, so a chunk costs far fewer tokens — keeping the discrete formulation while removing its decode-length penalty."
+  - key: kim2025oft
+    title: "Fine-Tuning Vision-Language-Action Models: Optimizing Speed and Success"
+    authors: "Moo Jin Kim, Chelsea Finn, Percy Liang"
+    venue: RSS
+    year: 2025
+    arxiv: "2502.19645"
+    takeaway: "Systematic study of the fine-tuning design space — parallel decoding, action chunking, continuous vs discrete heads — showing large throughput and success gains from choices orthogonal to the backbone."
+check:
+  - id: vla_l4_c1
+    prompt: "What did RT-2 demonstrate that RT-1's scale could not have produced?"
+    options:
+      - "Higher success rates on its training tasks"
+      - "Semantic generalisation to objects, categories, and instruction phrasings absent from the robot data entirely — behaviour attributable to web pretraining rather than to the demonstration set"
+      - "Faster inference"
+      - "The ability to learn from failures"
+    answer: 1
+    explanation: "The discriminating evidence is behaviour that the robot dataset cannot account for: responding correctly to 'pick up the extinct animal' or 'move it to the sum of two plus one'. No amount of scaling demonstrations of the same 700 instructions produces that, because the concept was never present. It is the cleanest available demonstration that web pretraining contributes something orthogonal to robot data scale, and it is why the field reorganised around VLM backbones."
+  - id: vla_l4_c2
+    prompt: "$\\pi_0$ and FAST address the same bottleneck by opposite means. What is it?"
+    options:
+      - "The size of the vision encoder"
+      - "The sequential decode cost of emitting $H \\times d$ action tokens: FAST keeps discrete tokens but compresses a chunk into far fewer of them, while $\\pi_0$ removes the token decode entirely in favour of a continuous flow-matching head"
+      - "Catastrophic forgetting during fine-tuning"
+      - "The scarcity of robot demonstration data"
+    answer: 1
+    explanation: "Once the backbone is fixed, latency is dominated by the number of sequential decode steps, and both papers attack that multiplier from different sides. Reading them as a pair is the useful framing: it says the current live question in VLAs is the action interface rather than the vision-language model, which is a more specific and more accurate account of the state of the field than 'scale it up'."
+  - id: vla_l4_c3
+    prompt: "What is the most defensible criticism of the VLA literature as it stands?"
+    options:
+      - "The models are too large to be practical"
+      - "Evaluation is weak: success rates come from small numbers of real rollouts on non-standard hardware and task sets, so cross-paper comparisons are largely uncontrolled and the reported generalisation is hard to separate from experimenter effort"
+      - "Transformers are the wrong architecture for control"
+      - "Web pretraining provides no benefit"
+    answer: 1
+    explanation: "The technical claims are broadly sound and the measurement around them is not. Real-robot evaluation is expensive, so sample sizes are small; every lab has a different robot, scene, and task list; and the demanding parts — how objects were chosen, how many attempts, who reset the scene — are rarely controlled. That makes 'method A beats method B' hard to establish across papers. Being able to say this specifically, rather than dismissing the field, is what a senior interviewer is listening for."
+---
+
+## Scale the robot data first
+
+<PaperCard refKey="brohan2022rt1" />
+
+RT-1 established the recipe before the web entered it: one transformer,
+130k demonstrations, 700+ instructions, actions discretised into tokens. The
+finding was that joint training across many tasks *beats* per-task policies once
+the data is large enough — the negative-transfer regime is outgrown rather than
+solved. The generalisation, though, stayed inside the robot dataset's
+distribution.
+
+## Then borrow the web
+
+<PaperGrid>
+<PaperCard refKey="driess2023palme" />
+<PaperCard refKey="brohan2023rt2" />
+</PaperGrid>
+
+PaLM-E makes the architectural move: inject continuous sensor embeddings
+directly into a language model's token stream, so observations are first-class
+inputs rather than a caption. RT-2 makes the training move: co-fine-tune a
+web-pretrained VLM on robot data with actions as tokens.
+
+<KeyIdea>
+RT-2's evidence is behaviour the robot dataset cannot explain. Responding
+correctly to "pick up the extinct animal" or "move the banana to the sum of two
+plus one" requires concepts that appear nowhere in the demonstrations. That is
+the cleanest available demonstration that web pretraining contributes something
+*orthogonal* to robot data scale — and it is why the field reorganised around
+VLM backbones rather than around bigger robot datasets.
+</KeyIdea>
+
+## Pool the robots
+
+<PaperGrid>
+<PaperCard refKey="oneill2023openx" />
+<PaperCard refKey="kim2024openvla" />
+</PaperGrid>
+
+Open X-Embodiment pools data from 22 embodiments and shows a single policy
+trained across all of them beats per-embodiment training — positive transfer
+extending past tasks to bodies. OpenVLA then made a competitive generalist open:
+7B parameters, open weights, and an explicit LoRA recipe, which is why it is the
+model most groups actually build on.
+
+## The current argument is about the action head
+
+<PaperGrid>
+<PaperCard refKey="black2024pi0" />
+<PaperCard refKey="pertsch2025fast" />
+<PaperCard refKey="kim2025oft" />
+</PaperGrid>
+
+With the backbone settled, the bottleneck moved to how actions leave the model.
+$\pi_0$ removes token decoding entirely in favour of a flow-matching action
+expert emitting continuous chunks at 50 Hz. FAST keeps discrete tokens and
+attacks the same cost from the other side, compressing a chunk in a
+frequency-domain representation so it needs far fewer tokens. The OFT study
+sweeps the surrounding design space — parallel decoding, chunk length, head type
+— and finds large gains from choices entirely orthogonal to the backbone.
+
+<KeyIdea>
+Reading these three as a set gives a more accurate account of the field than
+"scale it up". The vision-language model is largely a solved import; the live
+disagreement is the action interface, and it is being fought over latency and
+precision rather than over semantics.
+</KeyIdea>
+
+## What to be sceptical about
+
+<Warning>
+Evaluation is the weakest part of this literature, and saying so specifically is
+worth more than either enthusiasm or dismissal. Real-robot rollouts are
+expensive, so success rates rest on small samples. Every group has different
+hardware, scenes, objects, and task lists, so cross-paper comparison is largely
+uncontrolled. And the parts that most affect the number — which objects were
+chosen, how many attempts, who reset the scene, how a partial success was scored
+— are rarely reported in enough detail to reproduce.
+
+The consequence is not that the results are wrong; RT-2's semantic
+generalisation is a qualitative effect too large to be an artefact. It is that
+*rankings* between recent methods are much softer than the tables suggest, and
+that a claimed few-point improvement on a bespoke task suite should be read as
+weak evidence.
+</Warning>
+
+<Steps>
+<Step title="What is well established">
+Web pretraining contributes semantic generalisation that robot data alone does
+not. Pooling across tasks and embodiments helps at scale. Action chunking and
+the action-head design materially affect both speed and success.
+</Step>
+
+<Step title="What is not">
+Whether VLAs are better at *hard* manipulation — precise, contact-rich,
+long-horizon — as opposed to a wider range of easy ones. Whether the ranking
+among current models survives a controlled evaluation. Whether the recipe keeps
+scaling with robot data, given how much of it there is.
+</Step>
+</Steps>

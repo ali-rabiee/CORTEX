@@ -1,22 +1,198 @@
 ---
 concept: vla_models
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Vision-Language-Action (VLA) Models,
-    including the key equations.
+  prompt: "Formalise a VLA. Derive the quantisation error of action tokenisation, and compare the discrete and continuous action heads."
   keyPoints:
-    - "VLAs are foundation models that map visual observations $o_t$ and
-      language instructions $l$ to robot actions $a_t$: $\\pi_\\theta(a_t | o_t,
-      l)$."
-    - They extend VLMs with action prediction heads, trained on large-scale
-      robot demonstration datasets.
-    - "Architecture: vision encoder (ViT) $\\rightarrow$ projection
-      $\\rightarrow$ language model backbone $\\rightarrow$ action head."
-check: []
-papers: []
+    - "$\\pi_\\theta(a_{t:t+H} \\mid o_t, \\ell)$ with a pretrained VLM backbone, factorised autoregressively: $\\prod_i p(z_i \\mid z_{<i}, o, \\ell)$ over $H \\times d$ action tokens."
+    - "Uniform binning into $B$ bins over range $[a_{\\min}, a_{\\max}]$ gives worst-case error $(a_{\\max}-a_{\\min})/2B$ per dimension — about 0.2% of range at $B=256$, which is fine for reaching and marginal for insertion."
+    - "The autoregressive factorisation buys multi-modality for free: unlike MSE, a categorical distribution can put mass on two separated actions without inventing their mean."
+    - "Co-fine-tuning on web data alongside robot data is what preserves semantic transfer — it is a mixture objective, and dropping the web term is how models forget what they were adopted for."
+check:
+  - id: vla_l2_c1
+    prompt: "Actions are binned into 256 uniform bins per dimension. For an end-effector delta with range $\\pm 5$ cm, what is the worst-case quantisation error, and when does it matter?"
+    options:
+      - "About 2 cm — enough to break most tasks"
+      - "About 0.2 mm — negligible for reaching and grasping, but comparable to the tolerance of a tight insertion, which is why precision tasks push toward continuous heads"
+      - "Zero, since the bins are learned"
+      - "It depends on the vocabulary size of the language model"
+    answer: 1
+    explanation: "Half a bin width: $10\\,\\text{cm}/(2 \\times 256) \\approx 0.2$ mm. The number is worth computing rather than asserting, because it settles the argument for most tasks and identifies exactly where it does not. A 0.2 mm floor is irrelevant for picking up a mug and is on the same order as the clearance in a connector insertion — which is why the continuous-head work is motivated by dexterity rather than by discretisation being wrong in general. Note the error is per-step and does not accumulate if the policy is closed-loop."
+  - id: vla_l2_c2
+    prompt: "Why does emitting actions as discrete tokens give multi-modality that MSE regression cannot?"
+    options:
+      - "Because discrete tokens have higher capacity"
+      - "A categorical distribution can place probability mass on two separated bins with nothing in between, whereas the MSE minimiser is the conditional mean — which for a bimodal target is a value neither mode supports"
+      - "Because autoregressive models are trained with more data"
+      - "Because the softmax is nonlinear"
+    answer: 1
+    explanation: "It is a property of the loss, not the capacity. Cross-entropy over bins is a proper scoring rule for the full conditional distribution, so a bimodal target is fit as a bimodal categorical. MSE has a unique minimiser at $\\mathbb{E}[a\\mid o]$ regardless of network size. This is the same problem diffusion policies solve, reached by a different route — and it is a real reason discretisation was not merely a convenience for reusing the language vocabulary."
+  - id: vla_l2_c3
+    prompt: "Fine-tuning a VLA on robot data alone degrades its response to novel objects. What is the mechanism and the standard fix?"
+    options:
+      - "The vision encoder overfits; freeze it"
+      - "Catastrophic forgetting: gradients from a narrow robot dataset move the shared backbone away from the web-pretrained solution, and the fix is co-fine-tuning — keeping web vision-language data in the training mixture throughout"
+      - "The action tokens collide with language tokens; use a larger vocabulary"
+      - "The learning rate is too low for the new modality"
+    answer: 1
+    explanation: "The semantic knowledge lives in the shared backbone, and robot data is both narrow and small, so training on it alone drifts the weights toward a solution that fits the demonstrations and has lost the generality you adopted the model for. Co-fine-tuning keeps a web term in the objective so the pretraining solution stays a constraint rather than a starting point. It is one of RT-2's more practically important findings and easy to skip when reimplementing."
 ---
 
-## Formal definition
+## The object
 
-VLAs are foundation models that map visual observations $o_t$ and language instructions $l$ to robot actions $a_t$: $\pi_\theta(a_t | o_t, l)$. They extend VLMs with action prediction heads, trained on large-scale robot demonstration datasets. Architecture: vision encoder (ViT) $\rightarrow$ projection $\rightarrow$ language model backbone $\rightarrow$ action head. Actions often tokenized into discrete bins or predicted as continuous vectors via a diffusion/flow head. Examples: RT-2 ($\pi(a_t | I_t, l) = \text{PaLM-E}(\text{tokenize}(a_t) | I_t, l)$), Octo, OpenVLA.
+$$
+\pi_\theta\big(a_{t:t+H} \;\big|\; o_t,\, \ell\big),
+\qquad
+o_t \in \mathbb{R}^{H_i\times W_i\times 3},\quad \ell \in \mathcal{V}^*
+$$
+
+an image (or several), a natural-language instruction, and a chunk of $H$ future
+actions each in $\mathbb{R}^d$. The backbone is a transformer pretrained on web
+image-text data; the only question is how $a$ leaves the model.
+
+## Route 1: actions as tokens
+
+Map each action dimension into $B$ discrete bins, then emit $H \times d$ tokens
+autoregressively:
+
+$$
+p_\theta\big(z_{1:Hd} \mid o, \ell\big) = \prod_{i=1}^{Hd} p_\theta\big(z_i \mid z_{<i}, o, \ell\big)
+$$
+
+Nothing about the architecture changes. The bins occupy unused slots of the
+existing vocabulary — RT-2 overwrites the 256 least-frequent language tokens —
+so the same embedding table, the same attention, and the same softmax head do
+the work.
+
+<Derivation title="How much precision does binning cost?">
+
+Take dimension $j$ with range $[a^j_{\min}, a^j_{\max}]$ and $B$ uniform bins.
+Bin width is
+
+$$
+w_j = \frac{a^j_{\max} - a^j_{\min}}{B}
+$$
+
+Decoding to the bin centre gives worst-case error $w_j/2$ and, for a value
+uniform within its bin, RMS error $w_j/\sqrt{12}$.
+
+**Put numbers in it.** An end-effector delta of $\pm 5\,\text{cm}$ with
+$B = 256$:
+
+$$
+\frac{w}{2} = \frac{0.10\ \text{m}}{2 \times 256} \approx 2 \times 10^{-4}\,\text{m} = 0.2\ \text{mm}
+$$
+
+**Read the number.** 0.2 mm is far below the tolerance of picking up a mug and
+on the same order as the clearance in a tight connector insertion. So
+discretisation is not a general weakness — it is a floor that only binds on
+precision tasks. Note also that in closed-loop control the error does not
+accumulate: each re-plan re-quantises from the current state.
+
+**The assumption doing the work** is that the range is fixed and known. Uniform
+bins over a badly-chosen range waste resolution — which is why implementations
+set $[a_{\min}, a_{\max}]$ from dataset quantiles (typically 1st to 99th
+percentile) rather than from the extremes, and clip the tails.
+
+</Derivation>
+
+<KeyIdea>
+The discrete head buys two things beyond convenience. Precision costs are
+quantifiable and usually acceptable. And a categorical distribution represents
+**multi-modality** — mass on "left" and "right" with nothing between them —
+which is exactly what MSE regression structurally cannot do. Discretisation
+solves the mode-averaging problem that diffusion policies solve, by a completely
+different route.
+</KeyIdea>
+
+## Route 2: a continuous action expert
+
+The alternative keeps actions continuous and attaches a generative head — a
+diffusion or flow-matching module conditioned on the backbone's features:
+
+$$
+a_{t:t+H} \sim q_\phi\big(\cdot \mid h_\theta(o_t, \ell)\big)
+$$
+
+$\pi_0$ uses flow matching, learning a velocity field along near-straight paths
+from noise to actions, so few integration steps suffice.
+
+<Steps>
+<Step title="What continuous heads gain">
+No quantisation floor, so precision is limited by the data rather than the
+representation. And the head can be small and fast relative to the backbone,
+which matters because it runs several times per action chunk while the backbone
+runs once.
+</Step>
+
+<Step title="What they cost">
+A new component with its own training dynamics, its own multi-modality machinery
+(you no longer get it free from the softmax), and no reuse of the pretrained
+output head. You have also given up the property that made tokenisation
+attractive — that the action modality is indistinguishable from language to the
+rest of the model.
+</Step>
+
+<Step title="The third route">
+Better tokenisation rather than no tokenisation: compress action chunks in a
+transform domain before binning, so that a chunk costs far fewer tokens than
+$H \times d$. This attacks the decode-length problem directly, which is the real
+cost of the discrete route.
+</Step>
+</Steps>
+
+## The decode-length problem
+
+Autoregressive decoding of $H \times d$ tokens costs $H \times d$ sequential
+forward passes of the backbone. With $H = 8$ and $d = 7$ that is 56 passes
+through a 7B-parameter model per re-plan.
+
+$$
+\text{latency} \;\approx\; \underbrace{T_{\text{prefill}}}_{\text{once per chunk}}
+\;+\; H \cdot d \cdot \underbrace{T_{\text{decode}}}_{\text{per token}}
+$$
+
+<Warning>
+This term, not the parameter count, is what keeps VLAs off high-rate control
+loops. The mitigations all attack the multiplier: chunk longer so the cost
+amortises over more executed actions; decode action tokens in parallel rather
+than autoregressively, accepting the loss of within-chunk dependency; compress
+the chunk so fewer tokens represent it; or move generation to a small continuous
+head that the backbone conditions once. Quoting the latency as
+$T_{\text{prefill}} + Hd\,T_{\text{decode}}$ amortised over $T_a$ executed
+actions is the right way to frame the design space.
+</Warning>
+
+## Co-fine-tuning, as a mixture objective
+
+Training on robot data alone moves the shared backbone away from its pretrained
+solution, and the semantic knowledge is *in* that backbone. So keep web data in
+the objective:
+
+$$
+\mathcal{L} = \mathbb{E}_{(o,\ell,a)\sim\mathcal{D}_{\text{robot}}}
+\big[-\log p_\theta(z(a) \mid o,\ell)\big]
+\;+\; \lambda\, \mathbb{E}_{(x,y)\sim\mathcal{D}_{\text{web}}}
+\big[-\log p_\theta(y \mid x)\big]
+$$
+
+<KeyIdea>
+The second term is not regularisation in the usual sense — it is the term that
+keeps the model able to do the thing you adopted it for. Drop it and you get a
+model that has learned your demonstrations and forgotten what a mug is, which
+scores fine on held-out demonstrations from the same distribution and fails
+exactly the generalisation tests that motivated using a VLM at all.
+</KeyIdea>
+
+## What the formalism does not change
+
+$$
+\theta^* = \arg\max_\theta\; \mathbb{E}_{(o,\ell,a)\sim\mathcal{D}}\big[\log \pi_\theta(a\mid o,\ell)\big]
+$$
+
+This is maximum likelihood on a fixed dataset of demonstrations — behaviour
+cloning. The policy still generates its own state distribution at test time, so
+the $O(\epsilon T^2)$ compounding-error analysis applies unchanged, and the model
+still cannot exceed its demonstrators. Pretraining changes the prior and the
+sample efficiency; it does not change the objective's structure.

@@ -1,25 +1,151 @@
 ---
 concept: vla_models
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Vision-Language-Action (VLA) Models in plain language: what is
-    it, and why does it matter?"
+  prompt: "Explain what a VLA is and what bet it is making. What does it inherit from behaviour cloning, and what does it add?"
   keyPoints:
-    - "A VLM can look at a scene and answer 'what do you see?' A VLA goes
-      further: 'given what you see and the instruction pick up the red cup, what
-      should the robot do?' It bridges language understanding, visual
-      perception, and physical action in one model."
-    - Like giving a robot both eyes and a brain that understands natural
-      language commands.
-check: []
-papers: []
+    - "Take a vision-language model pretrained on web image-text data and add actions as an output modality — usually by discretising them into tokens in the same vocabulary."
+    - "The bet is that semantic knowledge from the web transfers to control: the model already knows what a cup is, so the robot data only has to teach the motor skill, not the concept."
+    - "Underneath it is still behaviour cloning on demonstrations. Every failure mode of cloning carries over unchanged — covariate shift included."
+    - "What actually generalises is semantics, not dexterity. VLAs handle unseen objects and rephrased instructions well, and are not yet notably more precise than a good task-specific policy."
+media:
+  - kind: article
+    title: "RT-2: Vision-Language-Action Models Transfer Web Knowledge to Robotic Control"
+    url: https://robotics-transformer2.github.io/
+    source: "Brohan et al., Google DeepMind"
+    note: "The project page, and the emergent-capability videos are the argument. Watch the 'move the banana to the sum of two plus one' and 'pick the extinct animal' rollouts — those concepts appear nowhere in the robot data."
+  - kind: article
+    title: "OpenVLA: An Open-Source Vision-Language-Action Model"
+    url: https://openvla.github.io/
+    source: "Kim, Pertsch, Karamcheti, et al."
+    note: "The model to actually read the code of. 7B parameters, open weights, trained on Open X-Embodiment — and the paper is unusually explicit about inference cost and the LoRA recipe for adapting it."
+  - kind: article
+    title: "π₀: A Vision-Language-Action Flow Model for General Robot Control"
+    url: https://www.pi.website/blog/pi0
+    source: "Physical Intelligence"
+    note: "The alternative to token discretisation: a flow-matching action expert bolted onto the VLM, emitting continuous chunks at 50 Hz. Read it for why the action-head design is the live disagreement in this area."
+check:
+  - id: vla_l1_c1
+    prompt: "What is the central bet a VLA is making?"
+    options:
+      - "That transformers are better function approximators than convolutional networks"
+      - "That semantic knowledge learned from web image-text data transfers to control — so robot demonstrations only have to teach the motor skill, not what the objects are"
+      - "That robot data will eventually reach internet scale"
+      - "That reinforcement learning can be replaced by supervised learning"
+    answer: 1
+    explanation: "Robot data is tiny compared with the web and always will be, so the bet is about where the knowledge comes from. If the backbone already knows what a cup, a drawer, or a dinosaur is, your few hundred thousand demonstrations only need to teach grasping and placing — the concept is free. RT-2's evidence for this is that it responds correctly to objects and phrasings that appear nowhere in its robot data, which no amount of scaling the robot dataset would have produced."
+  - id: vla_l1_c2
+    prompt: "A VLA is trained on demonstrations with a supervised next-token loss. What does that imply?"
+    options:
+      - "It is a reinforcement learning method, since the actions affect the environment"
+      - "It is behaviour cloning, so every failure mode of cloning applies — compounding error from covariate shift, and an inability to exceed the demonstrated behaviour"
+      - "It cannot represent multi-modal action distributions"
+      - "It requires an online expert during training"
+    answer: 1
+    explanation: "This is the deflation worth applying, because the framing around VLAs often obscures it. The objective is maximum likelihood on a fixed dataset of demonstrations — plain cloning with a very large pretrained initialiser. So covariate shift is untouched, and the model cannot be better than its demonstrators. Note option 3 is actually wrong in an interesting way: autoregressive discrete decoding *can* represent multi-modality, unlike MSE regression, which is one genuine advantage of the token formulation."
+  - id: vla_l1_c3
+    prompt: "In practice, what generalises well in current VLAs and what does not?"
+    options:
+      - "Dexterity generalises; semantics do not"
+      - "Semantics generalise — unseen objects, rephrased instructions, novel concepts — while fine motor precision and contact-rich dexterity remain roughly at the level of a good task-specific policy"
+      - "Both generalise equally well"
+      - "Neither generalises; VLAs only reproduce training trajectories"
+    answer: 1
+    explanation: "The asymmetry follows from where the pretraining knowledge lives. Web image-text data is rich in what things *are* and poor in how they feel to manipulate, so the backbone contributes concepts rather than motor skill. That is why VLA demos are usually pick-and-place with varied objects and instructions rather than precise insertion, and why an honest answer separates 'generalises across the task distribution' from 'is good at any individual hard task'."
 ---
 
-## Intuition
+## A VLM that can act
 
-A VLM can look at a scene and answer 'what do you see?' A VLA goes further: 'given what you see and the instruction pick up the red cup, what should the robot do?' It bridges language understanding, visual perception, and physical action in one model. Like giving a robot both eyes and a brain that understands natural language commands.
+A vision-language model takes an image and a question and produces text. A
+vision-language-action model takes an image and an *instruction* and produces
+robot actions. Structurally, that is a smaller change than it sounds.
 
-## In practice
+<Figure src="/figures/vla-architecture.svg"
+        alt="Image patches and an instruction feed a pretrained VLM transformer. One branch decodes text tokens; the other decodes action tokens representing binned end-effector deltas and gripper state."
+        caption="The backbone, the attention, and the autoregressive decoding are unchanged. What differs is what the output symbols mean — and the bet is that everything the model learned about cups survives that substitution." />
 
-RT-2: PaLM-E (VLM) fine-tuned on robot demonstration data. Actions tokenized as text tokens (e.g., 'move_x: 0.05, move_y: -0.02'). Trained on 130K episodes from real robots. Can follow novel instructions by combining language understanding with physical grounding. Octo: smaller open-source VLA trained on Open X-Embodiment dataset, uses a transformer backbone with diffusion action head for multimodal action prediction.
+<Intuition>
+You hire someone who has read enormously and seen photographs of everything, but
+has never operated machinery. You do not have to teach them what a mug is, that
+handles are for holding, or that liquids spill. You have to teach them to move
+the arm.
+
+The wager is that the second job is much smaller than the first — and that the
+first was already done, for free, by someone else.
+</Intuition>
+
+## Why this is the dominant approach
+
+Robot data is small. The largest pooled robot dataset is on the order of a
+million trajectories; web image-text pretraining is on the order of billions of
+examples. That ratio is not going to change soon, so the question becomes where
+the knowledge comes from.
+
+<KeyIdea>
+The claim VLAs make is that *concepts* can be learned from the web and *motor
+skill* from robot data, separately. RT-2's headline evidence is that it responds
+correctly to objects and instructions that appear nowhere in its robot data —
+"pick up the extinct animal", "move the banana to the sum of two plus one". No
+amount of scaling the robot dataset produces that; it comes from the backbone.
+</KeyIdea>
+
+## Three decisions define a VLA
+
+<Steps>
+<Step title="How to represent actions">
+Discretise each dimension into bins and emit them as tokens in the existing
+vocabulary, so nothing about the model changes. Or attach a continuous head — a
+diffusion or flow-matching action expert — that keeps precision at the cost of
+being a new component. This is the live disagreement in the area, and Level 2
+works through the trade.
+</Step>
+
+<Step title="What to train, and on what mixture">
+Fine-tuning only on robot data causes the model to forget the semantics you
+adopted it for. **Co-fine-tuning** — continuing to train on web vision-language
+data alongside robot data — is what preserves the transfer, and it is one of
+RT-2's more important practical findings.
+</Step>
+
+<Step title="How to run it fast enough">
+A 7-billion-parameter model emitting one token at a time, at a control rate a
+robot can use, is a real engineering problem. Action chunking amortises it;
+so does parallel decoding, quantisation, and putting the expensive part on a
+separate action expert.
+</Step>
+</Steps>
+
+## What it is underneath
+
+<Warning>
+A VLA is trained with a supervised next-token loss on demonstrations. That is
+**behaviour cloning**, with a very large pretrained initialiser. Everything that
+is true of cloning is true here: the policy creates its own state distribution
+at test time, so covariate shift applies unchanged, and it cannot exceed the
+behaviour it was shown. The scale and the pretraining change what the model
+*knows*; they do not change what the objective is optimising.
+</Warning>
+
+One genuine improvement over naive cloning is worth naming. Autoregressive
+decoding over discrete tokens can represent a multi-modal action distribution —
+the model can put probability on "go left" and "go right" without inventing
+"straight ahead" — which is exactly what MSE regression cannot do. Discretising
+actions buys the same thing diffusion policies buy, by a different route.
+
+## What actually generalises
+
+<Warning>
+Be precise here, because the marketing is not. VLAs generalise well over
+**semantics**: unseen objects, novel phrasings, categories the robot data never
+contained. They do not yet generalise notably better over **dexterity**:
+precise insertion, contact-rich assembly, or anything where the difficulty is
+motor rather than conceptual.
+
+That asymmetry follows directly from the pretraining. Web image-text data is
+rich in what things are and silent on how they behave under contact. So the
+right summary is that VLAs widen the task distribution a single policy can
+cover, rather than raising the ceiling on any individual hard task.
+</Warning>
+
+<WatchThis />
