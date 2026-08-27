@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 300" role="img"
+     aria-labelledby="oot ood" font-family="system-ui, -apple-system, sans-serif">
+  <title id="oot">Out-of-distribution optimism, and why offline RL cannot correct it</title>
+  <desc id="ood">The dataset covers only part of the action axis. Inside that
+    region the learned Q tracks the true Q because the Bellman error is measured
+    there. Outside it the network extrapolates freely, and the max in the backup
+    selects whichever extrapolation happened to be highest. Online, the agent
+    would try that action and be refuted; offline, the inflated value is
+    bootstrapped backwards and never contradicted.</desc>
+
+  <defs>
+    <marker id="ooarr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6"
+            orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#f85149"/></marker>
+  </defs>
+
+  <!-- data support band -->
+  <rect x="90" y="56" width="200" height="176" fill="#3fb950" opacity="0.07"/>
+  <line x1="90" y1="56" x2="90" y2="232" stroke="#3fb950" stroke-width="1" stroke-dasharray="4 3" opacity="0.5"/>
+  <line x1="290" y1="56" x2="290" y2="232" stroke="#3fb950" stroke-width="1" stroke-dasharray="4 3" opacity="0.5"/>
+  <text x="190" y="72" fill="#3fb950" font-size="11" text-anchor="middle">actions the dataset contains</text>
+
+  <!-- axes -->
+  <line x1="40" y1="232" x2="600" y2="232" stroke="#484f58" stroke-width="1.2"/>
+  <text x="606" y="236" fill="#8b949e" font-size="10.5">a</text>
+  <line x1="40" y1="232" x2="40" y2="60" stroke="#484f58" stroke-width="1.2"/>
+  <text x="32" y="62" fill="#8b949e" font-size="10.5" text-anchor="end">Q</text>
+
+  <!-- true Q -->
+  <path d="M 48 206 C 100 200, 130 168, 190 164 C 250 160, 300 178, 360 190
+           C 430 204, 500 212, 594 216"
+        fill="none" stroke="#8b949e" stroke-width="2" stroke-dasharray="6 4"/>
+  <text x="470" y="206" fill="#8b949e" font-size="10.5">true Q</text>
+
+  <!-- learned Q: matches inside, wild outside -->
+  <path d="M 48 194 C 100 198, 130 170, 190 166 C 250 162, 300 176, 340 168
+           C 380 158, 400 106, 440 100 C 480 94, 500 148, 540 178
+           C 566 198, 580 210, 594 222"
+        fill="none" stroke="#6c63ff" stroke-width="2.4"/>
+  <text x="146" y="150" fill="#6c63ff" font-size="10.5">learned Q</text>
+
+  <!-- data points -->
+  <g fill="#3fb950">
+    <circle cx="110" cy="192" r="3"/><circle cx="140" cy="176" r="3"/>
+    <circle cx="172" cy="168" r="3"/><circle cx="205" cy="164" r="3"/>
+    <circle cx="238" cy="166" r="3"/><circle cx="272" cy="172" r="3"/>
+  </g>
+
+  <!-- the spurious peak -->
+  <circle cx="440" cy="100" r="5" fill="#f85149"/>
+  <line x1="440" y1="118" x2="440" y2="164" stroke="#f85149" stroke-width="1.6"
+        stroke-dasharray="4 3"/>
+  <text x="452" y="96" fill="#f85149" font-size="11">max&#8342; Q&#770; lands here</text>
+  <text x="452" y="112" fill="#8b949e" font-size="10">pure extrapolation &#8212; nothing in</text>
+  <text x="452" y="126" fill="#8b949e" font-size="10">the data can contradict it</text>
+
+  <text x="440" y="252" fill="#8b949e" font-size="10.5" text-anchor="middle">never taken in the dataset</text>
+
+  <line x1="40" y1="266" x2="600" y2="266" stroke="#30363d" stroke-width="1"/>
+  <text x="40" y="286" fill="#3fb950" font-size="11">Online: the agent tries it, gets a real reward, and the value is corrected.</text>
+  <text x="404" y="286" fill="#f85149" font-size="11">Offline: it is bootstrapped backwards instead.</text>
+</svg>

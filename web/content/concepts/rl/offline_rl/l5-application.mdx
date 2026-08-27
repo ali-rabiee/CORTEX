@@ -1,24 +1,176 @@
 ---
 concept: offline_rl
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Offline Reinforcement Learning fail in practice, and how would
-    you present it in an interview?
+  prompt: "Give your interview answer on offline RL. What is the precise failure mode, and when would you actually reach for it over behaviour cloning?"
   keyPoints:
-    - Overestimation of $Q$-values for out-of-distribution actions leads to
-      policy collapse.
-    - The learned policy selects actions where $Q_\theta(s,a)$ is incorrectly
-      optimistic because $(s,a) \notin \mathcal{D}$.
-    - "Symptoms: high $Q$-values but low actual returns when deployed."
-check: []
-papers: []
+    - "State the failure precisely: the max in the Bellman backup queries unsupported actions where the critic's error is unbounded and upward-biased, and offline there is no way to be refuted."
+    - "Place the three families by which knob they turn — constrain the policy, penalise the value, or remove the max — and note the first two need a conservatism coefficient the third does not."
+    - "Be honest about BC: on near-expert data it is a strong baseline that often wins. Offline RL earns its place on mixed data, on informative failures, and where stitching matters."
+    - "Name offline evaluation as the unsolved problem underneath everything — hyperparameters are usually picked with online rollouts, which quietly violates the premise."
+interview:
+  answer: >-
+    Offline RL is learning a policy from a fixed dataset with no environment
+    interaction. The reason it's a distinct problem rather than just off-policy
+    RL with a frozen buffer is worth being precise about, because "distribution
+    shift" is too vague to act on. The Bellman backup contains a max over
+    actions, and that max ranges over everything, including actions the dataset
+    never contains. On those the critic is extrapolating, its error is
+    unconstrained because the TD loss is only computed on dataset actions, and
+    the max deliberately selects whichever extrapolation came out highest.
+    Online that's self-limiting: the policy picks the overestimated action,
+    tries it, gets a real reward, and the value is corrected. Offline that
+    feedback loop is cut, so the inflated value gets bootstrapped backwards into
+    every state that can reach it and compounds. That's why running SAC
+    unmodified on a fixed dataset gives you a critic with absurd values and a
+    policy that's fled the data. Everything in the field is an answer to that
+    one operator, and there are three families. Policy constraint — keep the
+    learned policy close to the behaviour policy so it can't ask about
+    unsupported actions; TD3-plus-BC is the minimal version. Value pessimism —
+    CQL adds a term that pushes Q down on sampled actions and holds it up on
+    dataset actions, and if you work out the fixed point the penalty is exactly
+    the density ratio of the proposal to the behaviour policy, minus one, so
+    it's automatically targeted: near zero in-distribution and unbounded out of
+    it. And in-sample methods — IQL learns V by expectile regression over
+    dataset actions only, which approximates a max over the support of the
+    data, so no unsupported action is ever evaluated anywhere in the algorithm.
+    The first two have a conservatism coefficient to tune and can in principle
+    reach outside the data; the third has no coefficient and structurally
+    can't. Practically, I'd want to be honest that behaviour cloning is the
+    baseline and it often wins on near-expert data. Offline RL earns its place
+    when the data is mixed quality, when there are informative failures a
+    reward can use and cloning would just imitate, and when stitching matters —
+    combining the good halves of two mediocre trajectories into a path better
+    than anything observed.
+  followUps:
+    - q: "How do you pick the conservatism coefficient without online rollouts?"
+      a: >-
+        That's the honest weak point of the whole field. Off-policy evaluation
+        has the same support problem the algorithm does — you can't evaluate a
+        policy on actions the data doesn't cover — so there's no clean answer.
+        In practice most published results tune alpha with online rollouts,
+        which quietly reintroduces the interaction the setting was supposed to
+        exclude, and I'd want to say that rather than pretend otherwise. What I
+        can do without interaction is watch diagnostics that indicate the
+        failure rather than measure the outcome: Q values drifting far above
+        anything achievable given the reward scale and gamma, and the learned
+        policy's actions drifting away from the dataset's action distribution.
+        Those catch under-conservatism. The over-conservative side is harder,
+        because a policy that's collapsed onto the behaviour policy looks
+        perfectly healthy. That asymmetry is part of why in-sample methods with
+        no coefficient became popular.
+    - q: "Give me a concrete case where stitching is the whole argument."
+      a: >-
+        Navigation datasets are the canonical one — the AntMaze benchmarks are
+        built specifically to isolate it. You have trajectories that each go
+        from some start to some goal, none of which goes from your start to your
+        goal, but collectively they cover the space. Dynamic programming
+        propagates value backwards across trajectory boundaries, so it finds
+        the composite path. Behaviour cloning can't, because it only ever
+        reproduces behaviours it saw, and return-conditioned sequence modelling
+        can't either — conditioning on a high return it's never observed just
+        gives you extrapolation. That split is the sharpest empirical evidence
+        that Bellman backups buy something real over sequence modelling, and
+        it's the example I'd give if someone claims RL is just supervised
+        learning in disguise.
+    - q: "Where does offline RL sit in robot learning right now?"
+      a: >-
+        Less as a standalone recipe than as components. The dominant
+        manipulation pipeline is imitation on demonstration corpora — action
+        chunking, diffusion policies, VLAs — because demonstrations are easier
+        to get than a reward function anyone trusts. Offline RL ideas come back
+        in two places. One is using failure data, which a cloning pipeline
+        throws away and a value function can learn from; Q-Transformer is the
+        clearest version of that, doing autoregressive Q-learning over
+        discretised action tokens so it scales like the imitation models do.
+        The other is offline-to-online: pretrain a policy and critic offline,
+        then fine-tune with a modest amount of real interaction. The known
+        hazard there is the initial crash — a conservative critic is
+        miscalibrated the moment real data arrives — which is what Cal-QL is
+        specifically about.
+    - q: "Isn't the OOD problem just the deadly triad again?"
+      a: >-
+        They're related but I'd keep them distinct. The triad is about the
+        projected Bellman operator failing to contract, and it can hit you
+        online too. The offline problem is narrower and sharper: it's
+        specifically that the max queries actions where the loss provides no
+        constraint, and that the agent has no way to test and correct the
+        resulting belief. You could remove function approximation entirely — go
+        tabular with a dataset that doesn't cover every state-action pair — and
+        you'd still have the offline problem, because the max over
+        never-observed actions is still unconstrained. The lack of refutation
+        is the offline-specific ingredient, and that's the thing to name.
+  traps:
+    - "Explaining the difficulty as 'distribution shift'. Say which operator and why: the max over unsupported actions, where the error is unconstrained and upward-biased."
+    - "Skipping behaviour cloning as a baseline. On near-expert data BC frequently matches or beats offline RL with far less machinery, and a candidate who does not say so sounds like they have only read the papers."
+    - "Presenting CQL, IQL, and TD3+BC as competing acronyms rather than three answers to the same operator. Place them by which knob they turn."
+    - "Ignoring offline evaluation. Hyperparameters — including the one that determines whether the method works at all — are usually chosen with online rollouts, and pretending otherwise is the field's open embarrassment."
+check:
+  - id: orl_l5_c1
+    prompt: "Your offline agent's Q-values reach values that no achievable return could justify given the reward scale and $\\gamma$, and its actions look nothing like the dataset's. What is happening, and what is the direct fix?"
+    options:
+      - "The critic is underfitting; increase network capacity"
+      - "Optimism is leaking through unsupported actions — the policy has found extrapolated peaks and fled the data — so raise conservatism: increase CQL's $\\alpha$, tighten the policy constraint, or switch to an in-sample method"
+      - "The learning rate is too high"
+      - "The dataset is too small; collect more data"
+    answer: 1
+    explanation: "The two symptoms together are diagnostic and worth recognising as a pair: values above the theoretical maximum $R_{\\max}/(1-\\gamma)$ tell you the critic is extrapolating, and a policy far from the data tells you where it went. That is the canonical under-conservatism failure. Note that the mirror failure — an over-conservative policy that has collapsed onto $\\pi_\\beta$ — produces no alarming numbers at all, which is exactly why it is harder to catch."
+  - id: orl_l5_c2
+    prompt: "A team reports their offline RL method beats behaviour cloning by 3% on a dataset of expert demonstrations. What should you ask?"
+    options:
+      - "Which GPU they used"
+      - "How the conservatism coefficient was selected — if it was tuned with online rollouts, the comparison is not really offline, and on near-expert data the machinery is mostly constraining the policy back toward the behaviour policy anyway"
+      - "Whether they used a transformer"
+      - "Whether the dataset was shuffled"
+    answer: 1
+    explanation: "Two things make this result weak. On expert data the behaviour policy is already close to optimal, so offline RL's conservatism is largely pulling it back toward BC — a small margin is what you would expect even if the method worked perfectly. And if the coefficient came from online evaluation, the headline claim of learning without interaction does not hold. The convincing demonstration would be mixed-quality or stitching-dependent data, with hyperparameters chosen without rollouts."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Overestimation of $Q$-values for out-of-distribution actions leads to policy collapse. The learned policy selects actions where $Q_\theta(s,a)$ is incorrectly optimistic because $(s,a) \notin \mathcal{D}$. Symptoms: high $Q$-values but low actual returns when deployed. Fix: use conservative methods (CQL with $\alpha \geq 1.0$, IQL with $\tau = 0.7$), increase conservatism parameter, filter dataset to improve quality.
+<Steps>
+<Step title="Q-values above what the reward scale allows → under-conservatism">
+Compare against $R_{\max}/(1-\gamma)$. Exceeding it means the critic is
+extrapolating, not estimating. Confirm by checking whether the policy's actions
+have drifted from the dataset's action distribution — the two travel together.
+</Step>
 
-## Interview-ready answer
+<Step title="Policy indistinguishable from the behaviour policy → over-conservatism">
+The harder failure, because nothing looks wrong. Values are sane, training is
+stable, and you have reinvented behaviour cloning at ten times the cost. Compare
+against an actual BC baseline; if they match, your conservatism coefficient is
+doing all the work.
+</Step>
 
-Offline RL is critical for robotics because online interaction is expensive and risky. The core challenge is distributional shift — the learned policy $\pi_\theta$ may take actions never seen in $\mathcal{D}$, where $Q$-estimates are unreliable. CQL addresses this by adding the penalty $\alpha \mathbb{E}_s[\log \sum_a \exp Q(s,a) - \mathbb{E}_{\pi_\beta}[Q]]$, which provably lower-bounds the true $Q$. IQL is more elegant — it never queries $Q$ for actions outside the dataset by using expectile regression with $\tau \in (0.5, 1)$. In practice, dataset quality matters enormously: diverse, high-quality data outperforms volume. I think offline RL + online fine-tuning (e.g., Cal-QL, RLPD) is the practical sweet spot.
+<Step title="Good on expert data, no better than BC → wrong tool for this dataset">
+Expected, not a bug. Offline RL's advantage lives in mixed data, informative
+failures, and stitching. If your data is uniformly near-expert, the honest
+recommendation is BC.
+</Step>
+
+<Step title="Offline metrics look fine, real performance is poor → offline evaluation">
+There is no reliable way to rank policies without running them. Treat every
+offline number as a diagnostic, never as an evaluation, and say so.
+</Step>
+
+<Step title="Performance crashes at the start of online fine-tuning → calibration">
+A conservative critic is systematically pessimistic, and the moment real
+on-policy data arrives its values are wrong in a way that destabilises the
+actor. This is the known offline-to-online failure, and it is what Cal-QL
+addresses.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The sentence that carries this answer is the one about refutation. "Distribution
+shift" is what most candidates say and it does not distinguish offline RL from
+anything else. The precise claim — the max queries actions where the TD loss
+provides no constraint, and the agent cannot try them and be corrected — is what
+makes the three method families obviously necessary rather than a list of
+acronyms. Follow it by volunteering that behaviour cloning is a strong baseline
+and that hyperparameter selection usually cheats, and you sound like someone who
+has run these rather than read them.
+</Warning>

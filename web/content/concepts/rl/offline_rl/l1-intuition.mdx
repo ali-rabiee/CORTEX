@@ -1,26 +1,148 @@
 ---
 concept: offline_rl
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Offline Reinforcement Learning in plain language: what is it,
-    and why does it matter?"
+  prompt: "Explain offline RL in plain language. Why is it not simply off-policy RL with a frozen replay buffer, and why not just do behaviour cloning?"
   keyPoints:
-    - Like learning to drive from dashcam footage without ever getting behind
-      the wheel.
-    - The data shows what happened, but you can't try new things to see what
-      would happen.
-    - "The danger: your policy might choose actions where $Q_\\theta(s, a)$ is
-      incorrectly high because the Q-function is just extrapolating for actions
-      it's never seen."
-check: []
-papers: []
+    - "Learn a policy from a fixed dataset with no environment interaction at all — no exploration, no rollouts, no chance to test anything."
+    - "The failure is not distribution shift in general but one specific thing: the $\\max$ in the Bellman backup queries actions the dataset never contains, where the critic's error is unbounded and systematically optimistic."
+    - "Online, a wrong optimistic value gets refuted the moment the agent tries the action. Offline it is never refuted, and bootstrapping propagates it backwards through the whole value function."
+    - "Behaviour cloning is the baseline to beat, and it often wins on expert data. Offline RL earns its place when data is suboptimal or mixed, because dynamic programming can *stitch* the good halves of two mediocre trajectories."
+media:
+  - kind: article
+    title: "Offline Reinforcement Learning: Tutorial, Review, and Perspectives on Open Problems"
+    url: https://arxiv.org/abs/2005.01643
+    source: "Levine, Kumar, Tucker, Fu"
+    note: "The reference framing of the whole subfield. Section 4 is the clearest existing statement of why the problem is the $\\max$ over unsupported actions rather than distribution shift in general."
+  - kind: lecture
+    title: "Offline Reinforcement Learning — BayLearn 2021 Keynote"
+    url: https://www.youtube.com/watch?v=k08N5a0gG0A
+    source: "RAIL · Sergey Levine"
+    minutes: 45
+    note: "A talk-length version of the tutorial, with the motivating argument about why robotics needs this. Watch it before reading the papers — it makes the family distinctions in Level 2 land much faster."
+  - kind: article
+    title: "Conservative Q-Learning for Offline Reinforcement Learning"
+    url: https://arxiv.org/abs/2006.04779
+    source: "Kumar, Zhou, Tucker, Levine"
+    note: "The value-pessimism family in one paper. The fixed-point result reproduced in Level 2 is the part worth working through by hand — it makes 'conservatism' concrete rather than a vibe."
+check:
+  - id: orl_l1_c1
+    prompt: "Why is offline RL harder than running an off-policy algorithm like SAC on a frozen replay buffer?"
+    options:
+      - "Because the buffer is too small to train a large network"
+      - "Because the $\\max$ in the Bellman backup evaluates actions the dataset never contains, where the critic's error is unbounded — and unlike online RL, the agent can never take those actions and be corrected"
+      - "Because off-policy algorithms require the behaviour policy to be known"
+      - "Because gradient descent does not converge without fresh data"
+    answer: 1
+    explanation: "It is the *absence of refutation* that changes the character of the problem. Online, an overestimated action gets selected, tried, and the resulting reward corrects the value — the error is self-limiting. Offline, that feedback loop is severed: the inflated value is bootstrapped into earlier states and compounds. This is why running SAC unchanged on a fixed dataset typically produces a critic with wildly optimistic values and a policy that has fled the data entirely."
+  - id: orl_l1_c2
+    prompt: "You have 10,000 demonstrations from a competent human operator and want the best policy you can get. What is the honest recommendation?"
+    options:
+      - "Offline RL, since it can always exceed the demonstrator"
+      - "Try behaviour cloning first — on near-expert data it is a strong baseline that often matches or beats offline RL, with far less machinery — and reach for offline RL if the data turns out to be mixed-quality or contains informative failures"
+      - "Offline RL, because BC cannot handle 10,000 trajectories"
+      - "Neither; only online RL can produce a good policy"
+    answer: 1
+    explanation: "This is the practical question and the tempting answer is wrong. When the data is near-expert, the behaviour policy is already close to what you want, the conservatism machinery in offline RL is mostly constraining you back toward it, and BC gets there with a fraction of the complexity. Offline RL's advantage appears when the data is *not* uniformly good — mixed quality, failures included, or trajectories that are individually mediocre but collectively contain a good path."
+  - id: orl_l1_c3
+    prompt: "What can dynamic programming do with an offline dataset that return-conditioned behaviour cloning cannot?"
+    options:
+      - "Handle continuous action spaces"
+      - "Stitch: value backups propagate across trajectory boundaries, so it can combine the first half of one mediocre trajectory with the second half of another to produce a path better than any single trajectory in the data"
+      - "Train faster"
+      - "Work without reward labels"
+    answer: 1
+    explanation: "Stitching is dynamic programming's signature capability and the strongest argument for the Bellman family over sequence modelling. If trajectory A gets efficiently to a midpoint and then wanders, and trajectory B starts badly but finishes well from that midpoint, DP finds A-then-B — a return higher than anything observed. Return-conditioned methods can only interpolate within behaviours they have seen, which is why benchmarks built from low-return, non-expert data show the split most clearly."
 ---
 
-## Intuition
+## Learning without touching anything
 
-Like learning to drive from dashcam footage without ever getting behind the wheel. The data shows what happened, but you can't try new things to see what would happen. The danger: your policy might choose actions where $Q_\theta(s, a)$ is incorrectly high because the Q-function is just extrapolating for actions it's never seen. CQL pushes down $Q$-values for unseen actions; IQL sidesteps the issue entirely by never evaluating $Q$ outside $\mathcal{D}$.
+Offline RL is reinforcement learning from a fixed dataset. No rollouts, no
+exploration, no ability to test a hypothesis. You are handed logged transitions
+$(s, a, r, s')$ — from human teleoperation, from an old controller, from
+failures — and asked for the best policy those transitions support.
 
-## In practice
+The appeal for robotics is obvious. Online RL on real hardware means an
+untrained policy exploring with a real arm, which is slow, dangerous, and
+usually not allowed. Offline RL promises to use the data you already have.
 
-Using a dataset of $N = 100\text{K}$ robot grasping attempts (mixed quality) to train a grasping policy. CQL adds a penalty that pushes down $Q$-values for actions sampled from the current policy $\pi_\theta$ while pushing up $Q$-values for actions in $\mathcal{D}$. IQL avoids querying the $Q$-function for unseen actions by using expectile regression with $\tau = 0.7$. TD3+BC simply adds a behavior cloning term: $\pi = \arg\max_\pi \mathbb{E}[\lambda Q(s, \pi(s)) - (\pi(s) - a)^2]$.
+<Intuition>
+Learning to drive from a hard drive of dashcam footage. You can watch anything
+in it as many times as you like. You cannot try turning left at a junction where
+nobody turned left, and nothing in the archive can tell you what would have
+happened.
+
+The dangerous part is not that you do not know. It is that a value function
+asked to guess will guess *something*, and the algorithm's next move is to pick
+whichever guess was highest.
+</Intuition>
+
+## The one thing that goes wrong
+
+It is tempting to say offline RL is hard "because of distribution shift". That
+is too vague to act on. The problem is specific and it lives in one operator.
+
+The Bellman backup contains $\max_{a'} Q(s', a')$. That maximisation ranges over
+*all* actions, including ones the dataset never contains. On those the critic is
+extrapolating, its error is unbounded, and the max deliberately selects
+whichever extrapolation came out highest.
+
+<Figure src="/figures/offline-rl-ood-optimism.svg"
+        alt="A Q function over the action axis. Inside the shaded region covered by dataset actions, the learned Q tracks the true Q. Outside it, the learned Q has a large spurious peak, and the max in the backup selects that peak."
+        caption="The max is not a neutral operator here — it is a search for the network's most optimistic extrapolation. Online, taking that action produces a real reward and the error corrects itself. Offline, there is nothing to correct it." />
+
+<KeyIdea>
+The difference between offline and online off-policy RL is **refutation**.
+Online, an overestimated action gets chosen, tried, and disproved; the error is
+self-limiting. Offline, the feedback loop is cut, and bootstrapping carries the
+inflated value backwards into every state that can reach it.
+</KeyIdea>
+
+That is why running SAC unmodified on a frozen buffer does not work. It is not
+a tuning failure — it is the algorithm doing exactly what it was designed to do
+in a setting where one of its assumptions has been removed.
+
+## Then why not just clone?
+
+Behaviour cloning has none of these problems. It never queries an unsupported
+action, so there is nothing to extrapolate and nothing to inflate. It is the
+baseline, and on near-expert data it is a strong one that frequently wins.
+
+Offline RL earns its place in three situations.
+
+<Steps>
+<Step title="The data is mixed quality">
+Cloning imitates the average of what it is shown, including the bad parts.
+Offline RL has a reward signal and can prefer the good parts.
+</Step>
+
+<Step title="The data contains failures">
+A collision, a dropped object, a failed grasp is *informative* — it tells you
+what not to do. Cloning either discards it or imitates it. A value function can
+use it.
+</Step>
+
+<Step title="No single trajectory is good, but a path through them is">
+This is the important one, and it is called **stitching**. If trajectory A gets
+efficiently to a midpoint then wanders, and trajectory B starts badly but
+finishes well from near that midpoint, dynamic programming can combine them into
+a policy better than anything in the dataset. Value backups propagate across
+trajectory boundaries; cloning and return-conditioned sequence models cannot
+cross them.
+</Step>
+</Steps>
+
+<Warning>
+The three method families all attack the same $\max$, in different places.
+**Policy constraint** keeps the learned policy close to the behaviour policy so
+it cannot ask about unsupported actions. **Value pessimism** (CQL) explicitly
+pushes down $Q$ on actions the data does not support. **In-sample** methods
+(IQL) never evaluate an out-of-distribution action at all, learning an upper
+expectile over dataset actions instead. Knowing which knob a method turns is
+more useful than memorising its acronym — and every one of them has the same
+tuning hazard: too much conservatism and you have reinvented behaviour cloning,
+too little and the optimism leaks back in.
+</Warning>
+
+<WatchThis />

@@ -1,28 +1,204 @@
 ---
 concept: offline_rl
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Offline Reinforcement Learning, including
-    the key equations.
+  prompt: "Formalise the offline RL problem, derive CQL's fixed point, and state what each of the three method families assumes."
   keyPoints:
-    - Offline RL learns a policy from a fixed dataset $\mathcal{D} = \{(s_i,
-      a_i, r_i, s'_i)\}_{i=1}^{N}$ collected by a behavior policy $\pi_\beta$,
-      without any additional environment interaction.
-    - "Key challenge: distributional shift between the learned policy
-      $\\pi_\\theta$ and $\\pi_\\beta$."
-    - "CQL adds a conservative penalty: $$\\hat{Q}^{\\text{CQL}} = \\arg\\min_Q
-      \\;\\alpha\\, \\mathbb{E}_{s \\sim \\mathcal{D}}\\left[\\log \\sum_a \\exp
-      Q(s,a) - \\mathbb{E}_{a \\sim \\pi_\\beta}[Q(s,a)]\\right] +
-      \\frac{1}{2}\\mathbb{E}_{\\mathcal{D}}\\left[(Q - \\hat{\\mathcal{B}}^\\pi
-      \\hat{Q}^k)^2\\right]$$ IQL avoids querying $Q$ for out-of-distribution
-      actions via expectile regression on the value function: $L_\\tau(V) =
-      \\mathbb{E}_{(s,a) \\sim \\mathcal{D}}[|\\tau - \\mathbf{1}(Q(s,a) - V(s)
-      < 0)| \\cdot (Q(s,a) - V(s))^2]$."
-check: []
-papers: []
+    - "Dataset $\\mathcal{D}$ from a behaviour policy $\\pi_\\beta$. The Bellman error is only measurable on $\\text{supp}(\\pi_\\beta)$, yet the backup evaluates $\\max_{a'}Q(s',a')$ over everything."
+    - "Error decomposes as $\\hat Q = Q + \\varepsilon$, and $\\max_a \\hat Q$ selects the largest $\\varepsilon$ — which lives where data is sparsest. Jensen gives the bias direction; the lack of refutation gives the compounding."
+    - "CQL's penalty $\\alpha(\\mathbb{E}_{a\\sim\\mu}[Q] - \\mathbb{E}_{a\\sim\\pi_\\beta}[Q])$ has fixed point $Q = \\mathcal{B}Q - \\alpha\\big(\\tfrac{\\mu(a\\mid s)}{\\pi_\\beta(a\\mid s)} - 1\\big)$: the value is lowered exactly in proportion to how much $\\mu$ over-weights an action relative to the data."
+    - "IQL removes the max instead: expectile regression with $\\tau\\to1$ approximates $\\max$ *over the support of the data*, so no unsupported action is ever queried — at the cost of being unable to prefer an action nobody took."
+check:
+  - id: orl_l2_c1
+    prompt: "Writing $\\hat Q = Q + \\varepsilon$ with $\\varepsilon$ the approximation error, why is $\\max_a \\hat Q(s,a)$ biased upward *and* concentrated on unsupported actions?"
+    options:
+      - "Because $\\varepsilon$ is always positive"
+      - "Because the max selects the action with the largest $\\varepsilon$, and $\\varepsilon$ has the largest magnitude where the network is extrapolating — precisely the actions the dataset does not contain"
+      - "Because $\\gamma$ amplifies errors over the horizon"
+      - "Because the behaviour policy is stochastic"
+    answer: 1
+    explanation: "Two things combine. Jensen's inequality gives the direction — the expectation of a max over noisy estimates exceeds the max of the expectations — and that alone happens in tabular Q-learning. What makes it fatal offline is *where* the noise is: the Bellman loss is only computed on dataset actions, so $\\varepsilon$ is small there and unconstrained elsewhere, and the max searches for exactly the unconstrained region. Online the argmax would be tried and refuted; offline it is bootstrapped."
+  - id: orl_l2_c2
+    prompt: "CQL's fixed point is $Q(s,a) = \\mathcal{B}Q(s,a) - \\alpha\\big(\\mu(a\\mid s)/\\pi_\\beta(a\\mid s) - 1\\big)$. What does the penalty do to an action the dataset never contains?"
+    options:
+      - "Nothing, since $\\pi_\\beta(a\\mid s) = 0$ makes the term undefined and it is skipped"
+      - "The ratio $\\mu/\\pi_\\beta$ is very large, so the value is pushed far below its Bellman target — the less support an action has, the harder it is suppressed"
+      - "It raises the value, to encourage exploration of unseen actions"
+      - "It leaves the value unchanged but reduces its gradient"
+    answer: 1
+    explanation: "The density ratio is exactly the right quantity for the job: it is near one for actions the data covers as often as $\\mu$ proposes them, and large where $\\mu$ proposes actions the data rarely or never contains. So the penalty is automatically targeted — it costs almost nothing in-distribution and grows without bound out of it. That is what makes CQL a *pointwise* lower bound rather than a blunt global shrinkage, and it is the result worth being able to derive."
+  - id: orl_l2_c3
+    prompt: "IQL learns $V$ by expectile regression on $Q$ over dataset actions only, with $\\tau \\approx 0.7$–$0.9$. What is the essential trade?"
+    options:
+      - "It is faster to train than CQL"
+      - "It never evaluates an out-of-distribution action, so there is no optimism to suppress — but it can only ever prefer actions that appear in the data, so it cannot discover a good action nobody took"
+      - "It requires knowing the behaviour policy explicitly"
+      - "It works only for discrete action spaces"
+    answer: 1
+    explanation: "In-sample methods dissolve the problem rather than penalising it: with no query to an unsupported action there is nothing to be optimistic about, and no conservatism coefficient to tune. The price is a hard ceiling — the policy is confined to the support of the data, so if the genuinely best action was never taken at a state, no expectile will find it. CQL can in principle reach outside the support if $\\alpha$ is small; IQL structurally cannot."
 ---
 
-## Formal definition
+## The setting
 
-Offline RL learns a policy from a fixed dataset $\mathcal{D} = \{(s_i, a_i, r_i, s'_i)\}_{i=1}^{N}$ collected by a behavior policy $\pi_\beta$, without any additional environment interaction. Key challenge: distributional shift between the learned policy $\pi_\theta$ and $\pi_\beta$. CQL adds a conservative penalty: $$\hat{Q}^{\text{CQL}} = \arg\min_Q \;\alpha\, \mathbb{E}_{s \sim \mathcal{D}}\left[\log \sum_a \exp Q(s,a) - \mathbb{E}_{a \sim \pi_\beta}[Q(s,a)]\right] + \frac{1}{2}\mathbb{E}_{\mathcal{D}}\left[(Q - \hat{\mathcal{B}}^\pi \hat{Q}^k)^2\right]$$ IQL avoids querying $Q$ for out-of-distribution actions via expectile regression on the value function: $L_\tau(V) = \mathbb{E}_{(s,a) \sim \mathcal{D}}[|\tau - \mathbf{1}(Q(s,a) - V(s) < 0)| \cdot (Q(s,a) - V(s))^2]$.
+You have $\mathcal{D} = \{(s_i, a_i, r_i, s_i')\}$ generated by some behaviour
+policy $\pi_\beta$ (often a mixture, often unknown). No further interaction is
+permitted. You want $\pi$ maximising expected return.
+
+The trouble is a mismatch between two things:
+
+$$
+\underbrace{\mathcal{L}_{\text{TD}} = \mathbb{E}_{(s,a,r,s')\sim\mathcal{D}}
+\big[(Q(s,a) - y)^2\big]}_{\text{measured only on }\operatorname{supp}(\pi_\beta)}
+\qquad
+\underbrace{y = r + \gamma\max_{a'} Q(s',a')}_{\text{evaluated over all }a'}
+$$
+
+The loss constrains $Q$ where the data is. The target queries $Q$ everywhere.
+
+<Derivation title="Why the max is systematically optimistic, and where">
+
+Write the learned critic as truth plus error, $\hat Q(s,a) = Q(s,a) + \varepsilon(s,a)$.
+
+**Direction.** Taking a max over noisy estimates is upward biased. If
+$\mathbb{E}[\varepsilon] = 0$ per action, convexity of $\max$ gives
+
+$$
+\mathbb{E}\big[\max_a \hat Q(s,a)\big] \;\ge\; \max_a Q(s,a)
+$$
+
+This much also happens in tabular Q-learning, and double estimators address it.
+
+**Location.** The TD loss is an expectation over $\mathcal{D}$, so it penalises
+$\varepsilon$ only where $\pi_\beta$ has mass. Off the support, nothing in the
+objective constrains $\varepsilon$ at all — its magnitude is set by the
+network's inductive bias. So $\varepsilon$ is small in-distribution and
+arbitrarily large out of it, and $\arg\max_a \hat Q$ preferentially lands in the
+unconstrained region.
+
+**Compounding.** This is the offline-specific part. That inflated
+$\max_{a'}\hat Q(s',a')$ becomes the target for $Q(s,a)$ at every predecessor
+state, so the error propagates backwards and grows. Online, the policy would
+select the offending action, observe a real reward, and the value would be
+corrected. **The assumption that fails offline is not Markov, not function
+approximation — it is that the agent can test its own beliefs.**
+
+</Derivation>
+
+## Family 1: constrain the policy
+
+Do not let $\pi$ ask about actions $\pi_\beta$ would not take:
+
+$$
+\max_\pi\; \mathbb{E}_{s\sim\mathcal{D},\,a\sim\pi}\big[Q(s,a)\big]
+\quad\text{s.t.}\quad
+D\big(\pi(\cdot\mid s),\, \pi_\beta(\cdot\mid s)\big) \le \epsilon
+$$
+
+TD3+BC is the minimal version: add a behaviour-cloning term to the actor loss,
+$\mathcal{L} = -\lambda\mathbb{E}[Q(s,\pi(s))] + \mathbb{E}[(\pi(s) - a)^2]$,
+with $\lambda$ normalised by the mean $|Q|$ so the two terms stay comparable
+across reward scales.
+
+**The assumption doing the work:** that $\pi_\beta$ is good enough to be worth
+staying near. With a poor or highly multi-modal behaviour policy, the constraint
+holds you close to something you did not want.
+
+## Family 2: make the value pessimistic
+
+CQL adds a term that pushes $Q$ down on actions sampled from a proposal $\mu$
+and holds it up on actions from the data:
+
+$$
+\min_Q\;\; \alpha\Big(\mathbb{E}_{s\sim\mathcal{D},\,a\sim\mu}\big[Q(s,a)\big]
+- \mathbb{E}_{(s,a)\sim\mathcal{D}}\big[Q(s,a)\big]\Big)
+\;+\; \tfrac{1}{2}\,\mathbb{E}_{\mathcal{D}}\big[(Q - \hat{\mathcal{B}}Q^k)^2\big]
+$$
+
+<Derivation title="CQL's fixed point: penalty proportional to the density ratio">
+
+Work pointwise. Let $d(s)$ be the state distribution of $\mathcal{D}$; then the
+first term contributes $\alpha\, d(s)\mu(a\mid s)$ to the coefficient of
+$Q(s,a)$, the second contributes $-\alpha\, d(s)\pi_\beta(a\mid s)$, and the TD
+term contributes $d(s)\pi_\beta(a\mid s)\,(Q(s,a) - \hat{\mathcal{B}}Q^k(s,a))$.
+
+Set the derivative with respect to $Q(s,a)$ to zero:
+
+$$
+\alpha\,d(s)\mu(a\mid s) - \alpha\,d(s)\pi_\beta(a\mid s)
++ d(s)\pi_\beta(a\mid s)\big(Q(s,a) - \hat{\mathcal{B}}Q^k(s,a)\big) = 0
+$$
+
+Divide through by $d(s)\pi_\beta(a\mid s)$ and rearrange:
+
+$$
+\boxed{\;Q^{k+1}(s,a) = \hat{\mathcal{B}}Q^k(s,a)
+\;-\; \alpha\left(\frac{\mu(a\mid s)}{\pi_\beta(a\mid s)} - 1\right)\;}
+$$
+
+**Read what this says.** The correction is the density ratio minus one. Where
+$\mu$ proposes an action about as often as the data contains it, the ratio is
+near 1 and the penalty vanishes. Where $\mu$ proposes an action the data rarely
+or never contains, the ratio blows up and the value is driven far below its
+Bellman target. The conservatism is automatically targeted at exactly the
+actions that would otherwise be exploited.
+
+**The assumption doing the work is that $\alpha$ is right.** Too large and every
+value is suppressed until the greedy policy is just $\pi_\beta$ — behaviour
+cloning with extra steps. Too small and the optimism leaks back through.
+
+</Derivation>
+
+In practice $\mu$ is taken to be the soft-max over actions, which makes the
+first expectation a $\log\sum_a \exp Q(s,a)$ — a differentiable soft maximum,
+estimated by sampling in continuous action spaces.
+
+## Family 3: never leave the data
+
+IQL removes the offending operator instead of penalising its consequences.
+Learn $V$ by **expectile regression** on $Q$, using only dataset actions:
+
+$$
+\mathcal{L}_V = \mathbb{E}_{(s,a)\sim\mathcal{D}}\Big[
+L_2^\tau\big(Q_{\bar\theta}(s,a) - V_\psi(s)\big)\Big],
+\qquad
+L_2^\tau(u) = \big|\tau - \mathbb{1}(u < 0)\big|\,u^2
+$$
+
+With $\tau = 0.5$ this is ordinary least squares and $V$ learns the mean. As
+$\tau \to 1$, under-predictions are penalised far more than over-predictions, so
+$V$ is pulled toward the **upper** end of the $Q$ values observed at that state
+— an approximation to $\max_a Q(s,a)$ taken *over the support of the data only*.
+
+The critic then bootstraps through $V$ rather than through a max:
+$\mathcal{L}_Q = \mathbb{E}[(r + \gamma V_\psi(s') - Q_\theta(s,a))^2]$, and no
+unsupported action is ever evaluated anywhere in the algorithm.
+
+Policy extraction is advantage-weighted regression:
+
+$$
+\mathcal{L}_\pi = -\,\mathbb{E}_{(s,a)\sim\mathcal{D}}
+\Big[\exp\!\big(\beta\,(Q(s,a) - V(s))\big)\,\log\pi_\phi(a\mid s)\Big]
+$$
+
+which is behaviour cloning weighted toward the better-than-average actions
+actually present in the data.
+
+<KeyIdea>
+Three answers to one question. **Constrain the policy** so it cannot ask.
+**Penalise the value** so asking is unrewarding. **Change the operator** so the
+question is never posed. The first two have a conservatism coefficient to tune
+and can in principle exceed the data's support; the third has no such
+coefficient and structurally cannot. That is the trade, and it is the right way
+to place any new offline method you meet.
+</KeyIdea>
+
+<Warning>
+All three inherit a problem none of them solves: **offline evaluation**. You
+cannot measure a policy's return without running it, and off-policy evaluation
+is itself an open problem with the same support issues. So hyperparameters —
+including the conservatism coefficient that determines whether the method works
+at all — are usually chosen with online rollouts, which quietly reintroduces
+the interaction the setting was defined to exclude. Being able to say this out
+loud is a genuine signal in an interview.
+</Warning>
