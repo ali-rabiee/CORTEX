@@ -1,0 +1,105 @@
+---
+concept: imitation_learning
+level: 4
+status: final
+recall:
+  prompt: "Sketch the arc of imitation learning from ALVINN to today. What changed at each step?"
+  keyPoints:
+    - "1989 ALVINN: cloning works on real hardware. 2011 DAgger: names covariate shift, fixes it with online expert labels."
+    - "2015 guided policy search: manufacture the expert from privileged simulator state and distil into pixels."
+    - "2023 ACT and Diffusion Policy: keep the fixed offline dataset, fix the horizon (chunking) and the action distribution (diffusion) instead. This is where real-robot imitation actually landed."
+    - "Now: scale — cross-embodiment datasets and VLA policies pretrained on web data, where imitation is the objective and the interesting question is data, not algorithm."
+papers:
+  - key: ross2011dagger
+    title: "A Reduction of Imitation Learning and Structured Prediction to No-Regret Online Learning"
+    authors: "Stéphane Ross, Geoffrey J. Gordon, J. Andrew Bagnell"
+    venue: AISTATS
+    year: 2011
+    arxiv: "1011.0686"
+    takeaway: "The theoretical spine of the field: why cloning drifts, and the first principled fix."
+  - key: levine2016visuomotor
+    title: "End-to-End Training of Deep Visuomotor Policies"
+    authors: "Sergey Levine, Chelsea Finn, Trevor Darrell, Pieter Abbeel"
+    venue: JMLR
+    year: 2015
+    arxiv: "1504.00702"
+    takeaway: "Pixels to torques, end to end, supervised by a full-state trajectory optimiser. Established privileged-expert distillation as the workhorse of sim-based robot learning."
+  - key: zhao2023act
+    title: "Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware"
+    authors: "Tony Z. Zhao, Vikash Kumar, Sergey Levine, Chelsea Finn"
+    venue: RSS
+    year: 2023
+    arxiv: "2304.13705"
+    takeaway: "Action chunking with a transformer, ~50 demos, cheap hardware, dexterous results. Reframed what a fixed offline dataset is capable of."
+  - key: chi2023diffusion
+    title: "Diffusion Policy: Visuomotor Policy Learning via Action Diffusion"
+    authors: "Cheng Chi, Siyuan Feng, Yilun Du, Zhenjia Xu, Eric Cousineau, Benjamin Burchfiel, Shuran Song"
+    venue: RSS
+    year: 2023
+    arxiv: "2303.04137"
+    takeaway: "Denoising diffusion over action chunks, so the policy represents multi-modal behaviour instead of averaging it. Consistent gains across 15 tasks."
+  - key: ebert2021bridge
+    title: "Bridge Data: Boosting Generalization of Robotic Skills with Cross-Domain Datasets"
+    authors: "Frederik Ebert, Yanlai Yang, Karl Schmeckpeper, Bernadette Bucher, Georgios Georgakis, Kostas Daniilidis, Chelsea Finn, Sergey Levine"
+    venue: RSS
+    year: 2021
+    arxiv: "2109.13396"
+    takeaway: "Shared multi-task, multi-environment demonstration data transfers to new domains — an early argument that the bottleneck in imitation is dataset composition, not the algorithm."
+check:
+  - id: il_l4_c1
+    prompt: "ACT and Diffusion Policy both improve real-robot imitation without any online expert. What does that suggest about DAgger's role today?"
+    options:
+      - "DAgger was wrong about covariate shift"
+      - "DAgger's diagnosis stands, but on hardware its remedy is usually outbid — reducing decision points and modelling actions better is cheaper than buying online labels"
+      - "DAgger is only for discrete action spaces"
+      - "Diffusion Policy implements DAgger internally"
+    answer: 1
+    explanation: "The theory is not in dispute; the economics are. DAgger lowers $\\epsilon$ by fixing the distribution it is measured on, and needs an oracle to do it. Chunking lowers the effective $T$ and costs nothing. Where the oracle is free — simulation with privileged state — DAgger is still the right answer."
+  - id: il_l4_c2
+    prompt: "What is the strongest argument that imitation learning's bottleneck has moved from algorithms to data?"
+    options:
+      - "Networks have gotten larger"
+      - "Broad, shared, multi-environment demonstration datasets improve generalisation more than algorithmic changes on a single-task dataset — Bridge Data and the cross-embodiment work that followed"
+      - "Diffusion models replaced MLPs"
+      - "Simulators became more accurate"
+    answer: 1
+    explanation: "The consistent finding is that the same algorithm trained on broader data generalises much better, while algorithmic swaps on a narrow dataset yield smaller gains. That is why so much current effort goes into collection hardware, cross-embodiment pooling, and dataset curation rather than new objectives."
+---
+
+## The spine
+
+<PaperCard refKey="ross2011dagger" />
+
+Everything after this either accepts the $O(\epsilon T^2)$ diagnosis and pays
+for online labels, or accepts it and attacks a different term.
+
+## Manufacturing the expert
+
+<PaperCard refKey="levine2016visuomotor" />
+
+The insight that outlived the specific algorithm: in simulation you can *build*
+the queryable expert DAgger assumes, out of privileged state. Most sim2real
+pipelines are descendants.
+
+## Where real-robot imitation actually landed
+
+<PaperGrid>
+<PaperCard refKey="zhao2023act" />
+<PaperCard refKey="chi2023diffusion" />
+</PaperGrid>
+
+Both keep a fixed offline dataset and no online expert. ACT cuts the number of
+decision points; Diffusion Policy fixes the action distribution. Together they
+reset expectations about what plain cloning can achieve.
+
+## The current bottleneck
+
+<PaperCard refKey="ebert2021bridge" />
+
+<KeyIdea>
+The narrative that reads as current: the algorithm question is largely settled —
+chunked, expressive, cloned policies work. The open question is **data**: how to
+collect it cheaply, how to pool it across robots with different bodies, and how
+to compose datasets so policies generalise. When an interviewer asks what you'd
+work on next, that is where the field's attention actually is.
+</KeyIdea>

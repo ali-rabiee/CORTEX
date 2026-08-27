@@ -1,0 +1,116 @@
+---
+concept: dagger
+level: 3
+status: final
+recall:
+  prompt: "Write the DAgger outer loop. What is aggregated, and what is thrown away?"
+  keyPoints:
+    - "Outer loop over iterations: roll out (optionally mixed with the expert), query the expert on every visited state, extend the dataset, retrain."
+    - "The dataset is aggregated and never pruned; the *policy* is retrained from scratch each round, because Follow-the-Leader means the minimiser over all data so far, not a warm-started continuation."
+    - "The expert is a function `expert(state) -> action` that must work at arbitrary states — that signature is the whole practicality question."
+check:
+  - id: dagger_l3_c1
+    prompt: "Why retrain the policy from scratch each DAgger iteration rather than fine-tuning the previous one?"
+    options:
+      - "Fine-tuning would overfit the newest batch and drift from the Follow-the-Leader solution, which is defined as the minimiser over the entire aggregated dataset"
+      - "PyTorch cannot resume training after a dataset changes size"
+      - "Retraining from scratch is faster"
+      - "The previous policy's weights are invalid once new data arrives"
+    answer: 0
+    explanation: "The guarantee comes from FTL — the best policy in hindsight over all rounds. Warm-starting biases you toward recent data and breaks that. In practice people often warm-start anyway for compute reasons and accept the looser guarantee, but you should know what is being traded."
+  - id: dagger_l3_c2
+    prompt: "Your expert is a scripted controller with access to privileged simulator state (exact object pose). The policy only sees camera images. Is this valid DAgger?"
+    options:
+      - "No — the expert and the policy must share an observation space"
+      - "Yes, and it is the standard setup: the expert supplies the action label, and nothing requires it to be computed from the policy's observation"
+      - "No — privileged information makes the labels inconsistent"
+      - "Only if the privileged state is also fed to the policy at training time"
+    answer: 1
+    explanation: "This is privileged-expert distillation and it is one of the most useful patterns in sim-based robot learning. The expert solves an easier problem with full state; the student learns to reproduce its actions from pixels. It also neatly sidesteps DAgger's usual bottleneck, because a scripted expert labels arbitrary states for free."
+---
+
+## The outer loop
+
+Everything specific to DAgger lives here. The inner `train` call is the same
+behaviour cloning training loop as before.
+
+<CodeWalk title="DAgger, complete">
+
+```python title="dagger.py"
+import numpy as np
+
+def dagger(policy, env, expert, train, iterations=10, episodes=5, p=0.5):
+    """expert(state) -> action must answer at ARBITRARY states, not just good ones."""
+    dataset = []                                    # aggregated, never pruned
+
+    for i in range(iterations):
+        # Mix in the expert early, when the policy is still useless. beta must
+        # decay to 0 or we never collect the learner's own distribution.
+        beta = p ** i if i > 0 else 1.0
+
+        for _ in range(episodes):
+            obs, done = env.reset(), False
+            while not done:
+                expert_action = expert(env.state)   # the label, at every step
+                dataset.append((obs, expert_action))
+
+                # The trajectory is the LEARNER's, except where the coin says
+                # otherwise — that is what makes the data distribution d^pi.
+                if np.random.rand() < beta:
+                    action = expert_action
+                else:
+                    action = policy.act(obs)
+
+                obs, _, done, _ = env.step(action)
+
+        # Follow-the-Leader: the minimiser over EVERYTHING seen so far.
+        policy = train(fresh_policy(), dataset)
+
+    return policy, dataset
+```
+
+</CodeWalk>
+
+Three details carry all the meaning:
+
+<Steps>
+<Step title="The label is taken at every visited state, regardless of who acted">
+Even on timesteps where the expert takes over, you still record what the expert
+would do. Labels are free once you've asked.
+</Step>
+
+<Step title="`dataset` only ever grows">
+Pruning old data breaks Follow-the-Leader. Memory is rarely the binding
+constraint; expert time is.
+</Step>
+
+<Step title="`fresh_policy()` — retrain, don't fine-tune">
+FTL is defined as the minimiser over the union. Warm-starting drifts toward the
+newest batch. Many implementations warm-start anyway to save compute; just know
+you've traded the guarantee for wall-clock.
+</Step>
+</Steps>
+
+## The signature that decides whether you can use it
+
+```python
+def expert(state) -> action: ...
+```
+
+This must work at **any** state — including the half-dropped grasp your policy
+just created. Ask yourself which of these you actually have:
+
+| Expert | Cost per label | Verdict |
+| --- | --- | --- |
+| Scripted controller in sim with privileged state | ~free | DAgger is excellent, use it |
+| Motion planner with full object poses | cheap | Works well |
+| Trained RL policy in sim (distillation) | free | Standard for sim2real |
+| Human teleoperator, offline replay | slow, awkward | Usually not worth it |
+| Human, live in the loop on hardware | very slow, sometimes unsafe | Rarely practical |
+
+<Warning>
+The bottom two rows are why DAgger appears in every imitation-learning course
+and in comparatively few real robot papers. If an interviewer asks "would you
+use DAgger here?", the answer they're testing for is *"depends entirely on
+whether I have a queryable expert"* — not a yes or a no.
+</Warning>

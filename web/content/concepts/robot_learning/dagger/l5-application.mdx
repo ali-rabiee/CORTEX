@@ -1,25 +1,139 @@
 ---
 concept: dagger
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does DAgger (Dataset Aggregation) fail in practice, and how would
-    you present it in an interview?
+  prompt: "Give your interview answer on DAgger: what it fixes, how, what it costs, and when you'd actually reach for it."
   keyPoints:
-    - "Expert availability: DAgger requires an on-call expert to label
-      $\\pi^*(a|s)$ at arbitrary states, which is expensive for real-robot tasks
-      (human teleoperator must provide corrections in real-time)."
-    - "Expert inconsistency: human experts give noisy, inconsistent labels,
-      especially for states far from the demonstration distribution."
-    - "Symptoms: improvement plateaus or the policy oscillates between rounds."
-check: []
-papers: []
+    - "Frame it as the direct fix for behaviour cloning's covariate shift: train on the learner's state distribution instead of the expert's."
+    - "Mechanism: roll out, expert labels visited states, aggregate, retrain. Regret improves from $O(\\epsilon T^2)$ to $O(\\epsilon T)$."
+    - "Cost: needs an online queryable expert. Free in sim with privileged state, near-impossible with a human on hardware."
+    - "Verdict: standard for sim distillation, largely bypassed for real-robot imitation in favour of chunking and expressive action heads."
+interview:
+  answer: >-
+    DAgger is the direct fix for behaviour cloning's central problem. Cloning
+    trains on the expert's state distribution but gets evaluated on the
+    learner's, and once the policy makes a small error it's off-distribution
+    with no data to recover from — that's the epsilon T squared regret. DAgger
+    closes the loop: you roll out the current policy, have the expert label
+    every state the policy actually visited, aggregate those labels into your
+    dataset, retrain, and repeat. Ross and Bagnell frame it as online learning
+    — training on the aggregate is Follow-the-Leader, and because that's a
+    no-regret algorithm you inherit a bound where the error is measured under
+    the learner's own distribution. That single substitution takes regret down
+    to epsilon T, linear in the horizon. The cost is the part worth being
+    honest about: you need an expert you can query at arbitrary states, on
+    demand, including states that are already going wrong. In simulation that's
+    nearly free — you script an expert with privileged access to full state and
+    distil it into a pixel policy, which is how most sim2real pipelines are
+    built. With a human teleoperator on real hardware it's a different story:
+    nobody can fluently say what the correct joint velocities are from a
+    half-dropped grasp, and you'd be labelling every timestep of every rollout.
+    That's why real-robot imitation mostly went the other way — ACT and
+    Diffusion Policy keep a fixed offline dataset and attack the horizon with
+    action chunking instead of buying labels.
+  followUps:
+    - q: "What's the beta mixing schedule for, and what happens if you don't decay it?"
+      a: >-
+        Early policies are bad enough that pure rollouts wander off-task or are
+        unsafe, so you let the expert take a fraction beta of the actions to
+        keep the data useful. But the guarantee is about the learner's own
+        state distribution, so beta has to decay to zero — otherwise you're
+        forever collecting a blend of expert and learner states and never
+        converge to the distribution you're actually evaluated on. Geometric
+        decay is typical; the paper notes that beta equals one on the first
+        pass and zero after works fine, which just means round one is plain
+        behaviour cloning.
+    - q: "Does DAgger fix mode averaging too?"
+      a: >-
+        No, and conflating them is the common error. DAgger changes where the
+        data comes from; it does nothing about how the policy represents the
+        action distribution. If the expert is genuinely multi-modal — sometimes
+        left, sometimes right — an MSE-trained DAgger policy still regresses to
+        the mean of contradictory labels and drives straight ahead. Worse, now
+        you're collecting *more* contradictory labels. You need a different
+        policy class for that: discretised action tokens, a mixture density, or
+        a diffusion head.
+    - q: "How would you get DAgger's benefit without an online expert?"
+      a: >-
+        Manufacture recovery data offline. During collection, perturb the robot
+        — nudge it off the nominal path, add noise to the commanded action —
+        and record the demonstrator's correction. You get labelled states off
+        the expert's natural distribution without anyone having to answer
+        questions about hypothetical states. It's not the same guarantee, but
+        it targets the same gap. In simulation the cleaner answer is a
+        privileged scripted expert, which makes labels free and puts you back
+        in the regime where real DAgger works.
+    - q: "When is DAgger clearly the right call?"
+      a: >-
+        Whenever the expert is code rather than a person. Distilling a
+        full-state RL policy or a motion planner into a vision policy, sim2real
+        pipelines for locomotion, anything where you can evaluate the expert at
+        an arbitrary state for the price of a function call. In that regime the
+        only real objection to DAgger disappears and it's straightforwardly the
+        right tool.
+  traps:
+    - "Saying DAgger 'eliminates distribution shift'. It moves the training distribution to meet the test distribution — the shift is still there, you've collected data on the other side of it."
+    - "Presenting it as the standard modern solution for real-robot imitation. It's the standard textbook solution; the online-expert requirement is why hardware systems mostly went elsewhere."
+    - "Claiming it also fixes multi-modal expert behaviour. Different failure, different fix — that's the action representation, not the data distribution."
+    - "Forgetting that the policy is retrained from scratch on the aggregate. Warm-starting is common in practice but it is not Follow-the-Leader, and the guarantee is what you're trading away."
+check:
+  - id: dagger_l5_c1
+    prompt: "You're distilling a privileged full-state RL policy in simulation into a vision-only student. What is the main advantage over collecting a fixed dataset of expert rollouts and cloning it?"
+    options:
+      - "The privileged policy trains faster than the student"
+      - "Labels at arbitrary states cost a function call, so you can train on the student's own state distribution and get the $O(\\epsilon T)$ regime instead of $O(\\epsilon T^2)$"
+      - "Vision policies cannot be trained by behaviour cloning"
+      - "It removes the need for domain randomisation"
+    answer: 1
+    explanation: "This is exactly the regime DAgger was designed for and where its prerequisite is free. Cloning a fixed set of expert rollouts leaves the student with no data wherever its perception errors take it; querying the expert at the student's states covers precisely that gap."
+  - id: dagger_l5_c2
+    prompt: "An interviewer asks how you'd get recovery behaviour into a real-robot dataset without a live expert. Which answer shows the best grasp?"
+    options:
+      - "Collect twice as many nominal demonstrations"
+      - "Perturb the robot during collection — inject action noise or physically nudge it off the nominal path — and record the demonstrator's corrections"
+      - "Increase the model capacity so it generalises to unseen states"
+      - "Add dropout during training to simulate off-distribution inputs"
+    answer: 1
+    explanation: "Perturbation buys off-distribution states with in-distribution labelling effort: the human never has to reason about a hypothetical, they just correct what's happening. It's the practical substitute for DAgger's oracle, and knowing it signals you've collected real robot data rather than only read about it."
 ---
 
-## Failure modes
+## Deciding whether to use it
 
-Expert availability: DAgger requires an on-call expert to label $\pi^*(a|s)$ at arbitrary states, which is expensive for real-robot tasks (human teleoperator must provide corrections in real-time). Expert inconsistency: human experts give noisy, inconsistent labels, especially for states far from the demonstration distribution. Symptoms: improvement plateaus or the policy oscillates between rounds. Fix: use HG-DAgger (human-gated) where the expert only intervenes when needed, or EnsembleDAgger which uses model uncertainty $\text{Var}_{\theta}[\pi_\theta(s)]$ to decide when to query.
+The interview question is almost never "what is DAgger" — it's whether you can
+tell, in a specific setting, if it applies.
 
-## Interview-ready answer
+<Steps>
+<Step title="Is the expert code or a person?">
+Code — a planner, a scripted controller, a privileged RL policy — means labels
+are a function call and DAgger is straightforwardly right. A person means
+labelling is the bottleneck and you should be arguing for something else.
+</Step>
 
-DAgger solves the fundamental covariate shift problem in BC by iteratively collecting expert corrections under the learner's own state distribution. The key theoretical result: it reduces the imitation gap from $\mathcal{O}(T^2 \epsilon)$ to $\mathcal{O}(T \epsilon)$. In practice, the bottleneck is expert availability — you need a human to provide corrections in real-time. Practical variants: HG-DAgger (human intervenes only when policy is about to fail), EnsembleDAgger (query based on epistemic uncertainty), and SafeDAgger (use a safety policy to prevent catastrophic states). For robotics, I typically run 3-5 DAgger rounds with 10-30 corrections each, which often doubles success rate over pure BC.
+<Step title="Can the expert answer at bad states?">
+Not "can it do the task well," but "can it say what to do from this half-failed
+configuration?" A motion planner can. A teleoperator generally cannot.
+</Step>
+
+<Step title="Is the failure actually covariate shift?">
+If the policy fails identically at one specific decision point where demos
+disagree, that's mode averaging and DAgger will not help — it will collect more
+contradictory labels. Check the symptom before prescribing.
+</Step>
+
+<Step title="If no queryable expert exists, name the substitute">
+Perturbation-and-correction during collection, action chunking to cut decision
+points, or an expressive action head. Naming the alternative is what separates
+a diagnosis from a recitation.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The highest-signal thing you can do on this question is volunteer the
+limitation before you're asked. Most candidates present DAgger as the answer to
+behaviour cloning. Saying "and here's why it's rare on real hardware, and
+here's what people do instead" is what reads as having actually chosen between
+them.
+</Warning>

@@ -1,28 +1,127 @@
 ---
 concept: imitation_learning
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Imitation Learning (Overview), including
-    the key equations.
+  prompt: "Write the imitation learning problem formally and contrast the objectives of behaviour cloning, distribution matching, and inverse RL."
   keyPoints:
-    - Learning a policy $\pi_\theta(a|s)$ from expert demonstrations
-      $\mathcal{D} = \{\tau_1, \ldots, \tau_N\}$ where $\tau_i = \{(s_0, a_0),
-      \ldots, (s_T, a_T)\}$.
-    - "Two main paradigms: (1) Behavioral cloning — supervised learning
-      minimizing $\\mathcal{L} = \\mathbb{E}_{(s,a) \\sim
-      \\mathcal{D}}[\\ell(\\pi_\\theta(s), a)]$, and (2) Inverse RL (IRL) —
-      recover a reward function $r_\\psi(s,a)$ such that $\\pi^*$ is optimal,
-      then optimize $\\pi_\\theta$ under $r_\\psi$."
-    - "IRL solves: $$\\max_\\psi \\left( \\mathbb{E}_{\\tau \\sim
-      \\pi^*}\\left[\\sum_t r_\\psi(s_t, a_t)\\right] - \\max_\\pi
-      \\mathbb{E}_{\\tau \\sim \\pi}\\left[\\sum_t r_\\psi(s_t, a_t)\\right]
-      \\right)$$ Modern methods also include GAIL, which matches state-action
-      distributions via adversarial training."
-check: []
-papers: []
+    - "Given $\\mathcal{D} = \\{\\tau_i\\}$ from $\\pi^*$, find $\\pi$ minimising some divergence to the expert. There is no reward in the problem statement."
+    - "Behaviour cloning minimises $\\mathbb{E}_{s \\sim d^{\\pi^*}}[D_{KL}(\\pi^*(\\cdot|s) \\,\\|\\, \\pi(\\cdot|s))]$ — a divergence over *actions*, on the expert's state distribution."
+    - "Distribution matching (GAIL and relatives) minimises a divergence between the *occupancy measures* $\\rho^\\pi$ and $\\rho^{\\pi^*}$ over state-action pairs, which is why it needs environment interaction."
+    - "Inverse RL recovers $r$ such that $\\pi^*$ is optimal for it — under-determined, since any constant or potential-shaped reward explains the same behaviour."
+check:
+  - id: il_l2_c1
+    prompt: "Behaviour cloning and GAIL both 'match the expert'. What is the key difference in *what* they match?"
+    options:
+      - "BC matches actions conditioned on states from the expert's distribution; GAIL matches the joint state-action occupancy measure induced by the policy"
+      - "BC matches rewards, GAIL matches actions"
+      - "BC uses KL divergence, GAIL uses Euclidean distance between trajectories"
+      - "They are equivalent under a Gaussian policy"
+    answer: 0
+    explanation: "The distinction explains the practical trade-off. Matching conditional actions is pure supervised learning — no environment needed, but nothing constrains the states the policy induces. Matching occupancy measures directly penalises visiting the wrong states, which fixes distribution shift, but you can only estimate $\\rho^\\pi$ by rolling out, so GAIL needs environment interaction and inherits RL's sample complexity."
+  - id: il_l2_c2
+    prompt: "Why is the inverse RL problem under-determined?"
+    options:
+      - "Because demonstrations are finite and noisy"
+      - "Because many distinct reward functions — including constant rewards and any potential-based shaping of a valid one — make the same policy optimal"
+      - "Because the transition dynamics are unknown"
+      - "Because the discount factor cannot be identified"
+    answer: 1
+    explanation: "A constant reward makes *every* policy optimal, so it trivially explains any demonstration. Potential-based shaping $r'(s,a,s') = r(s,a,s') + \\gamma\\Phi(s') - \\Phi(s)$ provably preserves the optimal policy for any $\\Phi$. Practical IRL therefore needs an extra principle to pick among explanations — maximum entropy is the standard one, selecting the reward under which the demonstrations are least surprising."
 ---
 
-## Formal definition
+## The problem statement
 
-Learning a policy $\pi_\theta(a|s)$ from expert demonstrations $\mathcal{D} = \{\tau_1, \ldots, \tau_N\}$ where $\tau_i = \{(s_0, a_0), \ldots, (s_T, a_T)\}$. Two main paradigms: (1) Behavioral cloning — supervised learning minimizing $\mathcal{L} = \mathbb{E}_{(s,a) \sim \mathcal{D}}[\ell(\pi_\theta(s), a)]$, and (2) Inverse RL (IRL) — recover a reward function $r_\psi(s,a)$ such that $\pi^*$ is optimal, then optimize $\pi_\theta$ under $r_\psi$. IRL solves: $$\max_\psi \left( \mathbb{E}_{\tau \sim \pi^*}\left[\sum_t r_\psi(s_t, a_t)\right] - \max_\pi \mathbb{E}_{\tau \sim \pi}\left[\sum_t r_\psi(s_t, a_t)\right] \right)$$ Modern methods also include GAIL, which matches state-action distributions via adversarial training.
+You are given demonstrations $\mathcal{D} = \{\tau_1, \ldots, \tau_N\}$, where
+each $\tau = (s_0, a_0, s_1, a_1, \ldots, s_T)$ was produced by an expert policy
+$\pi^*$. Find a policy $\pi$ that behaves like $\pi^*$.
+
+Note what is absent: no reward function appears anywhere. Every method below is
+a different answer to *"behaves like" in what sense?*
+
+## Three objectives
+
+<Steps>
+<Step title="Behaviour cloning — match actions, on the expert's states">
+
+$$
+\min_\theta \; \mathbb{E}_{s \sim d^{\pi^*}}
+\Big[ D_{\mathrm{KL}}\big(\pi^*(\cdot \mid s) \,\|\, \pi_\theta(\cdot \mid s)\big) \Big]
+$$
+
+The expectation is over $d^{\pi^*}$, the expert's state distribution — which is
+the only distribution you have samples from. That is both why it reduces to
+supervised learning and why it says nothing about states the learner reaches.
+</Step>
+
+<Step title="Distribution matching — match state-action occupancy">
+
+Define the occupancy measure $\rho^\pi(s,a) = (1-\gamma)\sum_t \gamma^t
+P(s_t = s, a_t = a \mid \pi)$: how often the policy visits each state-action
+pair. Then
+
+$$
+\min_\theta \; D\big(\rho^{\pi_\theta} \,\|\, \rho^{\pi^*}\big)
+$$
+
+for some divergence $D$. GAIL takes $D$ to be a Jensen-Shannon divergence
+estimated by a discriminator, which turns imitation into a GAN. Because
+$\rho^{\pi_\theta}$ can only be estimated by rolling out $\pi_\theta$, this
+family requires environment interaction.
+</Step>
+
+<Step title="Inverse RL — recover the reward">
+
+Find $r$ such that
+
+$$
+\pi^* \in \arg\max_\pi \; \mathbb{E}_\pi\Big[\textstyle\sum_t \gamma^t\, r(s_t, a_t)\Big]
+$$
+
+then run ordinary RL on the recovered $r$. A reward is a far more compact and
+transferable description of intent than a set of trajectories — which is the
+appeal, and why it can generalise to new dynamics or new initial states.
+</Step>
+</Steps>
+
+<KeyIdea>
+Reading the three side by side: cloning conditions on the expert's states and
+matches actions; distribution matching abandons conditioning and matches the
+joint. That is precisely the move that fixes covariate shift — and precisely why
+it costs environment interaction.
+</KeyIdea>
+
+## Why inverse RL is ill-posed
+
+<Derivation title="Two rewards that explain any demonstration">
+
+**Constant reward.** Let $r(s,a) = c$. Every policy achieves identical return,
+so every policy is optimal, so $\pi^*$ is optimal. Any demonstration whatsoever
+is explained.
+
+**Potential-based shaping.** For any $\Phi: \mathcal{S} \to \mathbb{R}$, define
+
+$$
+r'(s,a,s') \;=\; r(s,a,s') \;+\; \gamma\,\Phi(s') \;-\; \Phi(s)
+$$
+
+Along any trajectory the added terms telescope, changing every policy's return
+by the same constant $-\Phi(s_0)$. So $r'$ and $r$ have exactly the same optimal
+policies, for every $\Phi$ — an infinite family of rewards producing identical
+behaviour.
+
+</Derivation>
+
+The fix is to add a selection principle. **Maximum-entropy IRL** picks the reward
+under which the demonstrations have highest likelihood while the induced policy
+is as high-entropy as possible — formally, model the expert as
+$p(\tau) \propto \exp\big(\sum_t r(s_t,a_t)\big)$ and fit $r$ by maximum
+likelihood. That resolves the ambiguity by preferring explanations that don't
+assume the expert was more deliberate than the data supports.
+
+<Warning>
+"Imitation learning" and "behaviour cloning" are not synonyms, and using them
+interchangeably is a cheap tell. Cloning is one algorithm inside a family that
+also contains DAgger, GAIL, and the whole IRL literature — each defined by a
+different notion of what it means to match the expert.
+</Warning>

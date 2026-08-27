@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 300" role="img"
+     aria-labelledby="t d" font-family="system-ui, -apple-system, sans-serif">
+  <title id="t">Mode averaging versus a multi-modal policy</title>
+  <desc id="d">When the expert sometimes goes left and sometimes right, a
+    regression policy predicts the average — straight into the obstacle. A
+    multi-modal policy keeps both options and commits to one.</desc>
+
+  <!-- LEFT: MSE regression -->
+  <text x="150" y="30" fill="#f85149" font-size="13" font-weight="600" text-anchor="middle">MSE regression</text>
+  <text x="150" y="48" fill="#8b949e" font-size="11.5" text-anchor="middle">fits E[a | o]</text>
+
+  <rect x="128" y="150" width="44" height="44" rx="6" fill="#30363d" stroke="#484f58"/>
+  <text x="150" y="215" fill="#8b949e" font-size="11.5" text-anchor="middle">obstacle</text>
+
+  <g stroke="#3fb950" stroke-width="2" fill="none" stroke-dasharray="5 4" opacity="0.55">
+    <path d="M 150 268 C 150 230, 92 210, 78 172"/>
+    <path d="M 150 268 C 150 230, 208 210, 222 172"/>
+  </g>
+  <text x="52" y="160" fill="#3fb950" font-size="11.5">left</text>
+  <text x="228" y="160" fill="#3fb950" font-size="11.5">right</text>
+
+  <path d="M 150 268 L 150 200" stroke="#f85149" stroke-width="3"
+        marker-end="url(#a2)" fill="none"/>
+  <defs>
+    <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6"
+            orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#f85149"/></marker>
+    <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6"
+            orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#3fb950"/></marker>
+  </defs>
+  <text x="150" y="288" fill="#f85149" font-size="12" text-anchor="middle">predicted: straight ahead</text>
+
+  <line x1="320" y1="24" x2="320" y2="280" stroke="#30363d" stroke-width="1"/>
+
+  <!-- RIGHT: multi-modal -->
+  <text x="490" y="30" fill="#3fb950" font-size="13" font-weight="600" text-anchor="middle">Diffusion / discretised</text>
+  <text x="490" y="48" fill="#8b949e" font-size="11.5" text-anchor="middle">samples from p(a | o)</text>
+
+  <rect x="468" y="150" width="44" height="44" rx="6" fill="#30363d" stroke="#484f58"/>
+  <text x="490" y="215" fill="#8b949e" font-size="11.5" text-anchor="middle">obstacle</text>
+
+  <path d="M 490 268 C 490 230, 432 210, 418 172" stroke="#3fb950" stroke-width="3"
+        fill="none" marker-end="url(#a3)"/>
+  <path d="M 490 268 C 490 230, 548 210, 562 172" stroke="#3fb950" stroke-width="2"
+        fill="none" stroke-dasharray="5 4" opacity="0.5"/>
+  <text x="392" y="160" fill="#3fb950" font-size="11.5">left</text>
+  <text x="568" y="160" fill="#8b949e" font-size="11.5">right</text>
+  <text x="490" y="288" fill="#3fb950" font-size="12" text-anchor="middle">commits to one mode</text>
+</svg>

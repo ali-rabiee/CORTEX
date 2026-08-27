@@ -108,6 +108,37 @@ for (const domain of fs.readdirSync(conceptsRoot)) {
       if (fm.level === 4 && fm.papers.length === 0) {
         warn(`${domain}/${conceptDir}/${file}: L4 frontier with no papers`);
       }
+
+      // ---- the `final` quality bar ----
+      //
+      // "final" has to mean something, or it drifts back to being a restated
+      // flashcard. These are the properties that separate the authored pages
+      // from the auto-migrated seeds.
+      if (fm.status === "final") {
+        const body = raw.slice(match[0].length);
+        const where = `${domain}/${conceptDir}/${file}`;
+
+        if (fm.check.length < 2) {
+          warn(`${where}: final needs ≥2 check questions (has ${fm.check.length})`);
+        }
+        if (fm.level === 1) {
+          if (fm.media.length === 0) {
+            warn(`${where}: final L1 has no media — add a video or lecture link`);
+          }
+          if (!/<Steps>/.test(body) && !/<Figure\b/.test(body)) {
+            warn(`${where}: final L1 has neither <Steps> nor <Figure> — it should show, not just tell`);
+          }
+        }
+        if (fm.level === 5 && !fm.interview) {
+          fail(`${where}: final L5 must have an \`interview\` block`);
+        }
+        if (fm.media.length > 0 && !/<WatchThis\s*\/>/.test(body)) {
+          warn(`${where}: declares media but never renders <WatchThis />`);
+        }
+        if (fm.interview && !/<InterviewAnswer\s*\/>/.test(body)) {
+          warn(`${where}: declares interview but never renders <InterviewAnswer />`);
+        }
+      }
       levels.set(fm.level, fm);
     }
 
@@ -199,8 +230,26 @@ if (orphans.length > 0) {
 
 // ---------- report ----------
 
+// ---------- authoring progress ----------
+
+let completeConcepts = 0;
+let finalFiles = 0;
+let totalFiles = 0;
+for (const levels of levelsByConcept.values()) {
+  const statuses = [...levels.values()].map((l) => l.status);
+  totalFiles += statuses.length;
+  finalFiles += statuses.filter((s) => s === "final").length;
+  if (statuses.length === 5 && statuses.every((s) => s === "final")) {
+    completeConcepts += 1;
+  }
+}
+
 console.log(
   `Validated ${concepts.size} concepts, ${questionCount} quiz questions, ${worlds.length} worlds, ${chapters.length} chapters.`,
+);
+console.log(
+  `Authoring: ${completeConcepts}/${concepts.size} concepts complete (all 5 parts final) · ` +
+    `${finalFiles}/${totalFiles} level files final.`,
 );
 for (const w of warnings) console.warn(`  warn: ${w}`);
 if (errors.length > 0) {

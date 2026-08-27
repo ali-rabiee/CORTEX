@@ -1,26 +1,121 @@
 ---
 concept: dagger
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain DAgger (Dataset Aggregation) in plain language: what is it, and
-    why does it matter?"
+  prompt: "Explain DAgger in plain language. What problem does it solve, and what does it cost?"
   keyPoints:
-    - A student driver first watches an instructor, then drives themselves while
-      the instructor sits in the passenger seat calling out what they would do
-      at each moment.
-    - After each drive, the student studies both the original demonstrations and
-      the instructor's corrections from the student's own mistakes.
-    - Over rounds, the student sees corrections for exactly the situations they
-      tend to get into.
-check: []
-papers: []
+    - "Behaviour cloning trains on the expert's states but is tested on its own states. DAgger closes that gap by training on the states the *learner* actually visits."
+    - "Loop: run the current policy, have the expert label every state it reached, add those labels to the dataset, retrain, repeat."
+    - "It needs an expert available online who can answer 'what would you do here?' at any state — including states that are already going wrong. That requirement is why it's rarer on real robots than in textbooks."
+media:
+  - kind: lecture
+    title: "CS 285 Lecture 2: Imitation Learning, Part 1"
+    url: https://www.youtube.com/watch?v=tbLaFtYpWWU
+    source: "UC Berkeley CS285 · Sergey Levine"
+    minutes: 17
+    note: "Derives the distribution-shift argument and then motivates DAgger as the direct fix. Watch after you're solid on behaviour cloning."
+  - kind: article
+    title: "A Reduction of Imitation Learning to No-Regret Online Learning"
+    url: https://arxiv.org/abs/1011.0686
+    source: "Ross, Gordon & Bagnell, AISTATS 2011"
+    note: "The original. Section 3 has the theorem; the rest is readable in an hour and is the standard citation when anyone asks why cloning drifts."
+check:
+  - id: dagger_l1_c1
+    prompt: "What exactly does DAgger change relative to plain behaviour cloning?"
+    options:
+      - "The loss function — it replaces MSE with a distribution-matching objective"
+      - "The policy architecture — it adds recurrence so the policy remembers past states"
+      - "The training distribution — it adds expert labels for the states the learner itself visits, rather than only states the expert visited"
+      - "The optimiser — it uses online rather than batch gradient descent"
+    answer: 2
+    explanation: "The loss, the architecture and the optimiser are all unchanged. DAgger is purely a statement about *where your training data comes from*. That is what makes it a fix for covariate shift specifically, and what makes it useless against mode averaging."
+  - id: dagger_l1_c2
+    prompt: "Why is DAgger often impractical on a real robot with a human demonstrator?"
+    options:
+      - "Aggregating datasets requires more memory than a robot has"
+      - "The expert must answer 'what would you do from here?' at arbitrary states the policy wandered into, including ones already going wrong — which is slow, awkward, and sometimes impossible to answer honestly"
+      - "It only works for discrete action spaces"
+      - "The theory requires infinitely many iterations to converge"
+    answer: 1
+    explanation: "Labelling is the bottleneck. A human teleoperator can demonstrate a task fluently but cannot easily say what the correct joint velocities would be from a half-dropped grasp they'd never get into. In simulation with a scripted or privileged expert this cost vanishes, which is why DAgger is common in sim and rare on hardware."
 ---
 
-## Intuition
+## The problem it exists to solve
 
-A student driver first watches an instructor, then drives themselves while the instructor sits in the passenger seat calling out what they would do at each moment. After each drive, the student studies both the original demonstrations and the instructor's corrections from the student's own mistakes. Over rounds, the student sees corrections for exactly the situations they tend to get into.
+Behaviour cloning trains on states the **expert** visited and is then tested on
+states the **learner** visits. Those are different distributions, and the gap
+grows every time the policy makes a mistake.
 
-## In practice
+DAgger's answer is almost aggressively simple: *if the problem is that you have
+no data where the learner goes, then go there and get some.*
 
-Robot learning a peg insertion task: BC on 50 demos gives 45% success. DAgger round 1: run the BC policy, expert labels corrections at 30 failure states → retrain on 80 total examples → 65% success. Round 2: 20 more corrections → 85% success. Round 3: 10 corrections → 93% success. Key practical detail: use a mixing policy $\pi_i = \beta_i \pi^* + (1-\beta_i) \hat{\pi}_i$ with $\beta_i \rightarrow 0$ to ensure initial data collection is safe.
+<Intuition>
+A driving instructor doesn't only sit in the passenger seat admiring their own
+driving. They let you drive, watch where you drift, and tell you what they would
+have done at the exact moments you got it wrong.
+
+Behaviour cloning is watching the instructor drive. DAgger is driving while the
+instructor narrates.
+</Intuition>
+
+## The loop
+
+<Figure src="/figures/dagger-loop.svg"
+        alt="A four-stage cycle: train the policy on the dataset, roll it out, have the expert label the visited states, aggregate into the dataset, and repeat."
+        caption="Each pass adds labels exactly where the current policy is weakest — because that is where it actually went." />
+
+<Steps>
+<Step title="Train the policy on everything you have">
+Start with ordinary behaviour cloning on the expert's demonstrations. The first
+iteration of DAgger *is* behaviour cloning.
+</Step>
+
+<Step title="Let the policy drive">
+Roll it out on the real task. It will drift into states the expert never
+visited — that is the point, not a failure. Record every state it reaches.
+</Step>
+
+<Step title="Ask the expert what they would have done">
+For each recorded state, the expert supplies the correct action. Crucially they
+label the state, they don't take over — the trajectory is still the learner's.
+</Step>
+
+<Step title="Aggregate and retrain">
+Append the new labelled states to the dataset and retrain from scratch on the
+union. Repeat. Each round the training distribution moves closer to the
+distribution the policy actually induces.
+</Step>
+</Steps>
+
+<KeyIdea>
+The word "aggregate" is the whole algorithm. You never throw the old data away —
+you keep widening the dataset until it covers where the policy goes. That's what
+drives regret from $O(\epsilon T^2)$ down to $O(\epsilon T)$: the horizon still
+costs you, but each mistake no longer poisons every step after it.
+</KeyIdea>
+
+## The catch, stated honestly
+
+DAgger needs an expert you can query **online**, at any state, on demand. Read
+that requirement again with a real robot in mind:
+
+- The policy fumbles a grasp and the object is half-tipped. What is the correct
+  joint velocity command *right now*? A human teleoperator has never been in that
+  state and has no fluent answer.
+- Labelling is per-timestep. A 30-second episode at 20 Hz is 600 states to label.
+- Early iterations produce policies bad enough that rollouts are unsafe.
+
+<Warning>
+In simulation with a scripted or privileged expert — one that can see the full
+state — none of these costs apply, and DAgger is excellent. On hardware with a
+human, the labelling cost is usually what kills it. Knowing which regime you're
+in is the difference between citing DAgger and actually using it.
+</Warning>
+
+This is why modern real-robot systems mostly went the other way: keep the fixed
+offline dataset, and attack the problem with action chunking and better action
+distributions instead. DAgger remains the cleanest *explanation* of the problem,
+and the right answer whenever cheap online labels exist.
+
+<WatchThis />

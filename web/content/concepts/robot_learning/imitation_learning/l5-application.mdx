@@ -1,24 +1,144 @@
 ---
 concept: imitation_learning
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Imitation Learning (Overview) fail in practice, and how would
-    you present it in an interview?
+  prompt: "Give your interview answer on imitation learning: what it is, the families, and how you choose between them."
   keyPoints:
-    - "BC: covariate shift with $\\mathcal{O}(T^2)$ compounding errors."
-    - "IRL: reward ambiguity — many reward functions $r_\\psi$ explain the same
-      demonstrations, making the problem ill-posed without strong priors."
-    - "GAIL: requires online environment interaction and is sample-inefficient
-      ($10^5$-$10^7$ steps)."
-check: []
-papers: []
+    - "Define by the supervision signal: examples of good behaviour rather than a scalar score. That is why it dominates real-robot work."
+    - "Families: copy actions (BC, DAgger), match occupancy (GAIL), infer reward (IRL), or treat demos as a dataset (offline RL)."
+    - "Choose by what you *have*: simulator? queryable expert? reward labels? mixed-quality data? The constraint set usually decides before quality does."
+    - "State the structural limits: cannot exceed the demonstrator, and has no data where the demonstrator never went."
+interview:
+  answer: >-
+    Imitation learning is learning a policy from demonstrations rather than from
+    a reward signal. That difference in supervision is the whole reason it
+    dominates real-robot work — reward design is fiddly and exploration on
+    hardware is slow and sometimes destructive, so showing the robot the task is
+    usually cheaper than specifying it. There are three broad families and they
+    differ in what you copy. Behaviour cloning copies the actions directly,
+    which makes it plain supervised learning; its weakness is that it trains on
+    the expert's state distribution and gets tested on its own, so errors
+    compound. DAgger fixes exactly that by having the expert label the states
+    the learner actually visits, at the cost of needing an expert you can query
+    online. Distribution-matching methods like GAIL match the state-action
+    occupancy measure instead of conditional actions, which addresses the same
+    problem without an expert oracle, but you can only estimate the policy's
+    occupancy by rolling out, so you pay RL's sample complexity. And inverse RL
+    recovers the reward that explains the demonstrations, which is the most
+    transferable representation of intent but is under-determined — a constant
+    reward explains any behaviour — so you need something like a maximum-entropy
+    principle to pick among explanations. In practice I'd choose by what I
+    actually have rather than by which is nicest: no simulator rules out
+    anything needing rollouts, no queryable expert rules out DAgger, and reward
+    labels or mixed-quality data open up offline RL, which unlike cloning can
+    beat the average demonstration. The two limits worth stating up front are
+    that imitation can't exceed the demonstrator, and it has no data for
+    recovery because good experts never need to recover.
+  followUps:
+    - q: "When would you pick inverse RL over behaviour cloning?"
+      a: >-
+        When I need the intent to transfer, not just the trajectories. A reward
+        function is a much more compact description of the task and stays valid
+        under changed dynamics or new initial states, where a cloned policy
+        would have to be recollected. So: new embodiment, changed environment,
+        or a need to exceed the demonstrator. The costs are real though — the
+        problem is under-determined, and most formulations have an RL loop
+        inside every outer iteration, so it's expensive and finicky. For a
+        fixed task on fixed hardware, cloning is almost always the better trade.
+    - q: "How does offline RL differ from behaviour cloning on the same data?"
+      a: >-
+        Cloning imitates the average behaviour in the dataset. Offline RL uses
+        reward labels to evaluate actions, which lets it stitch together good
+        segments from different trajectories and exceed any single
+        demonstration. That's a genuine capability gap. The price is
+        distributional: value estimates for actions the dataset never contains
+        are extrapolations and tend to be wildly optimistic, so every practical
+        offline RL method adds some conservatism — constraining the policy to
+        the data or penalising out-of-distribution values. With uniformly
+        expert demonstrations and no failures, cloning is often the better
+        choice; the more mixed the data quality, the more offline RL wins.
+    - q: "Your cloned policy matches the expert on validation but fails on the robot. Walk me through it."
+      a: >-
+        First I'd check the split was per-episode, not per-timestep —
+        consecutive frames are nearly identical, so a random timestep split
+        leaks near-duplicates and makes validation loss meaningless. If the
+        split is clean, then low action error with task failure is the
+        signature of distribution shift: I'm measuring accuracy on the expert's
+        states and the policy is failing on its own. Then I'd look at how it
+        fails. Growing drift over the episode is compounding error, and I'd
+        reach for chunking or recovery data. A repeatable failure at one
+        specific point where demonstrations disagree is mode averaging, and I'd
+        reach for a diffusion or discretised action head instead.
+    - q: "If you had to double a policy's success rate, would you change the algorithm or the data?"
+      a: >-
+        Data, in almost every case I've seen. The consistent finding from Bridge
+        Data onward is that broader, more diverse demonstrations move
+        generalisation far more than swapping objectives on a narrow dataset.
+        The exception is when there's a specific diagnosed failure the algorithm
+        genuinely can't represent — obvious mode averaging is the clearest one,
+        where no amount of extra data fixes an architecture that can only output
+        a conditional mean.
+  traps:
+    - "Using 'imitation learning' and 'behaviour cloning' interchangeably. Cloning is one algorithm in a family that also includes DAgger, GAIL, and IRL."
+    - "Claiming DAgger or GAIL can exceed the expert. Neither does — they match the expert's distribution more faithfully. Exceeding it needs a reward, which means IRL or RL fine-tuning."
+    - "Recommending GAIL without mentioning that estimating the policy's occupancy measure requires environment rollouts — usually the scarcest resource on hardware."
+    - "Treating inverse RL as well-posed. Constant rewards and potential-based shaping explain any demonstration; you need a selection principle like maximum entropy."
+check:
+  - id: il_l5_c1
+    prompt: "A team has 500 mixed-quality demonstrations — some successful, some failed — with success labels. They're currently cloning only the successes. What is the strongest suggestion?"
+    options:
+      - "Collect 500 more successful demonstrations"
+      - "Use the failures too via offline RL: with reward labels it can stitch good segments across trajectories and learn what to avoid, both of which cloning structurally cannot do"
+      - "Switch to GAIL to match the expert distribution"
+      - "Increase model capacity to fit all 500"
+    answer: 1
+    explanation: "Discarding the failures throws away the only signal about what *not* to do. Offline RL turns mixed-quality data into an advantage rather than a nuisance. GAIL is the wrong recommendation here — no simulator is mentioned, and it needs rollouts."
+  - id: il_l5_c2
+    prompt: "Which statement about imitation learning's limits is correct?"
+    options:
+      - "With enough demonstrations, behaviour cloning converges to optimal behaviour"
+      - "No imitation method can exceed the demonstrator without some additional signal about what 'better' means — a reward, a preference, or an objective"
+      - "DAgger exceeds the expert because it trains on harder states"
+      - "Imitation learning cannot handle continuous action spaces"
+    answer: 1
+    explanation: "This is structural, not a matter of scale. Cloning converges to the demonstrator, not to optimal. DAgger matches the expert's distribution better — still matching. Beating the expert requires a notion of quality independent of the demonstrations, which is what IRL recovers or RL fine-tuning supplies."
 ---
 
-## Failure modes
+## The triage question
 
-BC: covariate shift with $\mathcal{O}(T^2)$ compounding errors. IRL: reward ambiguity — many reward functions $r_\psi$ explain the same demonstrations, making the problem ill-posed without strong priors. GAIL: requires online environment interaction and is sample-inefficient ($10^5$-$10^7$ steps). Multi-modal demonstrations: when experts use different strategies for the same state, unimodal BC (MSE loss) averages modes, producing an action that corresponds to no valid strategy. Fix: use mixture density networks, diffusion policies, or CVAE-based architectures to capture multi-modality.
+Most interview questions here are disguised resource questions. Establish what
+exists before recommending anything:
 
-## Interview-ready answer
+<Steps>
+<Step title="What data do you have, and is it uniformly good?">
+Uniformly expert → cloning. Mixed quality with rewards or success labels →
+offline RL, which turns the failures into signal instead of discarding them.
+</Step>
 
-Imitation learning is the family of methods for learning from demonstrations. BC is the simplest — minimize $\|\pi_\theta(s) - a^*\|^2$ — but suffers $\mathcal{O}(T^2)$ compounding errors. DAgger fixes this by iteratively collecting expert corrections, reducing error to $\mathcal{O}(T)$. IRL recovers a transferable reward function but is computationally expensive and ill-posed. GAIL matches occupancy measures via adversarial training: $\min_\pi \max_D \mathbb{E}_{\pi}[\log D(s,a)] + \mathbb{E}_{\pi^*}[\log(1-D(s,a))]$. In modern robotics, the dominant approach is BC with expressive policy architectures (diffusion policies, transformers with action chunking) that handle multi-modality and long horizons, often outperforming IRL/GAIL with orders of magnitude less compute.
+<Step title="Can you interact with the environment?">
+No → GAIL and most IRL are unavailable regardless of their merits. Say so
+explicitly; it is the constraint that decides.
+</Step>
+
+<Step title="Is the expert code or a person?">
+Code → DAgger and privileged distillation are cheap and probably right. A person
+→ labelling dominates, and you want chunking, expressive action heads, or
+perturbation-and-correction collection.
+</Step>
+
+<Step title="Do you need to beat the demonstrator?">
+If yes, no pure imitation method suffices. Say that plainly, then propose
+imitation for initialisation followed by RL fine-tuning.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The most common way this question goes wrong is answering "imitation learning"
+with a description of behaviour cloning and stopping. Naming the families,
+saying what each one matches, and then choosing on available resources is a
+much stronger shape — and it sets up every follow-up they were going to ask
+anyway.
+</Warning>

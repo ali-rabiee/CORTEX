@@ -1,25 +1,116 @@
 ---
 concept: imitation_learning
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Imitation Learning (Overview) in plain language: what is it,
-    and why does it matter?"
+  prompt: "What is imitation learning, and what are its main families?"
   keyPoints:
-    - "Two ways to learn from watching a chef: (1) mimic their exact hand
-      movements at each step (behavior cloning), or (2) figure out what they're
-      optimizing for — flavor, presentation, efficiency — and then optimize for
-      that yourself (inverse RL)."
-    - The first is simpler but brittle; the second transfers better because you
-      understand the 'why' behind the actions.
-check: []
-papers: []
+    - "Learning a policy from demonstrations instead of from a reward signal — you are given examples of good behaviour, not a score."
+    - "Three families: copy the actions (behaviour cloning, DAgger), infer the reward that explains the behaviour (inverse RL), or treat demos as a fixed dataset for RL (offline RL)."
+    - "It exists because reward design is hard and exploration is expensive or dangerous — showing a robot the task is often far cheaper than specifying it."
+media:
+  - kind: lecture
+    title: "CS 285 Lecture 2: Imitation Learning, Part 1"
+    url: https://www.youtube.com/watch?v=tbLaFtYpWWU
+    source: "UC Berkeley CS285 · Sergey Levine"
+    minutes: 17
+    note: "Sets up the whole area: what imitation buys you, why naive cloning drifts, and where the alternatives come in."
+  - kind: article
+    title: "ALOHA — bimanual manipulation from 50 demonstrations"
+    url: https://tonyzhaozh.github.io/aloha/
+    source: "Zhao et al., Stanford"
+    note: "Watch the videos before reading any theory. It calibrates what imitation can do on real hardware in 2026, which the older literature will not."
+check:
+  - id: il_l1_c1
+    prompt: "What most fundamentally distinguishes imitation learning from reinforcement learning?"
+    options:
+      - "Imitation learning uses neural networks and RL uses tabular methods"
+      - "The supervision signal: imitation is given examples of good behaviour, RL is given a scalar score and must discover good behaviour itself"
+      - "Imitation learning only works for continuous actions"
+      - "RL requires a simulator and imitation does not"
+    answer: 1
+    explanation: "Everything else follows from this. Because imitation is handed the answers, it needs no exploration and no reward engineering — which is exactly why it dominates real-robot work. And because it is only ever shown good behaviour, it has no mechanism to exceed the demonstrator or to recover from states the demonstrator avoided."
+  - id: il_l1_c2
+    prompt: "Your task is one where a human demonstrator is far slower and clumsier than the robot could theoretically be. What does that imply?"
+    options:
+      - "Use behaviour cloning with more demonstrations"
+      - "Imitation alone caps you at demonstrator performance — you need a reward signal to exceed it, e.g. imitation for initialisation then RL fine-tuning"
+      - "Use DAgger, which surpasses the expert"
+      - "Discretise the action space"
+    answer: 1
+    explanation: "No imitation method exceeds its demonstrations — that is a structural property, not a tuning problem. DAgger matches the expert's distribution better; it does not beat the expert. Exceeding the demonstrator requires some notion of what 'better' means, which means a reward. The standard pattern is imitation to get a competent starting policy, then RL to improve it."
 ---
 
-## Intuition
+## What it is
 
-Two ways to learn from watching a chef: (1) mimic their exact hand movements at each step (behavior cloning), or (2) figure out what they're optimizing for — flavor, presentation, efficiency — and then optimize for that yourself (inverse RL). The first is simpler but brittle; the second transfers better because you understand the 'why' behind the actions.
+Reinforcement learning hands you a score and asks you to discover good behaviour.
+Imitation learning hands you **examples of good behaviour** and asks you to
+reproduce it.
 
-## In practice
+That swap is why imitation dominates real-robot work. Reward engineering is
+notoriously fiddly, and exploration on hardware is slow, expensive, and
+occasionally destructive. Showing a robot what you want is usually easier than
+writing down what you want.
 
-Comparison on a contact-rich peg-in-hole task with 100 human demonstrations: BC achieves 60% success, DAgger reaches 90% with 3 rounds of corrections, GAIL reaches 80% but needs $10^6$ environment steps for the RL inner loop, IRL (MaxEntIRL) recovers a reward that enables 85% success and generalizes to new peg shapes unseen in demos. In practice, BC + action chunking often matches or beats IRL/GAIL with far less compute, which is why diffusion-policy-style BC has become dominant.
+<Intuition>
+Two ways to teach someone to make an omelette. Give them a scoring rubric and
+let them cook a thousand omelettes, telling them only the score each time. Or
+cook a few in front of them.
+
+The second is imitation learning. It's faster, it needs no rubric — and the
+learner will never get better than you.
+</Intuition>
+
+## The three families
+
+They differ in *what* you copy from the demonstrations.
+
+<Steps>
+<Step title="Copy the actions — behaviour cloning and DAgger">
+Treat demonstrations as labelled data and fit a policy directly. Simple,
+supervised, and by far the most used. Its weakness is distribution shift: the
+policy is trained on the expert's states and tested on its own.
+</Step>
+
+<Step title="Infer the intent — inverse reinforcement learning">
+Assume the demonstrations are near-optimal for some unknown reward, recover that
+reward, then run RL on it. This *can* exceed the demonstrator and transfers to
+new situations, because a reward generalises further than a set of trajectories.
+The price is a hard, under-determined inference problem — many rewards explain
+the same behaviour — plus an RL loop inside every iteration.
+</Step>
+
+<Step title="Treat demos as a dataset — offline RL">
+If your demonstrations carry rewards, or you have failures as well as successes,
+you can run RL entirely on the fixed dataset. Unlike cloning, this can be better
+than the average demonstration by stitching together good segments from
+different trajectories.
+</Step>
+</Steps>
+
+<KeyIdea>
+Choosing between them is really a question about what you have. Only good demos
+and no reward → cloning. Demos plus a queryable expert → DAgger. Demos with
+rewards, or mixed-quality data → offline RL. Need to exceed the demonstrator and
+can afford the machinery → inverse RL, or imitation as initialisation followed
+by RL.
+</KeyIdea>
+
+## What imitation cannot do
+
+Two limits are structural and worth stating before an interviewer draws them out:
+
+<Warning>
+**It cannot exceed the demonstrator.** Cloning has no notion of "better" — only
+"same." If your human teleoperator is clumsy, your policy is clumsy.
+
+**It has no data where the demonstrator never went.** Good experts don't make
+mistakes, so they never demonstrate recovery — which is precisely the behaviour a
+deployed policy most needs.
+</Warning>
+
+Both are why the field keeps returning to the same two moves: get data from
+somewhere other than a flawless expert (DAgger, perturbation, offline RL on mixed
+data), or add a reward once imitation has given you a competent starting point.
+
+<WatchThis />

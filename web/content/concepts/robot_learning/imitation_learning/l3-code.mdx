@@ -1,0 +1,111 @@
+---
+concept: imitation_learning
+level: 3
+status: final
+recall:
+  prompt: "How do behaviour cloning, DAgger, and GAIL differ in code? What does each loop need access to?"
+  keyPoints:
+    - "BC: a fixed dataset and a training loop. No environment, no expert at run time."
+    - "DAgger: adds an environment (to roll out) and a queryable expert function (to label). Same trainer inside."
+    - "GAIL: adds an environment plus an RL optimiser and a discriminator; the discriminator's output becomes the reward. No expert queries, but you pay RL's sample complexity."
+check:
+  - id: il_l3_c1
+    prompt: "Which resource does GAIL require that behaviour cloning does not?"
+    options:
+      - "A queryable expert that can label arbitrary states"
+      - "Environment interaction, because the policy's occupancy measure can only be estimated by rolling out"
+      - "A reward function supplied by the task designer"
+      - "Demonstrations with per-step rewards attached"
+    answer: 1
+    explanation: "GAIL needs no expert queries and no hand-designed reward — the discriminator manufactures the reward. What it cannot avoid is rollouts: the objective is a divergence between occupancy measures, and you can only sample the policy's occupancy by running it. That is why GAIL is common in simulation and rare on hardware."
+  - id: il_l3_c2
+    prompt: "You have 200 demonstrations, no simulator, and no way to query the expert again. Which methods are actually available?"
+    options:
+      - "All of them — the choice is about accuracy, not availability"
+      - "Behaviour cloning, and offline RL if the demos carry rewards. DAgger needs a queryable expert and GAIL needs rollouts, so both are ruled out"
+      - "Only inverse RL, since it works from trajectories alone"
+      - "DAgger, using the demonstrations themselves as the expert"
+    answer: 1
+    explanation: "This is the practical triage. No environment eliminates everything requiring rollouts — GAIL and the RL step of most IRL methods. No queryable expert eliminates DAgger. What survives is what runs on a fixed dataset: cloning, and offline RL if you have reward labels. Recognising the constraint set before discussing algorithms is the point."
+---
+
+## The same trainer, three different loops
+
+All three share an inner supervised or RL update. What differs is what each loop
+is allowed to touch.
+
+<CodeWalk title="The three families, side by side">
+
+```python title="families.py"
+# --- 1. Behaviour cloning: a dataset and nothing else -------------------
+def behaviour_cloning(policy, dataset, train):
+    return train(policy, dataset)          # no env, no expert. That's it.
+
+
+# --- 2. DAgger: + environment, + queryable expert -----------------------
+def dagger(policy, env, expert, train, iterations=10):
+    dataset = []
+    for i in range(iterations):
+        obs, done = env.reset(), False
+        while not done:
+            dataset.append((obs, expert(env.state)))   # <- needs the expert
+            obs, _, done, _ = env.step(policy.act(obs))
+        policy = train(fresh_policy(), dataset)
+    return policy
+
+
+# --- 3. GAIL: + environment, + RL, + discriminator ----------------------
+def gail(policy, env, expert_data, rl_update, disc, disc_opt, iterations=1000):
+    for _ in range(iterations):
+        rollout = collect(policy, env)                  # <- needs rollouts
+
+        # Discriminator learns to tell learner from expert...
+        loss = bce(disc(rollout), 0) + bce(disc(expert_data), 1)
+        disc_opt.zero_grad(); loss.backward(); disc_opt.step()
+
+        # ...and its confusion becomes the policy's reward.
+        rewards = -torch.log(1 - disc(rollout) + 1e-8)
+        policy = rl_update(policy, rollout, rewards)    # <- needs an RL loop
+    return policy
+```
+
+</CodeWalk>
+
+<KeyIdea>
+Read the function signatures, not the bodies. `behaviour_cloning(dataset)`,
+`dagger(env, expert)`, `gail(env, rl)`. The arguments *are* the trade-off — each
+extra parameter is a resource you must actually possess.
+</KeyIdea>
+
+## Triage in practice
+
+Before arguing about which method is better, establish which are even available:
+
+<Steps>
+<Step title="Do you have a simulator or safe rollouts?">
+No → everything requiring environment interaction is out. That removes GAIL and
+the RL step inside most IRL methods, leaving cloning and offline RL.
+</Step>
+
+<Step title="Can you query the expert at arbitrary states?">
+No → DAgger is out. Yes, and it's code rather than a person → DAgger is probably
+your best option.
+</Step>
+
+<Step title="Do your demonstrations carry rewards, or include failures?">
+Yes → offline RL becomes available, and unlike cloning it can beat the average
+demonstration by stitching good segments together.
+</Step>
+
+<Step title="Only then compare quality">
+Among what survives, pick on the failure mode you actually observe: drift over
+the horizon, or a repeatable failure where demonstrations disagree.
+</Step>
+</Steps>
+
+<Warning>
+A common interview answer is "I'd use GAIL because it fixes distribution shift."
+It does — and it needs an RL loop's worth of environment interaction to do it,
+which on real hardware is usually the resource you have least of. Stating the
+cost alongside the benefit is most of the signal.
+</Warning>

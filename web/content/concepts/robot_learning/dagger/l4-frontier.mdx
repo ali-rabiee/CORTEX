@@ -1,0 +1,107 @@
+---
+concept: dagger
+level: 4
+status: final
+recall:
+  prompt: "Where does DAgger sit in the literature, and what superseded it in practice?"
+  keyPoints:
+    - "Ross et al. 2011 is the origin: reduces imitation to no-regret online learning and gives the $O(\\epsilon T)$ bound."
+    - "Its lasting influence is as privileged-expert distillation in simulation, where a full-state expert labels a pixel-based student for free."
+    - "For real-robot learning from human demos, the field largely routed around it — ACT and Diffusion Policy fix chunking and action representation on a fixed offline dataset instead of buying online labels."
+papers:
+  - key: ross2011dagger
+    title: "A Reduction of Imitation Learning and Structured Prediction to No-Regret Online Learning"
+    authors: "Stéphane Ross, Geoffrey J. Gordon, J. Andrew Bagnell"
+    venue: AISTATS
+    year: 2011
+    arxiv: "1011.0686"
+    takeaway: "Frames imitation as online learning, proves behaviour cloning's $O(\\epsilon T^2)$ regret and DAgger's $O(\\epsilon T)$. The canonical citation for covariate shift in imitation."
+  - key: levine2016visuomotor
+    title: "End-to-End Training of Deep Visuomotor Policies"
+    authors: "Sergey Levine, Chelsea Finn, Trevor Darrell, Pieter Abbeel"
+    venue: JMLR
+    year: 2015
+    arxiv: "1504.00702"
+    takeaway: "Guided policy search: a full-state trajectory optimiser plays the role of the queryable expert and supervises a pixel-to-torque network. The privileged-expert pattern DAgger enables, at its most influential."
+  - key: zhao2023act
+    title: "Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware"
+    authors: "Tony Z. Zhao, Vikash Kumar, Sergey Levine, Chelsea Finn"
+    venue: RSS
+    year: 2023
+    arxiv: "2304.13705"
+    takeaway: "Reaches fine bimanual manipulation from ~50 fixed demos and no online expert — evidence that chunking can substitute for the data DAgger would have bought."
+check:
+  - id: dagger_l4_c1
+    prompt: "Guided policy search (Levine et al. 2015) trains a vision policy against a trajectory optimiser that sees full state. What makes this DAgger-like?"
+    options:
+      - "It uses the same clipped surrogate objective"
+      - "A cheap, always-available expert supplies action labels at whatever states the student policy reaches, so training data tracks the student's own distribution"
+      - "It aggregates rewards rather than labels"
+      - "It requires the expert and student to share an observation space"
+    answer: 1
+    explanation: "The pattern that survived from DAgger is not the exact algorithm but the recognition that a *queryable* expert is enormously valuable — and that in simulation you can manufacture one from privileged state. Nearly every sim2real distillation pipeline is a descendant of this idea."
+  - id: dagger_l4_c2
+    prompt: "A candidate says 'we should use DAgger' for a real-robot task with human teleoperators. What is the sharpest objection?"
+    options:
+      - "DAgger only has guarantees for discrete actions"
+      - "There is no queryable expert: a human cannot fluently state the correct action at arbitrary off-distribution states, and per-timestep labelling of every rollout is prohibitively slow"
+      - "DAgger requires a simulator"
+      - "The $O(\\epsilon T)$ bound is worse than behaviour cloning's"
+    answer: 1
+    explanation: "The algorithm is fine; the expert oracle is the problem. The productive follow-up is what to do instead — chunking to cut decision points, an expressive action head, or scripted perturbation-and-recovery data collection that manufactures the recovery labels offline."
+---
+
+## The origin
+
+<PaperCard refKey="ross2011dagger" />
+
+Worth reading properly rather than citing from memory. The reduction to online
+learning is what lets the bound be *inherited* from no-regret theory instead of
+argued from scratch, and that framing is the reason the paper still gets cited
+fifteen years later.
+
+## Where the idea actually won
+
+<PaperCard refKey="levine2016visuomotor" />
+
+DAgger's most durable legacy is not the algorithm — it's the observation that a
+**queryable expert is worth manufacturing**. In simulation you can build one for
+free from privileged state: exact object poses, contact forces, everything the
+real robot cannot see.
+
+<Steps>
+<Step title="Solve the easy problem with full state">
+A trajectory optimiser, motion planner, or RL policy with access to ground-truth
+state solves the task. This is far easier than solving it from pixels.
+</Step>
+
+<Step title="Distil into the observation the robot really has">
+Roll out the student, and let the privileged expert label the states it reaches.
+Labels cost nothing, so DAgger's binding constraint evaporates.
+</Step>
+
+<Step title="Ship the student">
+Only the student runs on hardware. The expert was scaffolding.
+</Step>
+</Steps>
+
+<KeyIdea>
+"Privileged expert distillation" is the phrase to have ready. It reframes DAgger
+from a technique with an impractical prerequisite into a technique whose
+prerequisite you *construct* — and it's how a large fraction of sim2real
+locomotion and manipulation pipelines are actually built.
+</KeyIdea>
+
+## What replaced it for real-robot imitation
+
+<PaperCard refKey="zhao2023act" />
+
+ACT gets fine bimanual manipulation from roughly fifty fixed demonstrations,
+never querying an expert online. That is the practical counter-argument: rather
+than buying labels on the learner's distribution, shrink the number of places
+the learner can go wrong.
+
+Both routes attack $O(\epsilon T^2)$. DAgger attacks $\epsilon$ by fixing the
+distribution it's measured under; chunking attacks $T$ by cutting the number of
+decision points. On real hardware with human demonstrators, the second has
+simply been cheaper.

@@ -1,26 +1,121 @@
 ---
 concept: dagger
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of DAgger (Dataset Aggregation), including
-    the key equations.
+  prompt: "State DAgger's guarantee and explain why it improves on behaviour cloning's bound."
   keyPoints:
-    - An iterative imitation learning algorithm that addresses covariate shift
-      in behavior cloning by aggregating expert-corrected data from the
-      learner's own state distribution.
-    - "At iteration $i$: (1) execute current policy $\\pi_i$ to collect states
-      $\\{s_t\\}$, (2) query the expert $\\pi^*$ for actions at those states,
-      (3) aggregate $\\mathcal{D}_{i+1} = \\mathcal{D}_i \\cup \\{(s_t,
-      \\pi^*(s_t))\\}$, (4) retrain $\\pi_{i+1} = \\arg\\min_\\pi
-      \\mathcal{L}(\\pi, \\mathcal{D}_{i+1})$."
-    - Provably reduces the error bound from $\mathcal{O}(T^2 \epsilon)$ (BC) to
-      $\mathcal{O}(T \epsilon)$ where $\epsilon$ is the single-step error and
-      $T$ is the horizon.
-check: []
-papers: []
+    - "DAgger is online learning: each iteration is one round of a no-regret algorithm (Follow-the-Leader on the aggregated dataset)."
+    - "With no-regret updates and $N$ iterations, DAgger achieves $J(\\pi) \\le J(\\pi^*) + O(\\epsilon T)$ — linear in the horizon, versus $O(\\epsilon T^2)$ for behaviour cloning."
+    - "The improvement comes from the error $\\epsilon$ being measured under the *learner's* state distribution $d^{\\pi}$ rather than the expert's $d^{\\pi^*}$, so a mistake no longer implies zero knowledge of what follows."
+check:
+  - id: dagger_l2_c1
+    prompt: "In the DAgger bound, under which state distribution is the per-step error $\\epsilon$ measured?"
+    options:
+      - "The expert's distribution $d^{\\pi^*}$, same as behaviour cloning"
+      - "The learner's own induced distribution — more precisely the mixture of policies encountered across training iterations"
+      - "The uniform distribution over all reachable states"
+      - "The stationary distribution of the environment's dynamics"
+    answer: 1
+    explanation: "This substitution is the entire contribution. Behaviour cloning bounds error on states the expert visits and then has nothing to say once the learner leaves them. DAgger trains on the learner's own distribution, so the bound covers exactly the states where the policy will be evaluated — and the extra factor of $T$ disappears."
+  - id: dagger_l2_c2
+    prompt: "Why is the $\\beta_i$ mixing schedule (acting as $\\beta_i \\pi^* + (1-\\beta_i)\\pi_i$) used in practice, and what must it satisfy?"
+    options:
+      - "It smooths the loss surface; it must decay as $1/i^2$"
+      - "It keeps early rollouts safe and on-task while the policy is still bad, and must decay to zero so the collected distribution converges to the learner's own"
+      - "It is required for the no-regret proof and must stay constant"
+      - "It balances exploration and exploitation, and must sum to one"
+    answer: 1
+    explanation: "The first policy is near-useless, so pure rollouts would wander uselessly or dangerously. Letting the expert take a fraction $\\beta_i$ of the actions keeps early data relevant. But the guarantee is about the learner's distribution, so $\\beta_i \\to 0$ — usually $\\beta_i = p^i$ for some $p < 1$, or simply $\\beta_1 = 1$ then zero thereafter."
 ---
 
-## Formal definition
+## DAgger as online learning
 
-An iterative imitation learning algorithm that addresses covariate shift in behavior cloning by aggregating expert-corrected data from the learner's own state distribution. At iteration $i$: (1) execute current policy $\pi_i$ to collect states $\{s_t\}$, (2) query the expert $\pi^*$ for actions at those states, (3) aggregate $\mathcal{D}_{i+1} = \mathcal{D}_i \cup \{(s_t, \pi^*(s_t))\}$, (4) retrain $\pi_{i+1} = \arg\min_\pi \mathcal{L}(\pi, \mathcal{D}_{i+1})$. Provably reduces the error bound from $\mathcal{O}(T^2 \epsilon)$ (BC) to $\mathcal{O}(T \epsilon)$ where $\epsilon$ is the single-step error and $T$ is the horizon.
+The formal move in the paper is to stop treating imitation as supervised
+learning and treat it as **online** learning, where each DAgger iteration is one
+round of a repeated game.
+
+At iteration $i$ you hold policy $\pi_i$. Nature reveals a loss function — the
+expert's disagreement, measured on the state distribution that $\pi_i$ itself
+induces:
+
+$$
+\ell_i(\pi) \;=\; \mathbb{E}_{s \sim d^{\pi_i}}
+\big[\,\ell\big(s,\; \pi(s),\; \pi^*(s)\big)\,\big]
+$$
+
+Training on the *aggregated* dataset $\mathcal{D} = \bigcup_{j \le i}
+\mathcal{D}_j$ is exactly **Follow-the-Leader**: pick the policy that minimises
+total loss over every round seen so far.
+
+<KeyIdea>
+Once you see it as Follow-the-Leader, the guarantee is inherited rather than
+invented. FTL on strongly convex losses is a no-regret algorithm, and no-regret
+is precisely the property the imitation bound needs.
+</KeyIdea>
+
+## The guarantee
+
+<Derivation title="From no-regret to $O(\epsilon T)$">
+
+Let $\epsilon_N$ be the best achievable average loss in hindsight over the $N$
+rounds, and $\gamma_N$ the average regret of the online learner:
+
+$$
+\frac{1}{N}\sum_{i=1}^{N} \ell_i(\pi_i)
+\;\le\; \epsilon_N + \gamma_N
+$$
+
+No-regret means $\gamma_N \to 0$ as $N \to \infty$. So for large $N$ some policy
+in the sequence has loss at most $\epsilon_N$ **on its own state distribution**.
+
+Now compare with behaviour cloning. There the argument stalled at "once we leave
+$d^{\pi^*}$ we know nothing," and the worst case charged us $T - t$ for a
+mistake at step $t$. Here the loss is already measured under $d^{\pi}$ — the
+distribution we're evaluated on — so there is no off-distribution region to
+bound pessimistically. Each of the $T$ steps contributes at most $\epsilon$:
+
+$$
+J(\pi) \;\le\; J(\pi^*) + O(\epsilon_N T) + O(\gamma_N T)
+$$
+
+</Derivation>
+
+The whole gain is the swap from $d^{\pi^*}$ to $d^{\pi}$ in the expectation.
+Everything else is bookkeeping.
+
+<Warning>
+Don't claim DAgger "removes distribution shift." It removes the *mismatch*, by
+moving the training distribution to meet the test distribution — the shift is
+still there, you've just collected data on the other side of it. And it says
+nothing at all about mode averaging: if the expert is inconsistent, an
+MSE-trained DAgger policy still predicts the mean of contradictory labels.
+</Warning>
+
+## The mixing schedule
+
+Running the raw $\pi_1$ — trained on one pass of cloning — is often useless or
+unsafe. So iteration $i$ rolls out a mixture:
+
+$$
+\hat{\pi}_i \;=\; \beta_i\, \pi^* \;+\; (1 - \beta_i)\, \pi_i
+$$
+
+meaning at each timestep you flip a $\beta_i$-weighted coin and let the expert
+act. Two constraints pull against each other:
+
+<Steps>
+<Step title="$\beta_i$ must start high enough to be useful">
+Otherwise early rollouts never reach the interesting part of the task and the
+labels you pay for are worthless.
+</Step>
+
+<Step title="$\beta_i$ must decay to zero">
+The guarantee is about $d^{\pi}$. If the expert keeps intervening forever, you
+are collecting a blend and never converge to the learner's own distribution.
+</Step>
+</Steps>
+
+A geometric schedule $\beta_i = p^{\,i-1}$ satisfies both. The paper notes that
+the simplest choice — $\beta_1 = 1$ (pure expert on the first pass, i.e. plain
+behaviour cloning) and $\beta_i = 0$ afterwards — works well in practice.
