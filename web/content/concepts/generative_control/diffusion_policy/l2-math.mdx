@@ -1,24 +1,180 @@
 ---
 concept: diffusion_policy
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Diffusion Policy, including the key equations.
+  prompt: "Derive the noise-prediction objective from the forward diffusion process, and explain why $\\epsilon_\\theta$ is a score estimate."
   keyPoints:
-    - Uses denoising diffusion probabilistic models (DDPMs) to generate robot
-      action sequences.
-    - "The forward process adds Gaussian noise over $T$ steps: $q(\\mathbf{a}^t
-      | \\mathbf{a}^{t-1}) = \\mathcal{N}(\\mathbf{a}^t;
-      \\sqrt{1-\\beta_t}\\,\\mathbf{a}^{t-1}, \\beta_t \\mathbf{I})$."
-    - "The learned reverse process iteratively denoises:
-      $p_\\theta(\\mathbf{a}^{t-1} | \\mathbf{a}^t, \\mathbf{o}) =
-      \\mathcal{N}(\\mathbf{a}^{t-1}; \\mu_\\theta(\\mathbf{a}^t, t,
-      \\mathbf{o}), \\sigma_t^2 \\mathbf{I})$, conditioned on observations
-      $\\mathbf{o}$."
-check: []
-papers: []
+    - "Forward process: $q(a^k \\mid a^{k-1}) = \\mathcal{N}(\\sqrt{\\alpha_k}\\, a^{k-1}, (1-\\alpha_k) I)$ composes in closed form to $a^k = \\sqrt{\\bar\\alpha_k}\\, a^0 + \\sqrt{1-\\bar\\alpha_k}\\, \\epsilon$, so any noise level is reachable in one shot — no simulation of the chain during training."
+    - "The ELBO reduces to a weighted $\\|\\epsilon - \\epsilon_\\theta\\|^2$; DDPM drops the weight and trains the unweighted version. That dropped weight is the assumption doing the work."
+    - "$\\epsilon_\\theta(a^k, k, o) = -\\sqrt{1-\\bar\\alpha_k}\\, \\nabla_{a^k} \\log p(a^k \\mid o)$ — the network is a scaled score estimator, so sampling is gradient ascent on log-density and lands in modes rather than at the mean."
+    - "DDIM keeps the same marginals with a non-Markovian reverse chain, letting you skip to a subsequence of ~10 steps. This is what makes the policy runnable at control rates."
+check:
+  - id: dp_l2_c1
+    prompt: "Why can diffusion training sample the noise level $k$ uniformly and jump straight to $a^k$, instead of simulating the corruption chain step by step?"
+    options:
+      - "Because the noise schedule is linear, so intermediate steps are redundant"
+      - "Because composing the Gaussian forward steps gives a closed form $q(a^k \\mid a^0) = \\mathcal{N}(\\sqrt{\\bar\\alpha_k} a^0, (1-\\bar\\alpha_k) I)$, where $\\bar\\alpha_k$ is the running product of the per-step $\\alpha$"
+      - "Because the network is trained on all noise levels simultaneously with a shared weight"
+      - "Because the reverse process is deterministic under DDIM"
+    answer: 1
+    explanation: "Two Gaussians compose into a Gaussian, and the variances add after scaling. Induction on the recursion $a^k = \\sqrt{\\alpha_k} a^{k-1} + \\sqrt{1-\\alpha_k}\\epsilon_k$ collapses the whole chain into a single draw. Without this, every training example would cost $K$ sequential network-free steps, and diffusion would be far less practical. Note it is a property of the *forward* process only — the reverse chain still has to be walked one step at a time, which is the inference cost."
+  - id: dp_l2_c2
+    prompt: "The exact ELBO gives a loss $\\frac{\\beta_k^2}{2\\sigma_k^2\\alpha_k(1-\\bar\\alpha_k)}\\|\\epsilon - \\epsilon_\\theta\\|^2$. DDPM trains with the weight set to 1. What is the consequence?"
+    options:
+      - "The objective is no longer a valid bound on the likelihood, but it up-weights the high-noise steps that matter for global structure, and empirically produces better samples"
+      - "Nothing — the weight is a constant and does not depend on $k$"
+      - "It makes the model deterministic, removing the ability to represent multiple modes"
+      - "It biases the model toward the conditional mean, reintroducing mode averaging"
+    answer: 0
+    explanation: "The weight is largest at small $k$ — the near-clean, fine-detail steps. Dropping it rebalances effort toward large $k$, where the network has to decide coarse structure: for a policy, *which* of several strategies this trajectory is going to be. You give up the strict variational interpretation and get better samples. This is the single most important 'we did the maths, then ignored part of it' step in diffusion, and interviewers who know the derivation ask about it."
+  - id: dp_l2_c3
+    prompt: "Sampling follows $\\epsilon_\\theta$, which estimates the score $\\nabla_a \\log p(a \\mid o)$ up to a scale. Why does that give multi-modal behaviour where MSE regression cannot?"
+    options:
+      - "Because the score is stochastic, so the output is randomised around the mean"
+      - "Because following a density's gradient from a random start converges to a nearby local maximum, and a bimodal density has two of them — whereas MSE has a unique minimiser at the mean of both"
+      - "Because the score is undefined between modes, so sampling avoids that region"
+      - "Because diffusion models use a mixture-of-Gaussians output head"
+    answer: 1
+    explanation: "This is the crux. MSE regression has one global minimiser, $\\mathbb{E}[a \\mid o]$, and no amount of capacity changes that — it is a property of the loss, not the network. Score-following is a local procedure: the initial noise determines the basin, and each basin is a mode of the data. The network still has a single deterministic output per input, but the *sampling procedure* is what converts it into a distribution."
 ---
 
-## Formal definition
+## The forward process
 
-Uses denoising diffusion probabilistic models (DDPMs) to generate robot action sequences. The forward process adds Gaussian noise over $T$ steps: $q(\mathbf{a}^t | \mathbf{a}^{t-1}) = \mathcal{N}(\mathbf{a}^t; \sqrt{1-\beta_t}\,\mathbf{a}^{t-1}, \beta_t \mathbf{I})$. The learned reverse process iteratively denoises: $p_\theta(\mathbf{a}^{t-1} | \mathbf{a}^t, \mathbf{o}) = \mathcal{N}(\mathbf{a}^{t-1}; \mu_\theta(\mathbf{a}^t, t, \mathbf{o}), \sigma_t^2 \mathbf{I})$, conditioned on observations $\mathbf{o}$. Training minimizes: $$\mathcal{L} = \mathbb{E}_{t, \mathbf{a}^0, \boldsymbol{\epsilon}} \left[ \| \boldsymbol{\epsilon} - \boldsymbol{\epsilon}_\theta(\mathbf{a}^t, t, \mathbf{o}) \|^2 \right]$$ Naturally handles multimodal action distributions — can represent multiple valid ways to accomplish a task.
+Fix an action chunk $a^0 \in \mathbb{R}^{T_p \times d}$ — the next $T_p$ actions,
+flattened. Define a corruption chain with variance schedule
+$\beta_1 \ldots \beta_K$, writing $\alpha_k = 1 - \beta_k$:
+
+$$
+q(a^k \mid a^{k-1}) = \mathcal{N}\big(\sqrt{\alpha_k}\, a^{k-1},\; (1-\alpha_k) I\big)
+$$
+
+The scaling by $\sqrt{\alpha_k}$ is not decoration: it keeps the variance from
+growing, so that $a^K$ is standard Gaussian regardless of where you started.
+
+<Derivation title="Collapsing the chain: $q(a^k \mid a^0)$ in one step">
+
+Write the recursion with explicit noise draws,
+$a^k = \sqrt{\alpha_k}\, a^{k-1} + \sqrt{1-\alpha_k}\, \epsilon_k$, and
+substitute once:
+
+$$
+a^k = \sqrt{\alpha_k \alpha_{k-1}}\, a^{k-2}
+ + \underbrace{\sqrt{\alpha_k(1-\alpha_{k-1})}\, \epsilon_{k-1}
+ + \sqrt{1-\alpha_k}\, \epsilon_k}_{\text{two independent Gaussians}}
+$$
+
+Independent zero-mean Gaussians add in variance, so the bracket is a single
+Gaussian with variance $\alpha_k(1-\alpha_{k-1}) + (1-\alpha_k) = 1 - \alpha_k\alpha_{k-1}$.
+That is the same *form* as one step, with $\alpha$ replaced by the product.
+By induction, with $\bar\alpha_k = \prod_{s \le k} \alpha_s$:
+
+$$
+\boxed{\;a^k = \sqrt{\bar\alpha_k}\, a^0 + \sqrt{1-\bar\alpha_k}\, \epsilon,
+\qquad \epsilon \sim \mathcal{N}(0, I)\;}
+$$
+
+**The assumption doing the work** is that every forward transition is Gaussian
+with a fixed, data-independent variance. That is what makes them composable at
+all — and it is why the schedule must take small steps, since only for small
+$\beta_k$ is the *reverse* transition also approximately Gaussian.
+
+</Derivation>
+
+## From the ELBO to the loss you actually implement
+
+The reverse model is $p_\theta(a^{k-1} \mid a^k, o) = \mathcal{N}(\mu_\theta(a^k, k, o), \sigma_k^2 I)$,
+and the variational bound asks it to match the true posterior
+$q(a^{k-1} \mid a^k, a^0)$, which is itself Gaussian with mean
+
+$$
+\tilde\mu_k(a^k, a^0) =
+\frac{\sqrt{\bar\alpha_{k-1}}\,\beta_k}{1-\bar\alpha_k}\, a^0
++ \frac{\sqrt{\alpha_k}\,(1-\bar\alpha_{k-1})}{1-\bar\alpha_k}\, a^k
+$$
+
+<Derivation title="Why the target is the noise, not the action">
+
+The posterior mean above depends on $a^0$, which the sampler does not have. But
+the boxed identity rearranges to
+$a^0 = \frac{1}{\sqrt{\bar\alpha_k}}\big(a^k - \sqrt{1-\bar\alpha_k}\,\epsilon\big)$.
+Substituting and simplifying collapses the two terms into one:
+
+$$
+\tilde\mu_k = \frac{1}{\sqrt{\alpha_k}}
+\left(a^k - \frac{\beta_k}{\sqrt{1-\bar\alpha_k}}\, \epsilon \right)
+$$
+
+So the *only* unknown in the posterior mean is $\epsilon$. Parameterise
+$\mu_\theta$ with the identical expression but $\epsilon_\theta(a^k,k,o)$ in
+place of $\epsilon$. The KL between two Gaussians of equal variance is a scaled
+squared distance between means, and everything cancels except:
+
+$$
+\mathcal{L}_k = \frac{\beta_k^2}{2\sigma_k^2\,\alpha_k(1-\bar\alpha_k)}
+\;\big\|\epsilon - \epsilon_\theta(a^k, k, o)\big\|^2
+$$
+
+DDPM then **drops the weight**, training the unweighted mean squared error:
+
+$$
+\mathcal{L}_{\text{simple}} = \mathbb{E}_{(a^0,o) \sim \mathcal{D},\, k,\, \epsilon}
+\Big[\big\|\epsilon - \epsilon_\theta(\sqrt{\bar\alpha_k} a^0 + \sqrt{1-\bar\alpha_k}\epsilon,\, k,\, o)\big\|^2\Big]
+$$
+
+</Derivation>
+
+<Warning>
+Be precise about that last step in an interview. $\mathcal{L}_{\text{simple}}$
+is **not** the ELBO — it is the ELBO with a $k$-dependent weight replaced by a
+constant. The weight peaks at small $k$, so dropping it shifts capacity toward
+the high-noise steps that decide coarse structure. For a policy, coarse
+structure is *which strategy this is*, which is precisely what you care about.
+The maths says one thing and the samples say another; the field went with the
+samples.
+</Warning>
+
+## The score view, and why modes survive
+
+Differentiate the closed-form forward marginal:
+
+$$
+\nabla_{a^k} \log q(a^k \mid a^0)
+= -\frac{a^k - \sqrt{\bar\alpha_k}\, a^0}{1-\bar\alpha_k}
+= -\frac{\epsilon}{\sqrt{1-\bar\alpha_k}}
+$$
+
+So $\epsilon_\theta$ is a negatively-scaled estimate of
+$\nabla_a \log p(a \mid o)$. Sampling is annealed gradient ascent on the
+conditional log-density of expert action chunks: start anywhere, follow the
+gradient, arrive at a local maximum.
+
+<KeyIdea>
+This is the whole multi-modality argument in one line. MSE regression minimises
+a loss whose unique minimiser is $\mathbb{E}[a \mid o]$ — capacity cannot help,
+because the mean is what the loss *asks for*. Score-following is local: two
+seeds fall into two basins, and the basins are the modes. The network is still
+a deterministic function; the sampler is what carries the distribution.
+</KeyIdea>
+
+## Two things that make it deployable
+
+<Steps>
+<Step title="DDIM: same marginals, fewer steps">
+DDIM constructs a non-Markovian reverse process with *identical* forward
+marginals, so a DDPM-trained $\epsilon_\theta$ can be reused unchanged. With
+$\eta = 0$ the update is deterministic:
+$a^{k-1} = \sqrt{\bar\alpha_{k-1}}\,\hat a^0 + \sqrt{1-\bar\alpha_{k-1}}\,\epsilon_\theta$,
+where $\hat a^0$ is the current clean-sample estimate. Because it only ever
+refers to $\bar\alpha$, you can evaluate it on any increasing subsequence of
+timesteps — ~10 instead of 100. Sample diversity does drop; that is the trade.
+</Step>
+
+<Step title="Receding horizon: predict $T_p$, execute $T_a$">
+Predict a long chunk for temporal coherence, execute only its first
+$T_a < T_p$ actions, then re-plan from a fresh observation. Chi et al. use
+$T_p = 16$ with $T_a$ around 8. Long enough to be consistent, short enough to
+stay reactive — the tuning knob between open-loop smoothness and closed-loop
+responsiveness.
+</Step>
+</Steps>

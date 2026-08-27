@@ -1,0 +1,164 @@
+---
+concept: diffusion_policy
+level: 3
+status: final
+recall:
+  prompt: "Write the diffusion policy training step and the DDIM sampling loop. What are the two easiest things to get wrong?"
+  keyPoints:
+    - "Training step: sample $k \\sim U\\{1..K\\}$ and $\\epsilon \\sim \\mathcal{N}(0,I)$, form $a^k = \\sqrt{\\bar\\alpha_k} a^0 + \\sqrt{1-\\bar\\alpha_k}\\epsilon$, regress $\\epsilon_\\theta(a^k, k, \\text{obs})$ onto $\\epsilon$. Five lines."
+    - "Actions must be normalised to roughly $[-1, 1]$. The schedule is built assuming the clean data has unit scale — with raw millimetres, $a^K$ is not standard Gaussian and the sampler starts outside the distribution it was trained on."
+    - "The observation is conditioning, not input to be denoised. Encode it once per control step and reuse the embedding across all $K$ denoising passes, or you pay $K$ vision forward passes per action."
+    - "Sample the chunk, execute only its first $T_a$ actions, re-plan. Latency budget = one vision pass + $K$ small denoising passes."
+check:
+  - id: dp_l3_c1
+    prompt: "You train a diffusion policy on raw joint commands in radians (range about $[-3, 3]$) without normalising. What specifically breaks?"
+    options:
+      - "Nothing — the network can learn any output scale"
+      - "The schedule is designed so that $a^K$ is standard Gaussian only if $a^0$ has roughly unit scale; with mis-scaled data the terminal distribution is wrong, so sampling starts from noise the model never saw at $k=K$"
+      - "The MSE loss overflows to infinity"
+      - "The network predicts actions instead of noise"
+    answer: 1
+    explanation: "The forward process drives $a^K \\to \\mathcal{N}(0, I)$ under the assumption that $a^0$ is already order-1. If the data has scale 3, then at $k = K$ the marginal is not quite $\\mathcal{N}(0,I)$ — and inference *starts* by drawing exactly $\\mathcal{N}(0,I)$. The mismatch is a distribution shift at the very first sampling step, which then propagates through the whole chain. It also breaks the loss balance across dimensions, the same way it does in plain behaviour cloning."
+  - id: dp_l3_c2
+    prompt: "In the sampling loop, why encode the observation once outside the denoising loop rather than inside it?"
+    options:
+      - "Because the observation changes during denoising"
+      - "Because the vision encoder dominates the cost, and it does not depend on $k$ or on the current noisy chunk — running it inside multiplies your per-step latency by $K$"
+      - "Because gradients would otherwise flow through the encoder $K$ times"
+      - "Because the encoder must run in eval mode"
+    answer: 1
+    explanation: "This is the difference between a policy that runs at 10 Hz and one that runs at 1 Hz. A ResNet-18 on two camera views is far more FLOPs than the small conditional U-Net over a 16x7 action chunk. The observation embedding is fixed for the whole chunk, so hoist it. Getting this wrong is the most common reason a reimplementation is 'too slow to be practical' when the paper reports real-time control."
+  - id: dp_l3_c3
+    prompt: "Your policy is smooth in open-loop replay but visibly lags a moving target on hardware. Which knob is the right one to turn first?"
+    options:
+      - "Increase $K$, the number of denoising steps"
+      - "Decrease $T_a$, the number of actions executed per re-plan, so the policy consumes fresh observations more often"
+      - "Increase $T_p$, the predicted chunk length"
+      - "Switch from DDIM back to full DDPM sampling"
+    answer: 1
+    explanation: "Lag against a moving target is a reactivity problem, and reactivity is set by how often you look — that is $T_a$. Executing 8 actions at 10 Hz means the policy is blind for 0.8 s. Cutting $T_a$ costs more inference calls per second but closes the loop faster. More denoising steps or a longer chunk make the *sample* better while making the lag worse; they are the wrong axis entirely."
+---
+
+## The training step
+
+The part people expect to be complicated is five lines long. Everything
+difficult lives in the schedule constants, which you compute once.
+
+<CodeWalk title="Noise schedule and the training loop">
+
+```python title="train_diffusion_policy.py"
+import torch, torch.nn as nn
+
+K = 100
+betas = torch.linspace(1e-4, 0.02, K)          # variance schedule
+alphas = 1.0 - betas
+abar = torch.cumprod(alphas, dim=0)            # ᾱ_k, the only constant sampling needs
+
+
+def train_step(eps_net, obs_encoder, obs, act, opt):
+    """act: (B, T_p, act_dim), ALREADY normalised to about [-1, 1]."""
+    B = act.shape[0]
+
+    k = torch.randint(0, K, (B,), device=act.device)      # one noise level per sample
+    noise = torch.randn_like(act)
+
+    # The closed form from L2 — jump straight to level k, no chain simulation.
+    a_k = (abar[k].sqrt().view(B, 1, 1) * act
+           + (1 - abar[k]).sqrt().view(B, 1, 1) * noise)
+
+    cond = obs_encoder(obs)                    # (B, cond_dim) — conditioning, not denoised
+    loss = nn.functional.mse_loss(eps_net(a_k, k, cond), noise)
+
+    opt.zero_grad(); loss.backward(); opt.step()
+    return loss.item()
+```
+
+</CodeWalk>
+
+Three things to notice. The target is `noise`, never `act` — the network is
+learning a direction field, not a mapping. The observation enters as `cond` and
+is never corrupted; only the action chunk diffuses. And `k` is an *input*, so
+one network covers all noise levels; it is normally injected as a sinusoidal
+embedding added to each block, exactly as in image diffusion.
+
+<Warning>
+Compute `act_mean` / `act_std` over the training set, normalise to roughly
+$[-1, 1]$, and save them beside the weights. This matters more here than in
+plain behaviour cloning: the schedule is *designed* so that $a^K$ is standard
+Gaussian, and sampling literally begins by drawing $\mathcal{N}(0, I)$. If your
+data has scale 50, that first draw is off-distribution and the whole chain
+inherits the error.
+</Warning>
+
+## Sampling with DDIM
+
+<CodeWalk title="Deterministic sampling over a subsequence of timesteps">
+
+```python title="sample.py"
+@torch.no_grad()
+def ddim_sample(eps_net, cond, shape, n_steps=10, device="cuda"):
+    a = torch.randn(shape, device=device)                     # start from pure noise
+    # Evaluate on a subsequence: 100 training levels -> 10 inference steps.
+    ts = torch.linspace(K - 1, 0, n_steps).long().tolist()
+
+    for i, k in enumerate(ts):
+        kk = torch.full((shape[0],), k, device=device, dtype=torch.long)
+        eps = eps_net(a, kk, cond)
+
+        # Current estimate of the clean chunk, inverted from the L2 identity.
+        a0 = (a - (1 - abar[k]).sqrt() * eps) / abar[k].sqrt()
+        a0 = a0.clamp(-1.0, 1.0)                              # actions are bounded; use it
+
+        ab_prev = abar[ts[i + 1]] if i + 1 < len(ts) else torch.tensor(1.0)
+        a = ab_prev.sqrt() * a0 + (1 - ab_prev).sqrt() * eps   # η = 0: no noise re-injected
+
+    return a
+```
+
+</CodeWalk>
+
+The `clamp` is worth a sentence. Actions live in a known bounded range, so the
+clean-sample estimate can be projected back into it at every step. This costs
+nothing and measurably stabilises short-step sampling, where `a0` early in the
+chain is a wild extrapolation. It has no analogue in behaviour cloning, where
+there is no intermediate estimate to project.
+
+## Closing the loop
+
+<Steps>
+<Step title="Encode the observation once">
+One vision forward pass per control cycle. Hoisting this out of the denoising
+loop is the difference between 10 Hz and 1 Hz — the encoder is far heavier than
+the small network denoising a $16 \times 7$ chunk.
+</Step>
+
+<Step title="Sample one chunk">
+$K$ small forward passes sharing the same `cond`.
+</Step>
+
+<Step title="Execute $T_a$ of the $T_p$ actions, then re-plan">
+Predict long for coherence, execute short for reactivity. Discard the tail.
+</Step>
+</Steps>
+
+```python title="rollout.py"
+@torch.no_grad()
+def run(policy, env, stats, T_p=16, T_a=8):
+    obs, done = env.reset(), False
+    while not done:
+        cond = policy.obs_encoder(to_batch(obs))              # once per re-plan
+        chunk = ddim_sample(policy.eps_net, cond, (1, T_p, policy.act_dim))
+        actions = chunk[0] * stats.std + stats.mean           # un-normalise
+
+        for a in actions[:T_a]:                               # receding horizon
+            obs, _, done, _ = env.step(a.cpu().numpy())
+            if done:
+                break
+```
+
+<KeyIdea>
+Your latency budget is one encoder pass plus $K$ denoiser passes, amortised
+over $T_a$ actions. Every practical decision — DDIM step count, chunk length,
+consistency distillation — is a trade inside that budget. Quote it as a budget
+in an interview, not as a list of tricks.
+</KeyIdea>

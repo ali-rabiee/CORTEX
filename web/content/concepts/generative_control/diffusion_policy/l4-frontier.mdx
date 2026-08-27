@@ -1,0 +1,183 @@
+---
+concept: diffusion_policy
+level: 4
+status: final
+recall:
+  prompt: "Trace the arc from DDPM to Diffusion Policy to flow-matching VLAs. What did each step change, and what was still broken after it?"
+  keyPoints:
+    - "Implicit BC (2021) diagnosed the problem — explicit regression policies cannot represent discontinuous or multi-modal action distributions — and fixed it with an energy model, at the price of a fragile negative-sampling objective and an optimisation at inference."
+    - "Diffuser (2022) diffused whole state-action *trajectories* and treated planning as conditional sampling, but ran on low-dimensional offline-RL benchmarks, not pixels."
+    - "Diffusion Policy (2023) diffused only the actions, conditioned on visual observations rather than inpainting, and executed receding-horizon — turning the idea into a real-time visuomotor policy with large, consistent gains over regression baselines."
+    - "Since then the pressure has been latency: consistency distillation gets to one or two steps, and flow matching in $\\pi_0$ folds the same generative-action-head idea into a VLM backbone."
+papers:
+  - key: ho2020ddpm
+    title: "Denoising Diffusion Probabilistic Models"
+    authors: "Jonathan Ho, Ajay Jain, Pieter Abbeel"
+    venue: NeurIPS
+    year: 2020
+    arxiv: "2006.11239"
+    takeaway: "Reduces the variational bound to a plain noise-prediction MSE, which is what made diffusion simple enough to bolt onto anything — including a policy."
+  - key: song2021ddim
+    title: "Denoising Diffusion Implicit Models"
+    authors: "Jiaming Song, Chenlin Meng, Stefano Ermon"
+    venue: ICLR
+    year: 2021
+    arxiv: "2010.02502"
+    takeaway: "A non-Markovian reverse process with the same marginals, so a trained model can be sampled on a subsequence of ~10 steps. Without this there is no real-time diffusion policy."
+  - key: florence2021ibc
+    title: "Implicit Behavioral Cloning"
+    authors: "Pete Florence, Corey Lynch, Andy Zeng, Oscar Ramirez, Ayzaan Wahid, Laura Downs, Adrian Wong, Johnny Lee, Igor Mordatch, Jonathan Tompson"
+    venue: CoRL
+    year: 2021
+    arxiv: "2109.00137"
+    takeaway: "Makes the case that explicit regression policies are the problem, not the data: energy-based implicit policies represent discontinuities and multiple modes that MSE structurally cannot."
+  - key: janner2022diffuser
+    title: "Planning with Diffusion for Flexible Behavior Synthesis"
+    authors: "Michael Janner, Yilun Du, Joshua B. Tenenbaum, Sergey Levine"
+    venue: ICML
+    year: 2022
+    arxiv: "2205.09991"
+    takeaway: "Diffuses entire state-action trajectories and recasts planning as conditional sampling, with rewards and goals entering as sampling guidance rather than as a search objective."
+  - key: chi2023diffusionpolicy
+    title: "Diffusion Policy: Visuomotor Policy Learning via Action Diffusion"
+    authors: "Cheng Chi, Zhenjia Xu, Siyuan Feng, Eric Cousineau, Yilun Du, Benjamin Burchfiel, Russ Tedrake, Shuran Song"
+    venue: RSS
+    year: 2023
+    arxiv: "2303.04137"
+    takeaway: "Diffuse the action chunk only, condition on images, execute receding-horizon. The combination is what turned trajectory diffusion into a deployable real-robot policy."
+  - key: prasad2024consistency
+    title: "Consistency Policy: Accelerated Visuomotor Policies via Consistency Distillation"
+    authors: "Aaditya Prasad, Kevin Lin, Jimmy Wu, Linqi Zhou, Jeannette Bohg"
+    venue: RSS
+    year: 2024
+    arxiv: "2405.07503"
+    takeaway: "Distils the multi-step denoising chain into a one- or three-step student, attacking the one thing that keeps diffusion policies off compute-constrained robots."
+  - key: black2024pi0
+    title: "π₀: A Vision-Language-Action Flow Model for General Robot Control"
+    authors: "Kevin Black, Noah Brown, Danny Driess, et al. (Physical Intelligence)"
+    venue: arXiv
+    year: 2024
+    arxiv: "2410.24164"
+    takeaway: "Attaches a flow-matching action expert to a pretrained VLM, generating 50 Hz action chunks. The generative action head is now a component of foundation models rather than a standalone policy."
+check:
+  - id: dp_l4_c1
+    prompt: "Diffuser and Diffusion Policy both apply diffusion to robot behaviour. What is the substantive difference?"
+    options:
+      - "Diffuser uses DDPM sampling and Diffusion Policy uses DDIM"
+      - "Diffuser diffuses full state-action trajectories and uses them as a planner, with goals imposed by inpainting and guidance; Diffusion Policy diffuses only actions, conditions on the current visual observation, and re-plans closed-loop"
+      - "Diffuser is for manipulation and Diffusion Policy for locomotion"
+      - "Diffuser is trained with reinforcement learning, Diffusion Policy with imitation"
+    answer: 1
+    explanation: "The design choice that matters is *what gets diffused*. Modelling states as well as actions makes the model a dynamics-aware planner but forces it to predict the future world, which is hard from pixels. Chi et al. drop states, condition on the observation instead of inpainting it, and add receding-horizon execution — three changes that together move it from an offline-RL benchmark result to a real robot running at control rate."
+  - id: dp_l4_c2
+    prompt: "Implicit BC and Diffusion Policy target the same weakness of regression policies. Why did the field converge on the diffusion formulation?"
+    options:
+      - "Diffusion policies are more expressive; energy-based models cannot represent multi-modal distributions"
+      - "Both represent multi-modality, but IBC's InfoNCE-style objective needs negative samples and its inference requires optimising over actions, which is fragile — whereas diffusion trains with a plain MSE and samples by a fixed number of forward passes"
+      - "Implicit BC requires an online expert"
+      - "Diffusion policies need less data"
+    answer: 1
+    explanation: "This is a training- and inference-stability story, not an expressiveness one; energy-based models are at least as expressive. IBC needs negatives drawn well enough to shape the energy landscape, and at test time you must *search* action space for the minimum. Diffusion replaces both with a supervised regression and a fixed-length deterministic sampler. Being able to say 'the winning method was the one whose optimisation was boring' is a good sign you have read both papers."
+  - id: dp_l4_c3
+    prompt: "$\\pi_0$ uses flow matching rather than DDPM-style diffusion for its action head. What is the practical motivation?"
+    options:
+      - "Flow matching can represent multi-modal distributions and diffusion cannot"
+      - "Flow matching learns a velocity field along straighter probability paths, so high-quality samples need far fewer integration steps — which is what lets an action head keep up with a large VLM backbone at 50 Hz"
+      - "Flow matching does not require normalised actions"
+      - "Flow matching removes the need for action chunking"
+    answer: 1
+    explanation: "Both are continuous-time generative models over the same kind of object, and both represent modes. The difference is the geometry of the path from noise to data: flow matching regresses a velocity field along near-straight paths, so few Euler steps suffice. When the action head sits on top of a multi-billion-parameter VLM and must emit chunks at 50 Hz, step count is the binding constraint — the same pressure that produced consistency distillation, solved a different way."
+---
+
+## The diagnosis came first
+
+<PaperCard refKey="florence2021ibc" />
+
+Before there was a diffusion policy there was an argument: that the failure of
+behaviour cloning on contact-rich tasks is not a data problem or a capacity
+problem but a **loss** problem. An explicit policy trained with MSE is a
+function fit to a conditional mean, and it cannot represent a discontinuity —
+yet manipulation is full of them, because the right action either side of a
+contact event can be completely different.
+
+Implicit BC's fix was to learn an energy $E_\theta(o, a)$ and act by minimising
+it over $a$. That represents modes and discontinuities cleanly. It also inherits
+everything unpleasant about energy-based models: an objective that needs
+negative samples, and an optimisation over action space at every control step.
+
+## The generative machinery
+
+<PaperGrid>
+<PaperCard refKey="ho2020ddpm" />
+<PaperCard refKey="song2021ddim" />
+</PaperGrid>
+
+DDPM's contribution to robotics is indirect but decisive: it turned a
+variational-inference problem into `mse_loss(net(noisy, k, cond), noise)`. A
+technique that simple gets tried on everything. DDIM then removed the objection
+that would otherwise have ended the story — that 100 sequential network passes
+per action is absurd for a controller.
+
+## Diffusing behaviour
+
+<PaperCard refKey="janner2022diffuser" />
+
+Diffuser made the conceptual leap: a trajectory is just a 2-D array, so
+generate it the way you generate an image. Planning becomes conditional
+sampling, and goals or rewards enter as *guidance* on the sampler rather than as
+an objective for a search. Elegant — but it diffuses states as well as actions,
+which means predicting the future world, and the results lived on
+low-dimensional offline-RL benchmarks.
+
+<PaperCard refKey="chi2023diffusionpolicy" />
+
+Diffusion Policy is what you get by asking which parts of that are actually
+necessary for control. Three subtractions and one addition:
+
+<Steps>
+<Step title="Diffuse actions only">
+Drop states from the diffused variable. The policy no longer has to model how
+the world evolves — a demand that pixels make brutal — and the output is
+directly executable.
+</Step>
+
+<Step title="Condition, don't inpaint">
+Feed the visual observation in as conditioning to every denoising step instead
+of fixing it as known entries of the diffused array. This is what lets a
+visual encoder be trained end-to-end with the policy.
+</Step>
+
+<Step title="Execute receding-horizon">
+Predict $T_p$ actions, execute $T_a$, re-plan. Closed-loop reactivity with
+open-loop temporal consistency, tuned by one integer.
+</Step>
+
+<Step title="Then evaluate honestly, across 15 tasks">
+The paper's real weight is not the architecture but the breadth of the
+comparison — consistent gains over LSTM-GMM, IBC, and BET across simulated and
+real benchmarks, which is what moved the community rather than a single hero
+demo.
+</Step>
+</Steps>
+
+## Where the pressure moved
+
+<PaperGrid>
+<PaperCard refKey="prasad2024consistency" />
+<PaperCard refKey="black2024pi0" />
+</PaperGrid>
+
+Once multi-modality was solved, the binding constraint became inference cost —
+and both of these are answers to it. Consistency Policy distils the sampling
+chain into a student that jumps most of the way in one step. $\pi_0$ takes the
+other route: flow matching learns a velocity field along much straighter paths
+from noise to data, so few integration steps are needed by construction.
+
+<KeyIdea>
+The thirty-second arc: 2021 diagnosed regression as the culprit and paid for it
+with a fragile energy model; 2022 showed trajectories could be generated like
+images; 2023 stripped that down to an action-only, observation-conditioned,
+receding-horizon policy that runs on hardware; since then it has been a latency
+race, and the generative action head has been absorbed into VLAs as a component
+rather than surviving as a standalone method.
+</KeyIdea>

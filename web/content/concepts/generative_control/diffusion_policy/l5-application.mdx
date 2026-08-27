@@ -1,23 +1,161 @@
 ---
 concept: diffusion_policy
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Diffusion Policy fail in practice, and how would you present it
-    in an interview?
+  prompt: "Give your 60-second interview answer on Diffusion Policy, then name the cost you pay for it and how you would pay it down."
   keyPoints:
-    - "Inference too slow for reactive control: full DDPM requires $T = 100$+
-      denoising steps per action chunk."
-    - With DDIM acceleration, still 10-20 steps needed.
-    - "Symptoms: robot moves in stop-and-go pattern due to inference latency."
-check: []
-papers: []
+    - "Frame it as behaviour cloning with the regression head replaced by a sampler: the network predicts noise, and iterating it turns a random seed into an action chunk."
+    - "It fixes mode averaging because sampling follows the score into a mode rather than minimising to the mean — and it fixes jitter because the chunk is denoised jointly."
+    - "The cost is $K$ network passes per decision. DDIM to ~10 steps, receding horizon to amortise over $T_a$ actions, consistency distillation or flow matching to get to one or two."
+    - "Know when not to use it: unimodal demonstrations with tight latency budgets get nothing from it, and it inherits every distribution-shift problem of cloning untouched."
+interview:
+  answer: >-
+    Diffusion Policy is behaviour cloning where the regression head is replaced
+    by a conditional generative model over action chunks. Instead of mapping an
+    observation to an action, the network takes a noisy action sequence, a
+    noise level, and the observation, and predicts the noise that was added.
+    You train it by taking a real chunk from a demonstration, corrupting it by
+    a random amount, and regressing on the noise — so it's still plain
+    supervised learning on a fixed dataset, same objective family as ordinary
+    cloning. At test time you start from Gaussian noise and run the network
+    maybe ten times, each pass removing a bit of noise, and what falls out is a
+    sample from the distribution of expert action chunks for that observation.
+    Two things that buys you. First, multi-modality: the predicted noise is a
+    scaled estimate of the score, the gradient of the log density, so sampling
+    is annealed gradient ascent that lands in a mode. Mean squared error can't
+    do that at any capacity, because its unique minimiser is the conditional
+    mean — if half your demonstrations go left around an object and half go
+    right, regression is obliged to emit the average, which goes through it.
+    Second, it denoises a whole chunk jointly, so you get temporal coherence
+    for free and the same reduction in decision points that action chunking
+    gives you. The cost is inference: you're paying K forward passes per
+    decision instead of one. That's managed with DDIM sampling to cut a hundred
+    steps to ten, receding-horizon execution so the cost amortises over several
+    actions, and more recently consistency distillation or flow matching to get
+    down to one or two steps — which is what pi-zero does to keep an action
+    head running at fifty hertz under a VLM.
+  followUps:
+    - q: "Does diffusion fix compounding error?"
+      a: >-
+        Only indirectly, and I'd be careful not to overclaim it. The chunking
+        helps — fewer decision points means fewer chances to step
+        off-distribution, which is the same win ACT gets. But the training
+        distribution is still the expert's own state distribution, and nothing
+        in the diffusion formulation adds data where the policy actually fails.
+        If the policy drifts into a state no demonstration ever visited, the
+        score model is being queried off-distribution and will confidently
+        sample something wrong. Mode averaging and covariate shift are separate
+        problems, and diffusion is squarely a fix for the first.
+    - q: "How do you pick the number of denoising steps?"
+      a: >-
+        Empirically, against a latency budget, not from the paper's number. I'd
+        fix the control rate I need and work backwards: one vision encoder pass
+        plus K denoiser passes has to fit in the time between re-plans, divided
+        by however many actions I execute per chunk. Then I'd sweep K down from
+        a hundred and watch task success, not sample likelihood. What you
+        typically see is that success is flat down to around ten DDIM steps and
+        then degrades — the samples get smoother and start to look like the
+        mean again, which is exactly the failure you adopted diffusion to
+        avoid. If ten is still too slow, that's when distillation is worth the
+        extra training complexity.
+    - q: "When would you not use a diffusion policy?"
+      a: >-
+        When the demonstrations are effectively unimodal, which happens when a
+        single operator does a well-constrained task the same way every time.
+        Then there's no mean to average badly and you're paying ten times the
+        inference cost for nothing — a chunked regression policy is the right
+        baseline and often matches it. Also when the latency budget is hard and
+        the compute is embedded, and when I have very little data, since a
+        generative model over sequences has more to learn than a regressor. I'd
+        want the regression-with-chunking baseline measured first; if it fails
+        specifically at the states where demonstrations disagree, that's the
+        evidence that justifies the switch.
+    - q: "Your diffusion policy chatters — it reaches toward an object, retracts, and reaches again. What's happening?"
+      a: >-
+        Almost certainly mode switching across re-plans. Each chunk is a fresh
+        sample, so if the observation sits near a decision boundary the policy
+        can draw the left-hand strategy at one re-plan and the right-hand one
+        at the next, and the two partially-executed chunks fight each other.
+        That's the flip side of representing modes honestly. The fixes are
+        raising the number of actions executed per chunk so a decision commits
+        for longer, temporally ensembling overlapping chunk predictions the way
+        ACT does, or warm-starting the sampler from the previous chunk's tail
+        so consecutive samples are correlated rather than independent.
+  traps:
+    - "Saying diffusion policies solve behaviour cloning's distribution shift. They solve mode averaging. Covariate shift is untouched, and conflating the two is the single most common error on this topic."
+    - "Describing the network as predicting the action. It predicts the noise — equivalently the score — and the action is produced by the sampling procedure. Getting this backwards signals you have read the abstract and not the method."
+    - "Never mentioning inference cost. K forward passes per decision is the entire reason DDIM, receding horizon, consistency distillation, and flow matching exist. Silence here reads as never having deployed one."
+    - "Claiming diffusion is more expressive than energy-based models. It is not; Implicit BC represents the same distributions. Diffusion won on training and inference stability — no negative samples, no optimisation over actions at test time."
+check:
+  - id: dp_l5_c1
+    prompt: "A candidate says: 'We switched to Diffusion Policy and it fixed our drift over long horizons.' What is the most useful thing to push back on?"
+    options:
+      - "Diffusion policies cannot handle long horizons at all"
+      - "Any improvement over long horizons most likely came from action chunking, not from diffusion — the generative head fixes mode averaging, while distribution shift over the horizon is untouched by it"
+      - "Drift is always a hardware calibration issue"
+      - "They should have used DDPM sampling rather than DDIM"
+    answer: 1
+    explanation: "Diffusion Policy bundles two changes: an expressive multi-modal head *and* chunked action prediction. The horizon benefit is attributable to the second, which you could have had from a plain chunked regressor. The honest ablation is chunked-MSE versus chunked-diffusion; if they did not run it, they do not know which change paid. Separating the two is the discriminating question here."
+  - id: dp_l5_c2
+    prompt: "You cut DDIM steps from 50 to 3 to hit a latency target. Success rate falls, and the failures are concentrated at the one point in the task where demonstrations disagree. What does that tell you?"
+    options:
+      - "The network has been damaged and needs retraining at the lower step count"
+      - "Too few steps under-resolve the sampling chain, so samples relax toward the average of the modes — exactly the mode-averaging failure the policy exists to avoid, which is why it shows up at the ambiguous state"
+      - "The action normalisation statistics are wrong"
+      - "The observation encoder is being run inside the denoising loop"
+    answer: 1
+    explanation: "The location of the failures is the diagnostic. Aggressive step reduction blurs the sample toward the mean of the density, and that only hurts where the density has more than one lump — so the regression behaviour reappears precisely at the ambiguous decision. This is what consistency distillation exists to fix: a distilled few-step student preserves the modes in a way that naive step-skipping does not."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Inference too slow for reactive control: full DDPM requires $T = 100$+ denoising steps per action chunk. With DDIM acceleration, still 10-20 steps needed. Symptoms: robot moves in stop-and-go pattern due to inference latency. Fix: use DDIM with fewer steps (10), consistency distillation, or single-step generators. Also: noise schedule $\{\beta_t\}$ tuning is critical — wrong schedule produces either conservative (too low $\beta$) or jittery (too high $\beta$) actions.
+Diffusion policies fail in ways that look nothing like regression policies
+failing, and the symptom usually names the cause.
 
-## Interview-ready answer
+<Steps>
+<Step title="Chattering or oscillation between two behaviours">
+Mode switching across re-plans. Every chunk is an independent sample, so near a
+decision boundary consecutive re-plans can commit to different strategies.
+Raise $T_a$ so a decision holds for longer, ensemble overlapping chunks, or
+correlate consecutive samples by warm-starting from the previous chunk's tail.
+</Step>
 
-Diffusion policies are the state-of-the-art for learning multi-modal manipulation behaviors. The key advantage: they naturally represent multiple valid action modes without mode averaging. Architecture: observation encoder $\rightarrow$ conditioning $\rightarrow$ U-Net denoising network predicting $\boldsymbol{\epsilon}_\theta(\mathbf{a}^t, t, \mathbf{o})$ $\rightarrow$ action chunks. In practice: DDIM with 10 steps is fast enough for 10Hz control. Combine with action chunking (predict 16 steps) for temporal consistency. The main trade-off vs BC: higher quality but slower inference and harder to train. I see diffusion policies as the default for manipulation tasks with multi-modal behavior (assembly, tool use, bimanual).
+<Step title="Smooth, confident, wrong — right at the ambiguous state">
+Under-resolved sampling. Too few denoising steps relaxes the sample toward the
+mean, which only bites where the density is multi-modal. Put the step count
+back up and confirm the failure disappears before reaching for anything else.
+</Step>
+
+<Step title="Nonsense output from the very first control step">
+Suspect normalisation. The sampler starts by drawing $\mathcal{N}(0, I)$, which
+is only the right terminal distribution if the training actions were order-1.
+Check that `act_mean` / `act_std` were computed over the training set, saved,
+and applied in both directions.
+</Step>
+
+<Step title="Lag against anything that moves">
+Reactivity, not sample quality. Set by how often you look at the world, so it
+is $T_a$ — not $K$ and not $T_p$. Both of those make the sample better and the
+lag worse.
+</Step>
+
+<Step title="No better than the regression baseline">
+Possibly correct, and worth saying out loud. If the demonstrations are
+unimodal, there is no averaging failure to fix and diffusion is paying $K\times$
+inference for nothing. Diagnose by checking whether the baseline fails
+*specifically* at states where demonstrations disagree.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The strongest single move in this answer is being exact about what the network
+predicts. "It predicts the noise, which up to a scale is the score of the
+conditional action distribution, and the action comes out of the sampler" tells
+an interviewer you have implemented one. "It generates actions with diffusion"
+does not distinguish you from someone who has read the abstract — and the
+follow-up will be about latency, where that distinction becomes visible
+immediately.
+</Warning>

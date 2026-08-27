@@ -1,25 +1,148 @@
 ---
 concept: diffusion_policy
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Diffusion Policy in plain language: what is it, and why does it
-    matter?"
+  prompt: "Explain Diffusion Policy in plain language. What does the network actually predict, and what problem does this solve that MSE regression cannot?"
   keyPoints:
-    - Imagine a sculptor starting with a rough block of marble (noise) and
-      iteratively refining it into a statue (action sequence).
-    - Each denoising step adds detail.
-    - "The key advantage over BC: if there are two valid ways to pick up a mug
-      (left side or right side), diffusion can represent both modes instead of
-      averaging them into an invalid middle path."
-check: []
-papers: []
+    - "The network never outputs an action directly. It outputs a correction to a guess, and you apply it repeatedly starting from pure noise until the guess becomes an action chunk."
+    - "Training is still supervised on demonstrations: take a real action chunk, corrupt it with a known amount of noise, ask the network to name the noise it sees."
+    - "Because you sample rather than regress, two different random seeds land on two different valid behaviours. MSE would average them into an action nobody demonstrated."
+    - "It outputs a whole chunk of future actions at once, so it inherits action chunking's reduction in decision points for free."
+media:
+  - kind: video
+    title: "What are Diffusion Models?"
+    url: https://www.youtube.com/watch?v=fbLgFrlTnGU
+    source: "Ari Seff"
+    minutes: 15
+    note: "The clearest visual explanation of the forward-corruption / reverse-denoising loop. Ignore that the examples are images — replace 'image' with 'action sequence' and nothing else changes."
+  - kind: article
+    title: "Diffusion Policy: Visuomotor Policy Learning via Action Diffusion"
+    url: https://diffusion-policy.cs.columbia.edu/
+    source: "Chi et al., Columbia / TRI"
+    note: "Project page. Watch the multi-modal pushing videos first — they are the clearest existing evidence that the policy keeps modes separate instead of averaging them."
+  - kind: article
+    title: "What are Diffusion Models?"
+    url: https://lilianweng.github.io/posts/2021-07-11-diffusion-models/
+    source: "Lilian Weng"
+    note: "Read this before Level 2. It carries the full derivation of the noise-prediction loss, which the maths section here compresses."
+check:
+  - id: dp_l1_c1
+    prompt: "During training, what is the diffusion policy network asked to predict?"
+    options:
+      - "The expert's action, directly from the observation"
+      - "The noise that was added to a real expert action chunk, given the corrupted chunk, the noise level, and the observation"
+      - "The probability that a candidate action is the expert's"
+      - "The next observation, so it can plan by imagining rollouts"
+    answer: 1
+    explanation: "The training signal is a noise-prediction regression, not an action regression. You take a real chunk from the dataset, draw a noise level $k$ and a Gaussian noise vector, add it, and train the network to recover that noise. It is still ordinary supervised learning on demonstrations — but what it learns is a direction field pointing back toward the data, which is a much richer object than a single conditional mean. Option 3 describes Implicit BC's energy model, a different approach to the same problem."
+  - id: dp_l1_c2
+    prompt: "At an observation where half the demonstrations reach around a mug from the left and half from the right, what does a diffusion policy do — and why?"
+    options:
+      - "It outputs the average of the two approaches, like MSE regression, but with lower variance"
+      - "It samples one of the two approaches, because the random noise it starts from determines which mode the denoising chain falls into"
+      - "It outputs both trajectories simultaneously and the controller picks one"
+      - "It fails to converge, because the training targets are contradictory"
+    answer: 1
+    explanation: "The initial noise is the seed that selects a mode. Denoising is a descent toward high-density regions of $p(a \\mid o)$, and where the data has two separated lumps, different starting points flow into different lumps. This is the whole point: an averaged action between 'left' and 'right' passes straight through the mug, and a policy that minimises MSE is *obliged* to emit it."
+  - id: dp_l1_c3
+    prompt: "Diffusion Policy predicts a chunk of ~16 future actions rather than a single action. What does this buy, independently of the multi-modality argument?"
+    options:
+      - "It lets the network be smaller, since it shares computation across timesteps"
+      - "It cuts the number of independent policy decisions per episode, which is what compounding error scales with, and it makes the output temporally consistent by construction"
+      - "It removes the need for a camera, since future actions are predicted open-loop"
+      - "It converts the objective from imitation to reinforcement learning"
+    answer: 1
+    explanation: "Two separate wins. First, compounding error scales with the number of decision points, so predicting $k$ actions at a time reduces it by roughly a factor of $k$. Second, denoising the chunk *jointly* means the network cannot produce a sequence that is individually plausible per-step but incoherent as a motion — the classic per-step-policy jitter. Chunking and multi-modality are orthogonal benefits, and a good answer names both."
 ---
 
-## Intuition
+## The move that makes it work
 
-Imagine a sculptor starting with a rough block of marble (noise) and iteratively refining it into a statue (action sequence). Each denoising step adds detail. The key advantage over BC: if there are two valid ways to pick up a mug (left side or right side), diffusion can represent both modes instead of averaging them into an invalid middle path.
+Every policy so far in this cluster has been a function: observation in, action
+out. Diffusion Policy breaks that. Its network does not know how to produce an
+action. It only knows how to **improve a guess**.
 
-## In practice
+You hand it a garbage action sequence — literally Gaussian noise — along with
+the current camera image and a number saying how corrupted you believe the
+guess is. It hands back a correction. You apply the correction, get a slightly
+less garbage sequence, and hand it back in. After ten or so passes you have a
+trajectory you can send to the robot.
 
-Diffusion Policy for bimanual manipulation: 2-step observation history (images + proprioception) $\rightarrow$ U-Net-based diffusion model $\rightarrow$ predict 16-step action chunks. With DDIM sampling ($\eta = 0$, 10 denoising steps instead of 100), runs at 10Hz on a GPU. Outperforms BC by 20-40% on multi-modal manipulation tasks.
+<Intuition>
+Think of the network as a compass rather than a map. It cannot tell you where
+the destination is. Standing anywhere in action space, it can only tell you
+which way is *downhill toward plausible expert behaviour*. Follow the compass
+from a random starting point and you arrive somewhere sensible.
+
+Start from a different random point and you may arrive somewhere else sensible —
+which is exactly the property we could not get out of regression.
+</Intuition>
+
+<Figure src="/figures/diffusion-policy-denoising.svg"
+        alt="Two rows, each starting from a different jagged noise sample shaped like an action sequence, progressively smoothed by repeated applications of the same network into two distinct smooth trajectories — one curving up, one curving down."
+        caption="The same network, applied repeatedly. The seed you start from decides which valid behaviour you land on — so two different demonstrated strategies stay two strategies instead of collapsing into their average." />
+
+## How you train it
+
+The surprising part is that learning a compass is easier than learning a map,
+and the training loop is *shorter* than behaviour cloning's.
+
+<Steps>
+<Step title="Take a real action chunk from a demonstration">
+Say the next 16 actions the human commanded, stacked into one vector. Call it
+$a^0$ — the clean sample.
+</Step>
+
+<Step title="Corrupt it by a random amount">
+Draw a noise level $k$ uniformly from $1 \ldots K$, draw Gaussian noise
+$\epsilon$, and blend: mostly-clean at low $k$, essentially pure noise at $k=K$.
+You now have a corrupted chunk $a^k$ and you know exactly what noise made it,
+because you drew it.
+</Step>
+
+<Step title="Ask the network to name the noise">
+Feed it $a^k$, the level $k$, and the observation. Train it to output
+$\epsilon$. That is a plain mean-squared-error regression — the same loss as
+behaviour cloning, pointed at a different target.
+</Step>
+
+<Step title="At test time, run it backwards">
+Start from pure noise. Predict the noise, subtract a step of it, repeat. Each
+pass corresponds to one $k$, counting down. What falls out at $k = 0$ is a
+sample from the distribution of expert action chunks for this observation.
+</Step>
+</Steps>
+
+<KeyIdea>
+The objective is still supervised learning on a fixed set of demonstrations. No
+reward, no environment interaction, no online expert. Diffusion Policy is
+behaviour cloning — it just swapped a head that predicts *the* action for a
+procedure that samples *an* action.
+</KeyIdea>
+
+## Why anyone bothered
+
+Two failures of naive cloning, both fixed at once.
+
+**Mode averaging.** Regression is pinned to the conditional mean. If your
+demonstrations disagree — and human demonstrations always disagree, because
+there are usually several fine ways to do a thing — the mean is a compromise
+that may be worse than every option it compromises between. Sampling does not
+average. It picks.
+
+**Jittery, incoherent motion.** A per-timestep policy re-decides from scratch at
+every control tick, and small observation changes can flip it between modes
+mid-motion, producing a shudder that looks like indecision because it *is*
+indecision. Diffusion Policy denoises the whole chunk as one object, so temporal
+consistency is structural rather than something you hope for.
+
+<Warning>
+The cost is compute at inference. A hundred denoising steps at 10 Hz is not
+happening. The practical systems use DDIM sampling to get down to roughly 10
+steps, receding-horizon execution so you re-plan only every few actions, and —
+more recently — consistency distillation to get to one or two steps. If an
+interviewer asks about diffusion policies and you never mention latency, you
+have signalled that you have not deployed one.
+</Warning>
+
+<WatchThis />
