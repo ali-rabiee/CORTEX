@@ -1,25 +1,107 @@
 ---
 concept: action_chunking
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Action Chunking for Manipulation in plain language: what is it,
-    and why does it matter?"
+  prompt: "What is action chunking, and why does predicting several actions at once help?"
   keyPoints:
-    - Instead of giving turn-by-turn GPS directions one step at a time, you give
-      the next 10 steps at once.
-    - The driver can plan smoother turns because they see the upcoming
-      trajectory.
-    - If one step is slightly off, the remaining chunk keeps them on track
-      rather than going off-course.
-check: []
-papers: []
+    - "Instead of predicting one action per observation, predict the next $k$ actions and execute them before re-planning."
+    - "An episode of length $T$ becomes $T/k$ independent decisions, and compounding error scales with the number of decision points — so drift falls roughly by a factor of $k$."
+    - "It also removes idle-pause and jitter artefacts from human demos, because the policy commits to a short plan instead of re-deciding every 20 ms."
+    - "The cost is reactivity: you cannot respond to a disturbance mid-chunk, which is why ACT blends overlapping chunks (temporal ensembling) rather than running purely open-loop."
+media:
+  - kind: article
+    title: "ALOHA / ACT — action chunking on real bimanual hardware"
+    url: https://tonyzhaozh.github.io/aloha/
+    source: "Zhao et al., Stanford"
+    note: "Watch the rollout videos first. The smoothness you're seeing is largely chunking — single-step policies on the same data look visibly hesitant."
+  - kind: article
+    title: "Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware"
+    url: https://arxiv.org/abs/2304.13705
+    source: "Zhao et al., RSS 2023"
+    note: "Section 4 is the one to read: chunk size, temporal ensembling, and the ablation showing how much of the win is chunking alone."
+check:
+  - id: ac_l1_c1
+    prompt: "Why does predicting $k$ actions at a time reduce compounding error?"
+    options:
+      - "The network sees more data per gradient step, so it fits better"
+      - "Compounding error scales with the number of independent decision points; chunking cuts those from $T$ to $T/k$"
+      - "Predicting multiple actions regularises the network"
+      - "It lets the policy see further into the future observation stream"
+    answer: 1
+    explanation: "Behaviour cloning's $O(\\epsilon T^2)$ bound is driven by how many times the policy gets to make an independent mistake that shifts its own state distribution. Committing to $k$ actions means only $T/k$ such moments. Nothing about the fit improves — you've changed how often drift can be introduced."
+  - id: ac_l1_c2
+    prompt: "What is the main cost of executing a long chunk open-loop?"
+    options:
+      - "Higher inference latency per step"
+      - "Loss of reactivity — a disturbance partway through the chunk cannot be responded to until the chunk ends"
+      - "The policy can no longer represent multi-modal actions"
+      - "It requires more demonstrations"
+    answer: 1
+    explanation: "Open-loop execution ignores everything that happens after the observation the chunk was predicted from. If someone nudges the object mid-chunk, the robot completes a plan made for a world that no longer exists. Latency actually improves — one forward pass covers $k$ steps. Temporal ensembling exists precisely to claw back some reactivity."
 ---
 
-## Intuition
+## The idea
 
-Instead of giving turn-by-turn GPS directions one step at a time, you give the next 10 steps at once. The driver can plan smoother turns because they see the upcoming trajectory. If one step is slightly off, the remaining chunk keeps them on track rather than going off-course.
+A standard visuomotor policy looks at an image and outputs one action. Then it
+looks again and outputs one more. At 20 Hz for 30 seconds that's 600 separate
+decisions, each an opportunity to drift.
 
-## In practice
+Action chunking predicts the next $k$ actions from a single observation and
+executes them before looking again.
 
-ACT (Action Chunking with Transformers) for bimanual manipulation: predict chunks of $K=100$ timesteps (2 seconds at 50Hz). A CVAE encoder models the latent style variable $z \sim q_\phi(z|\tau)$ to capture multi-modal behavior, transformer decoder generates the chunk $\{a_t\}_{t=0}^{K-1}$ conditioned on $(s, z)$. Temporal ensembling blends overlapping chunks with exponential weights $w_i = \exp(-\alpha \cdot i)$. Achieves near-human performance on complex bimanual tasks with only 50 demonstrations.
+<Intuition>
+Reaching for a mug, you don't re-plan your arm trajectory every 50 milliseconds
+based on fresh visual input. You glance once, commit to a motion, and only look
+again near the end — or if something surprises you.
+
+Single-step policies re-decide constantly, and that constant re-deciding is
+where hesitation, jitter, and drift come from.
+</Intuition>
+
+## Why it helps so much
+
+<Steps>
+<Step title="It divides the number of decision points">
+Behaviour cloning's error compounds because each independent decision can nudge
+the robot off-distribution. With chunk size $k$, an episode of $T$ steps has only
+$T/k$ such moments. The $O(\epsilon T^2)$ term becomes roughly
+$O(\epsilon T^2/k)$ — for $k = 100$, a large win for no extra data.
+</Step>
+
+<Step title="It absorbs pauses and jitter in human demonstrations">
+Teleoperated data is full of moments where the human hesitated or held still. A
+single-step policy sees near-identical observations mapped to contradictory
+tiny actions, and learns to stall. Predicting a whole segment averages over that
+noise instead of being confused by it.
+</Step>
+
+<Step title="It makes the policy commit">
+Multi-modality hurts most when the policy re-decides constantly — it can pick
+"left" then "right" on consecutive frames and dither in place. A chunk commits
+to one coherent plan for its duration.
+</Step>
+</Steps>
+
+<KeyIdea>
+Chunking is the cheapest fix in imitation learning. It needs no extra data, no
+online expert, and no architectural sophistication — just a wider output layer
+and a slightly different dataset index. That cost-to-benefit ratio is why it
+appears in essentially every modern real-robot policy.
+</KeyIdea>
+
+## What it costs
+
+<Warning>
+During a chunk the robot is blind. It executes a plan formed from an observation
+that may be up to $k$ steps stale. If the object slips or a human intervenes
+mid-chunk, the robot finishes the wrong plan first.
+</Warning>
+
+So chunk size is a genuine trade-off: larger $k$ means less drift but slower
+reaction. The usual resolution is **temporal ensembling** — predict overlapping
+chunks at every timestep and average all the predictions that apply to the
+current one. You get the commitment of chunking with something closer to
+per-step responsiveness, at the price of running inference every step.
+
+<WatchThis />

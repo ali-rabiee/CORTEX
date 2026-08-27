@@ -1,24 +1,134 @@
 ---
 concept: action_chunking
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Action Chunking for Manipulation fail in practice, and how
-    would you present it in an interview?
+  prompt: "Give your interview answer on action chunking: what it is, why it works, what it costs, and how you'd pick $k$."
   keyPoints:
-    - "Chunk too long ($K$ too large): can't react to unexpected perturbations
-      or dynamic changes because actions are committed in advance."
-    - "Chunk too short ($K$ too small): loses the compounding error benefit."
-    - "Also: temporal blending between consecutive chunks can cause jittery
-      behavior if not done carefully."
-check: []
-papers: []
+    - "Predict $k$ actions per observation instead of one; decision points fall from $T$ to $T/k$, so drift falls by roughly a factor of $k$."
+    - "Also absorbs pauses and jitter in teleoperated data, and makes the policy commit instead of dithering between modes."
+    - "Cost is reactivity — blind during the chunk. Temporal ensembling buys it back by averaging overlapping chunks weighted by age."
+    - "Tune $k$ against rollout success, never validation loss: longer chunks trivially lower per-step loss by predicting smooth averages."
+interview:
+  answer: >-
+    Action chunking means the policy predicts the next k actions from one
+    observation instead of a single action, and executes them before
+    re-planning. The reason it helps is directly tied to why behaviour cloning
+    fails. Compounding error scales with the number of independent decisions
+    the policy makes, because each one is a chance to nudge itself
+    off-distribution — so an episode of T steps with chunk size k has only T
+    over k such moments, and the regret term goes from epsilon T squared to
+    roughly epsilon T squared over k. It's a constant-factor win rather than a
+    change in horizon order, which is what separates it from DAgger, but for k
+    around a hundred that constant is enormous. There are two secondary
+    benefits that matter as much in practice. Teleoperated data is full of
+    pauses and jitter, where nearly identical observations map to contradictory
+    tiny actions, and a single-step policy learns to hesitate; predicting a
+    whole segment averages over that. And chunking makes the policy commit — if
+    the expert was multi-modal, a per-step policy can pick left then right on
+    consecutive frames and dither in place, where a chunk commits to one
+    coherent plan. The cost is reactivity: during a chunk you're blind, acting
+    on an observation that's up to k steps stale, so a mid-chunk disturbance
+    gets ignored until the chunk ends. ACT's answer is temporal ensembling —
+    predict a fresh chunk every timestep and average all the predictions that
+    cover the current one, weighted exponentially by how stale each is. That
+    recovers most of the responsiveness. For picking k, I'd tune it against
+    rollout success rate rather than validation loss, because longer chunks
+    trivially reduce per-step loss by predicting smooth averages while
+    performing worse on the robot.
+  followUps:
+    - q: "Does chunking give you the same guarantee as DAgger?"
+      a: >-
+        No, and the distinction is worth being precise about. DAgger changes
+        which distribution the per-step error is measured under, so the bound
+        improves in order — epsilon T squared becomes epsilon T. Chunking
+        leaves the T squared structure intact and divides by k, so it's a
+        constant factor. What makes it attractive anyway is the cost: DAgger
+        needs an online queryable expert, chunking needs a wider output layer.
+        On real hardware that trade almost always favours chunking, and the two
+        compose fine if you happen to have both.
+    - q: "Why not just make k enormous?"
+      a: >-
+        Because epsilon grows with k. The later actions in a chunk are
+        conditioned on an increasingly stale observation, so predicting the full
+        sequence accurately gets harder, and you're also blind for longer. The
+        optimum is interior — ACT uses around a hundred steps at 50 Hz, so
+        roughly two seconds of motion. Past that the tail of the chunk is
+        essentially open-loop guessing about a world it hasn't seen.
+    - q: "How does chunking interact with multi-modality?"
+      a: >-
+        It helps with the symptom but doesn't fix the cause. The worst
+        expression of mode averaging is per-step dithering — picking left, then
+        right, then left as the policy re-decides on nearly identical
+        observations, and going nowhere. Chunking removes that by forcing
+        commitment for k steps. But the chunk itself is still predicted by
+        whatever head you have, and an MSE head still regresses to the mean of
+        contradictory demonstrations — you'd just get one smoothly averaged
+        wrong trajectory instead of a jittery one. Fixing the cause needs an
+        expressive action distribution, which is exactly what Diffusion Policy
+        adds on top.
+    - q: "Why does chunking matter for large VLA models specifically?"
+      a: >-
+        It decouples control rate from model size. You cannot run a
+        multi-billion-parameter policy at 50 Hz per action, but if one forward
+        pass emits two seconds of motion, the inference rate you need drops by
+        two orders of magnitude. So chunking isn't just an accuracy trick there
+        — it's what makes large policies deployable at all.
+  traps:
+    - "Saying chunking 'solves' compounding error. It divides the constant by k; the $T^2$ structure is unchanged. DAgger is the one that changes the order."
+    - "Claiming it fixes multi-modality. It suppresses per-step dithering, but an MSE head still averages contradictory demonstrations across the whole chunk."
+    - "Tuning $k$ on validation loss. Longer chunks lower per-step loss by predicting smooth averages while doing worse on the robot — rollout success is the only honest metric."
+    - "Forgetting the blindness cost. If an interviewer asks about disturbance rejection and you don't mention that open-loop execution ignores it, you've missed the trade."
+check:
+  - id: ac_l5_c1
+    prompt: "Your chunked policy is smooth but consistently fails when a human nudges the object mid-motion. What is the most direct fix?"
+    options:
+      - "Increase the chunk size so the policy plans further ahead"
+      - "Reduce the chunk size, or increase the temporal-ensembling decay $m$ so fresh predictions dominate — both raise reactivity to mid-chunk disturbances"
+      - "Collect more demonstrations of the nominal task"
+      - "Switch from MSE to a diffusion head"
+    answer: 1
+    explanation: "The symptom is precisely the known cost of chunking: blindness during execution. Longer chunks make it worse. A diffusion head addresses multi-modality, not staleness. The dial that matters is how much weight the freshest observation gets — smaller $k$, or larger $m$ in the ensemble."
+  - id: ac_l5_c2
+    prompt: "A colleague reports that increasing chunk size from 20 to 200 lowered validation loss, and proposes shipping it. What is your response?"
+    options:
+      - "Ship it — lower validation loss means a better policy"
+      - "Validation loss is the wrong metric here: longer chunks reduce per-step error by predicting smooth averages, while the tail of the chunk is conditioned on a stale observation. Compare rollout success rates before deciding"
+      - "Increase it further to 500 since the trend is favourable"
+      - "The loss decrease means the model is overfitting"
+    answer: 1
+    explanation: "This is the standard trap and it appears constantly in practice. Per-step action error and task success are only loosely coupled, and chunk size is exactly the axis where they decouple most. The only defensible comparison is closed-loop rollout success on the real task."
 ---
 
-## Failure modes
+## Diagnosing chunk-size problems
 
-Chunk too long ($K$ too large): can't react to unexpected perturbations or dynamic changes because actions are committed in advance. Chunk too short ($K$ too small): loses the compounding error benefit. Also: temporal blending between consecutive chunks can cause jittery behavior if not done carefully. Fix: use exponential weighting $w_i = \exp(-\alpha \cdot i)$ for chunk blending, choose $K$ based on task reactivity needs.
+<Steps>
+<Step title="Fails on disturbances, smooth otherwise">
+Classic over-chunking. The robot is executing a stale plan. Reduce $k$, or raise
+the ensembling decay $m$ so recent predictions dominate.
+</Step>
 
-## Interview-ready answer
+<Step title="Hesitant, jittery, stalls mid-task">
+Under-chunking, or no chunking. The policy is re-deciding on near-identical
+observations and dithering. Raise $k$ first — it's the cheapest thing you can do.
+</Step>
 
-Action chunking addresses the compounding error problem in behavior cloning by predicting sequences of $K$ actions rather than one at a time. The key insight: predicting $K$ steps at once reduces the effective decision horizon from $T$ to $T/K$, so compounding error scales as $\mathcal{O}((T/K)^2)$ instead of $\mathcal{O}(T^2)$. In ACT, $K=100$ works well for manipulation tasks. Combined with temporal ensembling (blending overlapping chunks via exponential weights), it produces smooth, robust trajectories. This idea is also central to diffusion policies, which generate entire action chunks via iterative denoising from $a^{(N)} \sim \mathcal{N}(0, I)$ to $a^{(0)}$.
+<Step title="Smooth but consistently wrong at one decision point">
+Not a chunking problem at all — that's mode averaging. Changing $k$ will produce
+a smoothly wrong trajectory instead of a jittery one. Change the action head.
+</Step>
+
+<Step title="Validation loss improved but the robot got worse">
+Expected when $k$ increased. Believe the robot.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The strongest version of this answer connects chunking back to the
+$O(\epsilon T^2)$ bound explicitly, and is honest that it's a constant-factor
+improvement. Candidates who present it as "the fix for compounding error"
+without that qualifier get asked how it compares to DAgger, and usually
+discover mid-sentence that they don't have a crisp answer.
+</Warning>

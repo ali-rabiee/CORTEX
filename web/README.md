@@ -120,8 +120,16 @@ and these components:
 | `<InterviewAnswer />` | Renders the level's `interview` block: the spoken answer, follow-ups, traps |
 | `<PaperCard refKey="…" />` `<PaperGrid>` | Citations from the level's `papers` |
 
-`content/concepts/robot_learning/behavior_cloning/` is the worked reference for
-what `status: final` means across all five parts — use it as the template.
+**[`content/AUTHORING.md`](content/AUTHORING.md) is the full spec** — frontmatter,
+components, the enforced quality bar, reference-verification rules, figure
+conventions, priority order, and a ready-to-paste prompt for continuing the work
+in a fresh session. `content/concepts/robot_learning/behavior_cloning/` is the
+worked reference implementation.
+
+```bash
+npm run status          # what's authored, what's next (--all for low-importance)
+npm run validate        # schema + the `final` quality bar
+```
 
 Gotchas:
 - Never use `\$` inside math — micromark ends the span at the `$`. Use

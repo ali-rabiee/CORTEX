@@ -11,7 +11,8 @@
     "migrate-content": "tsx scripts/migrate-content.ts",
     "prebuild": "tsx scripts/validate-content.ts",
     "e2e": "playwright test",
-    "validate": "tsx scripts/validate-content.ts"
+    "validate": "tsx scripts/validate-content.ts",
+    "status": "tsx scripts/content-status.ts"
   },
   "dependencies": {
     "@content-collections/core": "^0.15.1",

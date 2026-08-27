@@ -1,0 +1,106 @@
+---
+concept: action_chunking
+level: 4
+status: final
+recall:
+  prompt: "Where did action chunking come from, and why did it become standard so fast?"
+  keyPoints:
+    - "ACT (Zhao et al. 2023) introduced it with a CVAE transformer and temporal ensembling, on cheap bimanual hardware with ~50 demos per task."
+    - "Diffusion Policy independently generates action *sequences*, so it inherits the same benefit — the two 2023 papers converged on chunking from different directions."
+    - "It spread fast because it costs nothing: no extra data, no online expert, no new objective — a wider output layer and a different dataset slice."
+    - "It is now near-universal in VLA policies, where predicting an action sequence per observation is also what makes autoregressive action tokens tractable."
+papers:
+  - key: zhao2023act
+    title: "Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware"
+    authors: "Tony Z. Zhao, Vikash Kumar, Sergey Levine, Chelsea Finn"
+    venue: RSS
+    year: 2023
+    arxiv: "2304.13705"
+    takeaway: "Introduces ACT: chunked action prediction with a CVAE transformer plus temporal ensembling. The ablations isolate how much of the performance is chunking alone — it is most of it."
+  - key: chi2023diffusion
+    title: "Diffusion Policy: Visuomotor Policy Learning via Action Diffusion"
+    authors: "Cheng Chi, Siyuan Feng, Yilun Du, Zhenjia Xu, Eric Cousineau, Benjamin Burchfiel, Shuran Song"
+    venue: RSS
+    year: 2023
+    arxiv: "2303.04137"
+    takeaway: "Denoises a whole action sequence conditioned on the observation, so chunking and multi-modality are addressed by the same mechanism."
+  - key: chi2024umi
+    title: "Universal Manipulation Interface: In-The-Wild Robot Teaching Without In-The-Wild Robots"
+    authors: "Cheng Chi, Zhenjia Xu, Chuer Pan, Eric Cousineau, Benjamin Burchfiel, Siyuan Feng, Russ Tedrake, Shuran Song"
+    venue: RSS
+    year: 2024
+    arxiv: "2402.10329"
+    takeaway: "Handheld grippers collect demonstrations without a robot, and the resulting policies are chunked diffusion policies. Shows the recipe holds when data comes from a completely different collection device."
+check:
+  - id: ac_l4_c1
+    prompt: "ACT and Diffusion Policy both predict action sequences. What is the difference in *why*?"
+    options:
+      - "ACT chunks to reduce decision points; Diffusion Policy generates sequences because denoising naturally operates on a whole trajectory, and gets the chunking benefit as a side effect of also fixing multi-modality"
+      - "They are the same method with different names"
+      - "ACT predicts sequences for speed; Diffusion Policy for accuracy"
+      - "Diffusion Policy predicts single actions and ACT predicts sequences"
+    answer: 0
+    explanation: "ACT sets out to cut decision points and uses a CVAE to handle some demonstration variability. Diffusion Policy sets out to represent multi-modal $p(a \\mid o)$ and denoises over an action-sequence tensor, so chunking falls out. Converging on sequence prediction from two different motivations is part of why it was adopted so quickly."
+  - id: ac_l4_c2
+    prompt: "Why does chunking matter for VLA policies that emit discretised action tokens?"
+    options:
+      - "It reduces the vocabulary size"
+      - "One forward pass of a large model amortises over $k$ control steps, which makes a multi-billion-parameter policy viable at control rates it could never hit per-step"
+      - "It removes the need for a vision encoder"
+      - "Token-based policies cannot represent single actions"
+    answer: 1
+    explanation: "Running a large VLA at 50 Hz per action is infeasible. Emitting a chunk per forward pass turns one inference into two seconds of motion, so the effective control rate is decoupled from model size. Chunking is what makes large policies deployable, not just more accurate."
+---
+
+## The paper that named it
+
+<PaperCard refKey="zhao2023act" />
+
+ACT's contribution is usually remembered as the hardware — a $20k bimanual
+teleoperation rig — but the algorithmic core is chunking plus temporal
+ensembling. The ablations are the part worth reading: they separate the CVAE,
+the transformer, and the chunking, and chunking carries most of the gain.
+
+## Convergent evolution
+
+<PaperCard refKey="chi2023diffusion" />
+
+Diffusion Policy arrives at sequence prediction from the opposite direction. Its
+goal is representing multi-modal $p(a \mid o)$; denoising naturally operates over
+a whole action-sequence tensor, so it chunks by construction.
+
+<KeyIdea>
+Two 2023 papers with different motivations — one attacking decision points, one
+attacking mode averaging — both landed on "predict a sequence." That convergence
+is the strongest evidence that single-step action prediction was the wrong
+default all along.
+</KeyIdea>
+
+## It survives changes of data source
+
+<PaperCard refKey="chi2024umi" />
+
+UMI collects demonstrations with a handheld gripper and no robot at all, then
+trains chunked diffusion policies on the result. The recipe holding up under a
+completely different collection device is a good sign it's capturing something
+structural about the control problem rather than an artefact of teleoperation.
+
+## Why it became standard
+
+<Steps>
+<Step title="It costs nothing">
+No extra demonstrations, no online expert, no new objective. A wider output
+layer and a different dataset slice.
+</Step>
+
+<Step title="It composes with everything">
+Chunking is orthogonal to the action representation. Diffusion, discretised
+tokens, and Gaussian heads all chunk. Nothing has to be given up to adopt it.
+</Step>
+
+<Step title="It makes large policies deployable">
+For a VLA, one forward pass per chunk decouples control rate from model size.
+Without chunking, billion-parameter policies simply could not run fast enough to
+close a control loop.
+</Step>
+</Steps>

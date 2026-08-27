@@ -1,23 +1,130 @@
 ---
 concept: action_chunking
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Action Chunking for Manipulation,
-    including the key equations.
+  prompt: "Formalise action chunking and its effect on the compounding-error bound. What does temporal ensembling compute?"
   keyPoints:
-    - Instead of predicting a single action $a_t$ per timestep, predict a
-      sequence (chunk) of $K$ future actions $\{a_t, a_{t+1}, \ldots,
-      a_{t+K-1}\}$ at once.
-    - "The policy becomes $\\pi_\\theta: s_t \\mapsto (a_t, a_{t+1}, \\ldots,
-      a_{t+K-1})$."
-    - Reduces the effective decision horizon from $T$ to $T/K$, mitigates
-      compounding errors in BC (error scales as $\mathcal{O}((T/K)^2)$ instead
-      of $\mathcal{O}(T^2)$), and produces smoother trajectories.
-check: []
-papers: []
+    - "The policy becomes $\\pi_\\theta(a_{t:t+k} \\mid o_t)$ — a distribution over action *sequences*, not single actions."
+    - "Decision points drop from $T$ to $T/k$, so the $O(\\epsilon T^2)$ regret becomes roughly $O(\\epsilon T^2 / k)$; the horizon is unchanged, the number of chances to deviate is not."
+    - "Temporal ensembling averages every prediction that covers timestep $t$, typically with exponential weights $w_i \\propto \\exp(-m i)$ over chunk age $i$."
+check:
+  - id: ac_l2_c1
+    prompt: "With chunk size $k$, how does behaviour cloning's regret bound change?"
+    options:
+      - "From $O(\\epsilon T^2)$ to $O(\\epsilon T)$ — the same as DAgger"
+      - "From $O(\\epsilon T^2)$ to roughly $O(\\epsilon T^2/k)$ — a constant-factor reduction, not a change in horizon order"
+      - "It becomes $O(\\epsilon k^2)$, independent of $T$"
+      - "It is unchanged; chunking only affects inference speed"
+    answer: 1
+    explanation: "Chunking reduces the *number of decision points* to $T/k$ but does not change the fact that a mistake early on can still ruin the remaining horizon. So you gain a factor of $k$, not a factor of $T$. It's a constant-factor improvement — which for $k = 100$ is enormous in practice, but is not the same guarantee DAgger provides."
+  - id: ac_l2_c2
+    prompt: "In temporal ensembling with weights $w_i \\propto \\exp(-m i)$ over chunk age $i$, what does increasing $m$ do?"
+    options:
+      - "Weights older predictions more heavily, smoothing the trajectory"
+      - "Weights the freshest prediction more heavily, increasing reactivity at the cost of smoothness"
+      - "Increases the effective chunk size"
+      - "Has no effect on behaviour, only on inference cost"
+    answer: 1
+    explanation: "Larger $m$ decays older chunks faster, so the average is dominated by the prediction made from the most recent observation. That is more responsive to disturbances but noisier and less smooth. Small $m$ averages many past chunks — very smooth, slower to react. It is the reactivity/smoothness dial."
 ---
 
-## Formal definition
+## Reformulating the policy
 
-Instead of predicting a single action $a_t$ per timestep, predict a sequence (chunk) of $K$ future actions $\{a_t, a_{t+1}, \ldots, a_{t+K-1}\}$ at once. The policy becomes $\pi_\theta: s_t \mapsto (a_t, a_{t+1}, \ldots, a_{t+K-1})$. Reduces the effective decision horizon from $T$ to $T/K$, mitigates compounding errors in BC (error scales as $\mathcal{O}((T/K)^2)$ instead of $\mathcal{O}(T^2)$), and produces smoother trajectories. Used in ACT (Action Chunking with Transformers) and diffusion policies.
+A single-step policy models
+
+$$
+\pi_\theta(a_t \mid o_t)
+$$
+
+Chunking simply widens the output to a sequence:
+
+$$
+\pi_\theta(a_{t:t+k} \mid o_t)
+\qquad\text{where } a_{t:t+k} = (a_t, a_{t+1}, \ldots, a_{t+k-1})
+$$
+
+The training objective is unchanged — maximum likelihood on demonstrations, MSE
+under a Gaussian head — just summed over the $k$ predicted steps:
+
+$$
+\mathcal{L}(\theta) \;=\; \mathbb{E}_{(o_t,\, a_{t:t+k}) \sim \mathcal{D}}
+\left[ \sum_{j=0}^{k-1} \big\| \pi_\theta(o_t)_j - a_{t+j} \big\|^2 \right]
+$$
+
+<KeyIdea>
+No new machinery. The loss, the optimiser, the architecture are all the same —
+the output layer got $k$ times wider and the dataset returns slices instead of
+single actions. That's why chunking is nearly free to adopt.
+</KeyIdea>
+
+## Effect on the bound
+
+<Derivation title="Why the gain is a factor of $k$, not a factor of $T$">
+
+Recall the cloning argument: with per-step error $\epsilon$ measured on the
+expert's distribution, a first deviation at decision point $t$ can corrupt every
+remaining step, giving
+
+$$
+\text{regret} \;\lesssim\; \sum_{t=1}^{T} \epsilon (T - t) \;=\; O(\epsilon T^2)
+$$
+
+Under chunking, the policy makes an independent decision only every $k$ steps —
+there are $T/k$ decision points, not $T$. Within a chunk the actions are jointly
+predicted from one observation, so no *new* distribution shift is introduced
+mid-chunk. Re-running the sum over decision points $n = 1 \ldots T/k$, where a
+deviation at decision $n$ still damages the remaining $T - nk$ steps:
+
+$$
+\text{regret} \;\lesssim\; \sum_{n=1}^{T/k} \epsilon\,(T - nk)
+\;=\; \epsilon\left(\frac{T^2}{k} - k\cdot\frac{(T/k)(T/k+1)}{2}\right)
+\;=\; O\!\left(\frac{\epsilon T^2}{k}\right)
+$$
+
+</Derivation>
+
+<Warning>
+This is a constant-factor win, not an order-of-horizon win. DAgger changes
+$O(\epsilon T^2)$ to $O(\epsilon T)$ by fixing the distribution the error is
+measured under; chunking divides by $k$ while leaving the $T^2$ structure intact.
+Both are useful and they compose — but claiming chunking "solves" compounding
+error is the kind of overstatement an interviewer will push on.
+</Warning>
+
+There is a countervailing effect worth naming: as $k$ grows, predicting the whole
+sequence accurately gets harder, and the later actions in a chunk are conditioned
+on an increasingly stale observation. So $\epsilon$ itself grows with $k$. The
+optimum is interior — in ACT, chunk sizes around 100 at 50 Hz, i.e. roughly two
+seconds of motion.
+
+## Temporal ensembling
+
+Running chunks back to back means a discontinuity every $k$ steps, and total
+blindness in between. Instead, predict a fresh chunk at **every** timestep and
+combine all predictions that cover the current step.
+
+At time $t$ you hold predictions for $a_t$ made from observations at
+$t, t-1, \ldots, t-k+1$. Index them by age $i$ and average:
+
+$$
+\hat{a}_t \;=\; \frac{\sum_{i=0}^{k-1} w_i \, a_t^{(t-i)}}{\sum_{i=0}^{k-1} w_i},
+\qquad w_i \;=\; \exp(-m\,i)
+$$
+
+<Steps>
+<Step title="Small $m$ — heavy averaging">
+Old and new predictions weighted almost equally. Very smooth motion, slow to
+react to anything new.
+</Step>
+
+<Step title="Large $m$ — fresh predictions dominate">
+Approaches per-step closed-loop control. Responsive, but recovers less of
+chunking's smoothing benefit.
+</Step>
+
+<Step title="The cost is compute, not correctness">
+You now run inference every timestep instead of every $k$ — the same rate as an
+unchunked policy. What you keep is the coherence of predicting a whole segment.
+</Step>
+</Steps>

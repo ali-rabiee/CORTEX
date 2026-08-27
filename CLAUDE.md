@@ -13,7 +13,8 @@ Three pieces live in this repo:
 - `cd web && npm run build` — validate content + static export to `web/out/`
 - `cd web && npm test` — engine/persistence unit tests (vitest)
 - `cd web && npm run e2e` — Playwright against the static export (build first)
-- `cd web && npm run validate` — content integrity checks only
+- `cd web && npm run validate` — content integrity checks + the `final` quality bar
+- `cd web && npm run status` — authoring progress per concept (`--all` for low-importance)
 - Requires Node 20+ (Node 22 is symlinked in `~/.local/bin`; system apt node is 18/EOL — don't use it)
 
 ## Commands (sync Worker)
@@ -127,6 +128,10 @@ Six topic domains — every concept, quiz, and scenario is tagged with one or mo
 - Dark mode is the default and primary theme
 - Target 60fps on Linux desktop — avoid unnecessary rebuilds
 - Keep concept content accurate to PhD-level robotics/ML — no dumbed-down explanations
+- Authoring concept content follows `web/content/AUTHORING.md`. Never set
+  `status: final` until `npm run validate` passes its quality bar, and never
+  write a citation or URL from memory — verify it first (the arXiv API, or curl
+  the URL). Fabricated references are worse than none here.
 
 ## Current Phase
 

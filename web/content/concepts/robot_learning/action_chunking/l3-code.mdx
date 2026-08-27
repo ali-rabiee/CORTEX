@@ -1,0 +1,160 @@
+---
+concept: action_chunking
+level: 3
+status: final
+recall:
+  prompt: "Implement action chunking: the dataset slice, the policy head, and temporal ensembling at inference."
+  keyPoints:
+    - "Dataset item $i$ is one observation plus the next $k$ actions, padded by repeating the last action near episode end."
+    - "The head outputs `k * act_dim` and reshapes to `(B, k, act_dim)`; the loss is MSE over the whole chunk."
+    - "Inference keeps a buffer of overlapping chunk predictions and exponentially weights them by age before sending a command."
+check:
+  - id: ac_l3_c1
+    prompt: "Near the end of an episode there are fewer than $k$ actions remaining. What is the standard handling?"
+    options:
+      - "Drop those timesteps from the dataset entirely"
+      - "Pad by repeating the final action, and optionally mask the padded entries out of the loss"
+      - "Wrap around to the start of the episode"
+      - "Pad with zeros, which the policy learns to ignore"
+    answer: 1
+    explanation: "Dropping them removes exactly the task-completion behaviour you most need. Zero-padding is worse than repeat-padding because zero is a *valid action* — it means 'hold still' — so the policy learns to stop early. Repeating the final action encodes 'stay where you finished', and masking padded entries out of the loss is cleaner still."
+  - id: ac_l3_c2
+    prompt: "In the temporal ensembling buffer, why store predictions indexed by the absolute timestep they refer to rather than by their position in the chunk?"
+    options:
+      - "It uses less memory"
+      - "Because chunks made at different times overlap on the same absolute timesteps, and the ensemble must average predictions that refer to the same future moment"
+      - "It makes the exponential weights easier to compute"
+      - "PyTorch requires absolute indexing for buffers"
+    answer: 1
+    explanation: "A chunk predicted at $t-3$ covers $t-3 \\ldots t-3+k$, and a chunk predicted at $t$ covers $t \\ldots t+k$. Both contain a prediction for the action at time $t$, at different chunk offsets. Averaging is only meaningful across predictions of the *same absolute timestep*, so that has to be the key."
+---
+
+## Dataset: slice, don't index
+
+The only change from single-step behaviour cloning is what one item contains.
+
+<CodeWalk title="Chunked demonstration dataset">
+
+```python title="chunk_dataset.py"
+import numpy as np
+import torch
+from torch.utils.data import Dataset
+
+class ChunkedDemos(Dataset):
+    """Item i = (observation at t, the next k actions, mask for real vs padded)."""
+
+    def __init__(self, episodes, chunk=100):
+        self.chunk = chunk
+        # Flat index of (episode, timestep) so __getitem__ is O(1).
+        self.index = [(e, t) for e, ep in enumerate(episodes)
+                              for t in range(len(ep["actions"]))]
+        self.episodes = episodes
+
+    def __len__(self):
+        return len(self.index)
+
+    def __getitem__(self, i):
+        e, t = self.index[i]
+        actions = self.episodes[e]["actions"]
+        obs = self.episodes[e]["obs"][t]
+
+        window = actions[t : t + self.chunk]
+        pad = self.chunk - len(window)
+        mask = np.ones(self.chunk, dtype=np.float32)
+        if pad > 0:
+            # Repeat the final action, never zeros: zero is a VALID action
+            # meaning "hold still", so zero-padding teaches early stopping.
+            window = np.concatenate([window, np.repeat(window[-1:], pad, axis=0)])
+            mask[len(actions) - t:] = 0.0
+
+        return (torch.as_tensor(obs).float(),
+                torch.as_tensor(window).float(),
+                torch.as_tensor(mask))
+```
+
+</CodeWalk>
+
+## Loss over the chunk
+
+```python title="loss.py"
+def chunk_loss(policy, obs, actions, mask, act_mean, act_std):
+    pred = policy(obs)                              # (B, k, act_dim)
+    target = (actions - act_mean) / act_std
+
+    per_step = ((pred - target) ** 2).mean(dim=-1)  # (B, k)
+    # Padded steps carry no supervision — don't let them dominate the average.
+    return (per_step * mask).sum() / mask.sum().clamp(min=1)
+```
+
+<KeyIdea>
+Masking matters more than it looks. Without it, every item near an episode's end
+is mostly repeated padding, and the loss is dominated by "predict the same action
+$k$ times" — which the network learns very well and which teaches it nothing.
+</KeyIdea>
+
+## Inference with temporal ensembling
+
+<CodeWalk title="Overlapping chunks, exponentially weighted by age">
+
+```python title="ensemble.py"
+from collections import defaultdict
+import numpy as np
+
+class TemporalEnsembler:
+    """Averages every prediction that refers to the same absolute timestep."""
+
+    def __init__(self, chunk=100, m=0.01):
+        self.chunk, self.m = chunk, m
+        self.buffer = defaultdict(list)   # absolute timestep -> [(age_born, action)]
+
+    def add(self, t_now, chunk_actions):
+        # A chunk predicted at t_now covers t_now .. t_now + k - 1.
+        for offset, a in enumerate(chunk_actions):
+            self.buffer[t_now + offset].append((t_now, a))
+
+    def command(self, t_now):
+        preds = self.buffer.pop(t_now, [])
+        if not preds:
+            return None
+        # Weight by how stale the observation behind each prediction is.
+        ages = np.array([t_now - born for born, _ in preds], dtype=np.float32)
+        w = np.exp(-self.m * ages)
+        actions = np.stack([a for _, a in preds])
+        return (actions * w[:, None]).sum(0) / w.sum()
+
+
+@torch.no_grad()
+def rollout(policy, env, ens, act_mean, act_std):
+    obs, done, t = env.reset(), False, 0
+    while not done:
+        pred = policy(torch.as_tensor(obs).float().unsqueeze(0))[0]
+        ens.add(t, (pred.cpu().numpy() * act_std + act_mean))
+        obs, _, done, _ = env.step(ens.command(t))
+        t += 1
+```
+
+</CodeWalk>
+
+<Warning>
+Two bugs that look like model failures. **Indexing predictions by chunk offset
+instead of absolute timestep** silently averages predictions about different
+moments — the robot moves smoothly and wrongly. **Forgetting to un-normalise**
+before `env.step` sends actions in normalised units, which usually looks like a
+robot that barely moves. Both are worth checking before touching the model.
+</Warning>
+
+## Picking $k$
+
+There is no free lunch — larger chunks reduce decision points but make each
+prediction harder and staler:
+
+| Chunk size | Behaviour |
+| --- | --- |
+| 1 | Plain behaviour cloning; maximum reactivity, maximum drift |
+| ~10–20 | Noticeably smoother, still responsive; a safe default |
+| ~100 (ACT, 50 Hz ≈ 2 s) | Strong drift reduction; needs temporal ensembling to stay usable |
+| ≫ 100 | The tail of the chunk is conditioned on a badly stale observation and accuracy degrades |
+
+Tune it as a hyperparameter against **rollout success rate**, never against
+validation loss — longer chunks trivially lower per-step loss by predicting
+smooth averages.
