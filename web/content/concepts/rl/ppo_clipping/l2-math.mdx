@@ -1,22 +1,168 @@
 ---
 concept: ppo_clipping
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Proximal Policy Optimization (PPO) —
-    Clipping Mechanism, including the key equations.
+  prompt: "Derive the surrogate objective, show its gradient matches the policy gradient at $\\theta_{\\text{old}}$, and work through all four cases of the clipped objective."
   keyPoints:
-    - PPO constrains policy updates by clipping the probability ratio $r(\theta)
-      = \frac{\pi_{\theta}(a|s)}{\pi_{\theta_{\text{old}}}(a|s)}$ to
-      $[1-\epsilon, 1+\epsilon]$, preventing destructively large policy changes.
-    - "The clipped surrogate objective is: $$L^{\\text{CLIP}}(\\theta) =
-      \\mathbb{E}\\left[\\min\\left(r(\\theta)\\hat{A},
-      \\;\\text{clip}(r(\\theta), 1-\\epsilon,
-      1+\\epsilon)\\hat{A}\\right)\\right]$$"
-check: []
-papers: []
+    - "$L(\\theta) = \\mathbb{E}_{s,a\\sim\\pi_{\\text{old}}}[r_t(\\theta)\\hat A_t]$ has $\\nabla_\\theta L\\big|_{\\theta_{\\text{old}}}$ equal to the ordinary policy gradient, because $r=1$ there and $\\nabla r = \\nabla\\log\\pi_\\theta$."
+    - "The surrogate's error is that it uses the *old* policy's state distribution. TRPO bounds it: $J(\\theta) \\ge L(\\theta) - C\\max_s D_{KL}$, which is what makes a trust region principled."
+    - "$L^{\\text{CLIP}} = \\mathbb{E}[\\min(r\\hat A,\\ \\text{clip}(r,1\\pm\\epsilon)\\hat A)]$. Four cases: the gradient is zero only when the ratio has moved past the threshold *in the direction the advantage favours*."
+    - "The min is what makes it a pessimistic lower bound. Clipping alone would also zero the gradient when the policy had overshot in a harmful direction."
+check:
+  - id: ppo_l2_c1
+    prompt: "Why is the surrogate $L(\\theta) = \\mathbb{E}[r_t(\\theta)\\hat A_t]$ a sensible thing to maximise at all?"
+    options:
+      - "Because it equals the true objective $J(\\theta)$ for all $\\theta$"
+      - "Because its gradient at $\\theta = \\theta_{\\text{old}}$ is exactly the policy gradient, so maximising it locally improves $J$ — and unlike $\\nabla J$ it is defined for $\\theta \\ne \\theta_{\\text{old}}$, which is what permits multiple steps"
+      - "Because importance sampling makes it unbiased for any $\\theta$"
+      - "Because the advantage is always non-negative"
+    answer: 1
+    explanation: "At $\\theta_{\\text{old}}$ the ratio is 1 and $\\nabla_\\theta r = \\nabla_\\theta \\log \\pi_\\theta$, so $\\nabla L$ reduces to $\\mathbb{E}[\\nabla\\log\\pi\\,\\hat A]$ — the policy gradient. The surrogate is a *function* whose gradient at one point matches, which is strictly more useful than the gradient itself: you can keep optimising it as $\\theta$ moves. Option 3 is the tempting one and is wrong for a specific reason — the ratio corrects the action distribution but not the state distribution."
+  - id: ppo_l2_c2
+    prompt: "What does the surrogate objective get wrong as $\\theta$ moves away from $\\theta_{\\text{old}}$?"
+    options:
+      - "The advantage estimates become noisier"
+      - "It reweights actions by the importance ratio but still averages over states visited by the *old* policy — and the new policy visits a different state distribution, an error the ratio does not correct"
+      - "The clipping range becomes too narrow"
+      - "The value function becomes stale"
+    answer: 1
+    explanation: "This is the precise reason a trust region is needed at all, and it is worth being able to state exactly. $J(\\theta)$ is an expectation over $d^{\\pi_\\theta}$; the surrogate uses $d^{\\pi_{\\theta_{\\text{old}}}}$. TRPO's contribution was to bound that error by a term proportional to the maximum KL divergence, making 'stay close and the surrogate is trustworthy' a theorem rather than a hope. PPO keeps the intuition and drops the theorem."
+  - id: ppo_l2_c3
+    prompt: "Advantage is negative and the ratio has drifted to $r = 1.6$ with $\\epsilon = 0.2$. What does the clipped objective do?"
+    options:
+      - "Nothing — the ratio is outside the clip range, so the gradient is zero"
+      - "The unclipped term $r\\hat A = 1.6\\hat A$ is more negative than the clipped term $1.2\\hat A$, so the min selects the unclipped term and the gradient stays active, pushing the probability back down"
+      - "It clips the ratio back to 1.2 and continues"
+      - "It rejects the sample"
+    answer: 1
+    explanation: "This is the case that justifies the min, so work it through rather than memorise it. With $\\hat A < 0$, larger $r$ means a *more negative* objective, so $\\min$ picks the unclipped term whenever $r > 1+\\epsilon$. The gradient is therefore non-zero exactly when the policy has made a bad action more likely and needs pulling back. Option 1 is the natural guess if you think clipping is symmetric, and it describes a version of PPO that could not recover from overshoots."
 ---
 
-## Formal definition
+## Where the surrogate comes from
 
-PPO constrains policy updates by clipping the probability ratio $r(\theta) = \frac{\pi_{\theta}(a|s)}{\pi_{\theta_{\text{old}}}(a|s)}$ to $[1-\epsilon, 1+\epsilon]$, preventing destructively large policy changes. The clipped surrogate objective is: $$L^{\text{CLIP}}(\theta) = \mathbb{E}\left[\min\left(r(\theta)\hat{A}, \;\text{clip}(r(\theta), 1-\epsilon, 1+\epsilon)\hat{A}\right)\right]$$
+The true objective is an expectation over trajectories from $\pi_\theta$, which
+you cannot sample without running $\pi_\theta$. The surrogate replaces it with
+something you can compute from a batch collected under $\pi_{\theta_{\text{old}}}$:
+
+$$
+L(\theta) = \mathbb{E}_{(s,a)\sim \pi_{\theta_{\text{old}}}}
+\left[\frac{\pi_\theta(a\mid s)}{\pi_{\theta_{\text{old}}}(a\mid s)}\; \hat A^{\pi_{\theta_{\text{old}}}}(s,a)\right]
+$$
+
+<Derivation title="The surrogate's gradient is the policy gradient">
+
+Differentiate under the expectation. Only the ratio depends on $\theta$:
+
+$$
+\nabla_\theta L(\theta)
+= \mathbb{E}\left[\frac{\nabla_\theta \pi_\theta(a\mid s)}{\pi_{\theta_{\text{old}}}(a\mid s)}\,\hat A\right]
+$$
+
+Evaluate at $\theta = \theta_{\text{old}}$, where the denominator equals
+$\pi_\theta(a\mid s)$:
+
+$$
+\nabla_\theta L\big|_{\theta_{\text{old}}}
+= \mathbb{E}\left[\frac{\nabla_\theta \pi_\theta(a\mid s)}{\pi_\theta(a\mid s)}\,\hat A\right]
+= \mathbb{E}\big[\nabla_\theta \log \pi_\theta(a\mid s)\, \hat A\big]
+$$
+
+which is exactly the policy gradient with an advantage weight.
+
+**Why this is more useful than the gradient itself.** $\nabla J$ is a vector at
+one point. $L$ is a *function* you can keep climbing as $\theta$ moves — which
+is what lets you run ten epochs of SGD on one batch instead of taking one step
+and throwing it away.
+
+</Derivation>
+
+## The error the surrogate makes
+
+<Warning>
+The importance ratio corrects the **action** distribution. It does not correct
+the **state** distribution. The true objective averages over states visited by
+$\pi_\theta$; the surrogate averages over states visited by
+$\pi_{\theta_{\text{old}}}$. Nothing in $L$ knows about that mismatch, and it
+grows as the policies diverge. This one omission is the entire reason a trust
+region is needed.
+</Warning>
+
+TRPO turned that into a bound. Writing $\alpha = \max_s D_{\mathrm{KL}}\big(\pi_{\theta_{\text{old}}}(\cdot\mid s)\,\|\,\pi_\theta(\cdot\mid s)\big)$:
+
+$$
+J(\theta) \;\ge\; L(\theta) - C\,\alpha,
+\qquad C = \frac{4\epsilon_{\max}\gamma}{(1-\gamma)^2}
+$$
+
+where $\epsilon_{\max} = \max_{s,a}|A^{\pi_{\theta_{\text{old}}}}(s,a)|$.
+Maximising the right-hand side guarantees improvement in the left — so "improve
+the surrogate while staying close in KL" is a theorem, not a hope. Note the
+$1/(1-\gamma)^2$: the bound degrades quadratically as the horizon grows, which
+is why the theoretically-correct step sizes are far too small to use and
+practical TRPO uses the KL as a constraint with a tuned radius instead.
+
+## The clipped objective, case by case
+
+$$
+L^{\text{CLIP}}(\theta) = \mathbb{E}_t\Big[\min\big(r_t \hat A_t,\;
+\operatorname{clip}(r_t,\, 1-\epsilon,\, 1+\epsilon)\,\hat A_t\big)\Big]
+$$
+
+<Derivation title="All four cases, and what the min is for">
+
+**Case 1 — $\hat A > 0$, $r \le 1+\epsilon$.** Both terms equal $r\hat A$ (or
+the clip is inactive). Gradient active: keep increasing this action's
+probability.
+
+**Case 2 — $\hat A > 0$, $r > 1+\epsilon$.** Clipped term is $(1+\epsilon)\hat A$,
+unclipped is $r\hat A$ which is *larger*. The min picks the clipped, constant
+term. **Gradient zero** — you have already moved this action up as far as the
+evidence justifies.
+
+**Case 3 — $\hat A < 0$, $r \ge 1-\epsilon$.** Clip inactive or both equal.
+Gradient active: keep decreasing this action's probability.
+
+**Case 4 — $\hat A < 0$, $r < 1-\epsilon$.** Clipped term is
+$(1-\epsilon)\hat A$; unclipped is $r\hat A$ which is *more negative*, hence
+smaller. The min picks the **clipped** term. Gradient zero — you have already
+suppressed this action enough.
+
+**Now the case that explains the min.** Take $\hat A < 0$ with $r > 1+\epsilon$:
+the policy has made a *bad* action substantially more likely. Clipping alone
+would return $(1+\epsilon)\hat A$, a constant — no gradient, no recovery. But
+$r\hat A$ is more negative than $(1+\epsilon)\hat A$, so the min selects the
+**unclipped** term and the gradient survives, pushing the probability back down.
+
+</Derivation>
+
+<KeyIdea>
+The rule underneath all four cases: the gradient vanishes only when the ratio
+has moved past the threshold **in the direction the advantage favours**. Move
+too far the wrong way and the objective still pulls you back. That asymmetry is
+why $L^{\text{CLIP}}$ is a pessimistic lower bound on the unclipped surrogate,
+and why the min cannot be simplified away.
+</KeyIdea>
+
+## What the objective does not give you
+
+<Steps>
+<Step title="No constraint on the ratio">
+Nothing projects $\theta$ anywhere. A large step can carry $r$ far outside
+$[1-\epsilon, 1+\epsilon]$ in one update, and epochs 2 through 10 begin from a
+policy that has already moved. Monitor the empirical KL; early-stopping the
+epoch loop on it is standard practice and is effectively a trust region
+smuggled back in.
+</Step>
+
+<Step title="No guarantee of monotonic improvement">
+TRPO's bound came from the KL penalty with a specific constant. PPO replaces
+that with a heuristic that behaves similarly and proves nothing.
+</Step>
+
+<Step title="No specification of the algorithm">
+Advantage normalisation, value-function clipping, reward scaling, orthogonal
+initialisation, and learning-rate annealing all materially affect results and
+none are in the objective. "We used PPO" names a family, not a method.
+</Step>
+</Steps>

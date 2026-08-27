@@ -1,23 +1,163 @@
 ---
 concept: ppo_clipping
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Proximal Policy Optimization (PPO) — Clipping Mechanism fail in
-    practice, and how would you present it in an interview?
+  prompt: "Give your interview answer on PPO clipping. What is the one thing most candidates get wrong about it?"
   keyPoints:
-    - "Entropy collapse: policy becomes deterministic too early, converging to a
-      single action mode."
-    - "Symptoms: reward plateaus, action standard deviation $\\sigma \\to 0$."
-    - "Root cause: entropy coefficient too low."
-check: []
-papers: []
+    - "Frame it as the fix for on-policy waste: reuse a batch for several epochs by making the objective stop rewarding movement past the point where the data is trustworthy."
+    - "The mistake to avoid: clipping does not constrain the ratio. It flattens the objective; nothing bounds $\\theta$, and ratios routinely leave the clip range across epochs."
+    - "Explain the min via the $\\hat A < 0$, $r > 1+\\epsilon$ case — the gradient must survive there so an overshoot on a bad action is recoverable."
+    - "Name the state-distribution mismatch as what the surrogate actually gets wrong, and TRPO's KL bound as what made staying close principled."
+interview:
+  answer: >-
+    PPO exists because policy gradients are on-policy and that's wasteful. The
+    gradient is an expectation under the current policy, so strictly one batch
+    of environment interaction buys one update — which is intolerable when a
+    batch costs an hour of robot time. The surrogate objective is the expected
+    importance ratio times the advantage, where the ratio is the new policy's
+    probability of the sampled action over the old one's. That surrogate has a
+    nice property: its gradient at the old parameters is exactly the policy
+    gradient, but unlike the gradient it's a function you can keep climbing as
+    theta moves, so you can run several epochs of SGD on one batch. The catch
+    is what the surrogate gets wrong. The ratio corrects the action
+    distribution but not the state distribution — the true objective averages
+    over states the new policy visits, and the surrogate averages over states
+    the old one visited. That error grows as the policies diverge. TRPO turned
+    that into a bound, showing the true objective is at least the surrogate
+    minus a constant times the max KL, which makes "stay close" a theorem.
+    PPO keeps the intuition and drops the theorem: it clips the objective so
+    that once the ratio has moved past one plus or minus epsilon in the
+    direction the advantage favours, there's no further gradient. And it takes
+    the min of the clipped and unclipped terms, which matters — the case that
+    forces it is negative advantage with a ratio above one plus epsilon,
+    meaning you've made a bad action more likely. Clipping alone would zero the
+    gradient there and you couldn't recover; the min keeps the unclipped term
+    so the policy gets pulled back. The thing I'd want to be precise about is
+    that clipping does not constrain the ratio. There's no projection, no trust
+    region, just a flat region in the objective. A single step can jump past
+    it, and after a few epochs ratios well outside the range are normal. That's
+    why real implementations also track the empirical KL and early-stop the
+    epoch loop on it — which is quietly restoring what was traded away.
+  followUps:
+    - q: "So is PPO actually better than TRPO?"
+      a: >-
+        It's much easier to implement and it doesn't need conjugate gradients
+        or a Hessian-vector product, which is most of why it won. On the
+        question of whether the clipped objective is better, the honest answer
+        is that it's contested — Engstrom and colleagues did a careful
+        reproduction and found much of PPO's measured advantage came from
+        code-level details that ship with the reference implementation rather
+        than from the objective: advantage normalisation, value clipping,
+        reward scaling, orthogonal initialisation, learning-rate annealing.
+        When they controlled for those, the gap narrowed a lot. My practical
+        conclusion is that "we used PPO" doesn't specify an algorithm, and if
+        I'm comparing against a PPO baseline I want to know which of those
+        details are in it.
+    - q: "How would you pick epsilon?"
+      a: >-
+        0.2 is the default and it's a reasonable starting point, but I'd tune
+        it against the empirical KL rather than treat it as fixed. The thing
+        epsilon actually controls is how far one epoch can move before the
+        objective stops paying, and that interacts with the number of epochs
+        and the batch size — ten epochs at epsilon 0.2 moves much further than
+        three. So I'd instrument the KL between the old and current policy
+        across the epoch loop and set a target, then adjust epsilon or the
+        epoch count to hit it. If the KL is consistently far below target I'm
+        leaving sample efficiency on the table; if it's overshooting, that's
+        where the instability comes from.
+    - q: "Your PPO run collapses partway through training. Where do you look?"
+      a: >-
+        First at the empirical KL and the fraction of samples being clipped —
+        a spike there tells me a step went too far and I'd cut epsilon, cut
+        epochs, or turn on KL early-stopping. Second at entropy: if it's
+        falling toward zero the policy has gone deterministic and can't
+        explore back out, and I'd add or raise an entropy bonus. Third at the
+        value function's explained variance, because a critic that's tracking
+        badly gives advantages that are mostly noise and the resulting steps
+        are effectively random. And I'd check advantage normalisation is
+        actually on — unnormalised advantages with a fixed learning rate mean
+        the effective step size drifts with the reward scale over training.
+    - q: "Where is PPO the wrong choice?"
+      a: >-
+        When samples are the binding constraint rather than compute. It's still
+        on-policy — the clipping buys you a handful of epochs per batch, not a
+        replay buffer — so on real hardware with no simulator, an off-policy
+        method like SAC that reuses everything will be far more sample
+        efficient. The flip side is that PPO scales extremely well when you can
+        parallelise the environment, which is why it dominates massively
+        parallel sim training for locomotion, and why it became the default for
+        RLHF where generating completions is cheap relative to the value of
+        stability.
+  traps:
+    - "Saying clipping keeps the ratio inside $[1-\\epsilon, 1+\\epsilon]$. It constrains the objective, not the ratio, and this is the single most common error on this topic."
+    - "Describing the clipping as symmetric. The min makes it deliberately asymmetric — the gradient survives whenever the policy has moved the wrong way, which is what makes overshoots recoverable."
+    - "Attributing PPO's empirical edge entirely to the objective. A careful reproduction traced much of it to implementation details that are not in the paper."
+    - "Calling PPO a trust region method without qualification. TRPO has a trust region and a monotonic improvement bound; PPO has a heuristic that behaves similarly and proves nothing."
+check:
+  - id: ppo_l5_c1
+    prompt: "During training you log that 40% of samples are hitting the clip and the empirical KL per update is 10x your usual value. What is the most direct interpretation?"
+    options:
+      - "The advantages are misnormalised"
+      - "The policy is moving much further per batch than intended — the flat region is not a constraint, so large steps carry the ratio well outside it — and reducing epochs, epsilon, or enabling KL early-stopping addresses it directly"
+      - "The value function has diverged"
+      - "The entropy bonus is too high"
+    answer: 1
+    explanation: "A high clip fraction together with a large KL is the signature of steps that outrun the region where the batch is informative. It is exactly the scenario people assume clipping prevents, which is why it is worth having seen: the objective goes flat, but nothing stops the optimiser walking past it, and each subsequent epoch starts from an already-moved policy. The direct levers are the epoch count, epsilon, and KL early-stopping."
+  - id: ppo_l5_c2
+    prompt: "An interviewer asks you to justify the `min` in the PPO objective with a concrete case. Which one demonstrates it?"
+    options:
+      - "Positive advantage with $r$ just above 1, where both terms agree"
+      - "Negative advantage with $r > 1+\\epsilon$: clipping alone would return a constant and kill the gradient just when the policy has made a bad action more likely — the min selects the unclipped term instead, so the probability gets pulled back down"
+      - "Positive advantage with $r$ far below $1-\\epsilon$"
+      - "Zero advantage, where the objective is flat everywhere"
+    answer: 1
+    explanation: "It is the only one of the four cases where clipping and the min disagree in a way that matters. In the other three, taking the min either changes nothing or agrees with the clip. Being able to name this case specifically, rather than saying 'the min makes it pessimistic', is what shows you worked through the case analysis instead of reading the summary."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Entropy collapse: policy becomes deterministic too early, converging to a single action mode. Symptoms: reward plateaus, action standard deviation $\sigma \to 0$. Root cause: entropy coefficient too low. Fix: increase entropy bonus coefficient to $\beta \in [0.01, 0.05]$, monitor policy entropy $H(\pi)$.
+<Steps>
+<Step title="Sudden collapse mid-training → step size, not architecture">
+Check clip fraction and empirical KL first. A spike in both means a step
+outran the batch. Reduce epochs before reducing $\epsilon$ — epoch count is
+usually the bigger lever, and ten epochs at $\epsilon = 0.2$ moves much further
+than three.
+</Step>
 
-## Interview-ready answer
+<Step title="Entropy falling toward zero → the policy went deterministic">
+Once probabilities collapse, the abandoned actions stop being sampled and their
+gradients vanish. Entropy bonus, and for Gaussian policies check whether the
+learned log-std is collapsing and needs a floor.
+</Step>
 
-PPO stabilizes policy gradient training by clipping the importance sampling ratio $r(\theta) = \frac{\pi_{\theta}}{\pi_{\theta_{\text{old}}}}$ between old and new policies. The key insight is the $\min$ of clipped and unclipped objectives — this creates a pessimistic bound that prevents destructive updates. In practice, PPO with $\epsilon=0.2$, batch size 2048, 10 epochs per update, and entropy bonus $\beta=0.01$ is a strong default for continuous control. Compared to TRPO, PPO is simpler (no conjugate gradient, no Fisher vector products) and scales better to large networks.
+<Step title="Learning is noisy and directionless → look at the critic">
+Low explained variance in the value function means advantages are mostly noise,
+and every step is effectively random. Fix the critic before touching the
+policy-side hyperparameters.
+</Step>
+
+<Step title="Performance drifts over training with no clear cause → check normalisation">
+Unnormalised advantages mean the effective step size scales with the reward
+magnitude, which changes as the policy improves. Per-batch advantage
+normalisation is not cosmetic.
+</Step>
+
+<Step title="Sample count is the problem, not stability → wrong algorithm">
+Clipping buys a handful of epochs per batch, not a replay buffer. If environment
+steps are the binding constraint, that is an argument for an off-policy method,
+not for tuning $\epsilon$.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+There is one sentence that separates candidates on this topic: **clipping
+flattens the objective, it does not constrain the ratio.** Most people describe
+PPO as keeping the ratio in a range, which is both wrong and consequential —
+it is why implementations monitor KL and early-stop, and why "PPO is a trust
+region method" is a claim TRPO earned and PPO did not. Say that, then justify
+the min with the negative-advantage overshoot case, and the rest of the answer
+takes care of itself.
+</Warning>

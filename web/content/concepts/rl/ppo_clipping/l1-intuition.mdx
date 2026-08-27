@@ -1,27 +1,150 @@
 ---
 concept: ppo_clipping
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Proximal Policy Optimization (PPO) — Clipping Mechanism in
-    plain language: what is it, and why does it matter?"
+  prompt: "Explain PPO's clipping in plain language. What problem does it solve, and what does it not actually do?"
   keyPoints:
-    - Imagine updating your driving strategy after a bad day.
-    - Without clipping, you might overcorrect — go from 'too aggressive' to
-      'refuse to merge.' PPO's clip (typically $\epsilon=0.2$) is a speed limit
-      on how much your policy can change in one update.
-    - The $\min(\cdot)$ ensures you only get the pessimistic (conservative)
-      benefit — if the advantage $\hat{A} > 0$, we cap how much we can increase
-      the action probability; if $\hat{A} < 0$, we cap how much we can decrease
-      it.
-check: []
-papers: []
+    - "Policy gradients are on-policy: after one update the data is stale. PPO lets you reuse a batch for several epochs by penalising updates that move the policy too far from the one that collected it."
+    - "The mechanism is the probability ratio $r = \\pi_\\theta / \\pi_{\\theta_{\\text{old}}}$. Clip the objective so that once $r$ has moved past $1\\pm\\epsilon$ in the helpful direction, there is nothing more to gain."
+    - "The min of the clipped and unclipped terms matters: it removes the incentive to keep going when the update helps, but keeps the gradient alive when the update was bad and needs undoing."
+    - "It does *not* constrain the ratio. There is no trust region and no guarantee — only a flat region in the objective. Over several epochs the ratio can and does drift well outside the clip range."
+media:
+  - kind: article
+    title: "Proximal Policy Optimization"
+    url: https://spinningup.openai.com/en/latest/algorithms/ppo.html
+    source: "OpenAI Spinning Up"
+    note: "The clearest short statement of the objective and the pseudocode. Read the 'Key Equations' box, then come back for the case analysis in Level 2."
+  - kind: article
+    title: "The 37 Implementation Details of Proximal Policy Optimization"
+    url: https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/
+    source: "Huang et al. · ICLR Blog Track 2022"
+    note: "Read this before you implement PPO, not after. Much of the algorithm's reported performance lives in details that are not in the paper — advantage normalisation, value clipping, orthogonal init, learning-rate annealing."
+  - kind: video
+    title: "Proximal Policy Optimization Explained"
+    url: https://www.youtube.com/watch?v=HrapVFNBN64
+    source: "Edan Meyer"
+    minutes: 18
+    note: "A compact walkthrough of the objective with the ratio plots drawn out. Useful if the piecewise case analysis has not clicked yet."
+check:
+  - id: ppo_l1_c1
+    prompt: "What problem is PPO's clipped objective actually solving?"
+    options:
+      - "Reducing the variance of the policy gradient estimator"
+      - "Letting an on-policy method reuse the same batch of experience for several gradient steps, by removing the incentive to move far from the policy that collected it"
+      - "Handling continuous action spaces, which vanilla policy gradients cannot"
+      - "Preventing the value function from diverging"
+    answer: 1
+    explanation: "The policy gradient is an expectation under the current policy, so strictly one batch buys one update — which is enormously wasteful when environment steps are expensive. PPO's objective stays meaningful for a policy somewhat different from the one that collected the data, so you can run 3-10 epochs of minibatch SGD on each batch. Variance reduction is what GAE and baselines do; that is a separate axis."
+  - id: ppo_l1_c2
+    prompt: "For an action with positive advantage, the clipped objective goes flat once the ratio exceeds $1+\\epsilon$. Why is that the desired behaviour?"
+    options:
+      - "Because the advantage estimate becomes invalid above that ratio"
+      - "Because the advantage was computed under the old policy, so it is only trustworthy nearby — once you have moved that far, the objective stops rewarding you for moving further on evidence that no longer applies"
+      - "Because the gradient would otherwise be numerically unstable"
+      - "Because probabilities cannot exceed one"
+    answer: 1
+    explanation: "The advantages come from rollouts of $\\pi_{\\theta_{\\text{old}}}$. They estimate how good an action was *under that policy's state distribution*, and that estimate degrades as the policy moves. Flattening the objective is a blunt way of saying 'I no longer trust this evidence enough to keep acting on it'. Option 4 confuses the ratio with a probability — the ratio of two probabilities is unbounded above."
+  - id: ppo_l1_c3
+    prompt: "A colleague says 'PPO keeps the probability ratio inside $[1-\\epsilon, 1+\\epsilon]$'. What is wrong with that?"
+    options:
+      - "Nothing — that is exactly what clipping does"
+      - "Clipping flattens the *objective* outside that range; it does not constrain the ratio. Nothing stops an update from carrying $r$ far outside, and over multiple epochs it routinely does"
+      - "The range should be $[-\\epsilon, \\epsilon]$"
+      - "The ratio is constrained, but only for negative advantages"
+    answer: 1
+    explanation: "This is the most common misconception about PPO and interviewers use it as a filter. There is no projection, no constraint, no trust region — just a region of the objective with zero gradient. A single large step can jump straight past it, and later epochs on the same batch start from a policy that has already moved. That gap between what PPO is called and what it does is why implementations also monitor the empirical KL and often early-stop on it."
 ---
 
-## Intuition
+## The problem it exists to solve
 
-Imagine updating your driving strategy after a bad day. Without clipping, you might overcorrect — go from 'too aggressive' to 'refuse to merge.' PPO's clip (typically $\epsilon=0.2$) is a speed limit on how much your policy can change in one update. The $\min(\cdot)$ ensures you only get the pessimistic (conservative) benefit — if the advantage $\hat{A} > 0$, we cap how much we can increase the action probability; if $\hat{A} < 0$, we cap how much we can decrease it.
+Policy gradients are on-policy: the gradient is an expectation over trajectories
+from the *current* policy. Take one step and your expensive batch of robot
+experience is formally worthless.
 
-## In practice
+That is intolerable when a batch costs an hour of hardware time. So you would
+like to take several gradient steps on the same data. The obstacle is that the
+further the policy moves, the less the batch describes it — the advantages were
+measured under the old policy, and past some point they are describing a
+different agent.
 
-Training a robot arm to stack blocks using PPO with $\epsilon=0.2$. After 500K env steps, the policy reliably reaches 85% success. Compare: vanilla policy gradient diverged at 200K steps. Key detail: PPO needs multiple epochs (3-10) per batch, unlike TRPO's single constrained step. Typical hyperparameters: batch size $N=2048$, minibatch size $M=64$, learning rate $\alpha = 3 \times 10^{-4}$.
+<Intuition>
+You spent a day watching a driver and noting which decisions worked out. Those
+notes are excellent advice for someone who drives roughly like they do. They are
+useless advice for someone driving completely differently — the situations they
+describe will not come up.
+
+So use the notes, but stop trusting them once you have changed enough that
+they no longer describe you.
+</Intuition>
+
+## The mechanism
+
+Track how much the policy has moved on each sampled action with the
+**probability ratio**
+
+$$
+r_t(\theta) = \frac{\pi_\theta(a_t \mid s_t)}{\pi_{\theta_{\text{old}}}(a_t \mid s_t)}
+$$
+
+$r = 1$ means unchanged; $r = 1.3$ means this action is now 30% more likely.
+PPO's objective is built so that once $r$ has moved usefully far, moving further
+earns nothing.
+
+<Figure src="/figures/ppo-clip-objective.svg"
+        alt="Two plots of the clipped objective against the ratio r. For positive advantage the objective rises then goes flat above 1 plus epsilon. For negative advantage it is flat below 1 minus epsilon and slopes downward above it."
+        caption="Flat means no gradient. Note the asymmetry: for a bad action the slope survives on the side that pulls the probability back down, so a policy that has already overshot can still recover." />
+
+<Steps>
+<Step title="Collect a batch and freeze its log-probabilities">
+Roll out $\pi_{\theta_{\text{old}}}$, store states, actions, advantages, and the
+log-probability of each action at the time it was taken. That stored number is
+the denominator of every ratio from now on.
+</Step>
+
+<Step title="Compute the ratio for the current parameters">
+$r_t = \exp(\log\pi_\theta - \log\pi_{\theta_{\text{old}}})$, using the stored
+value. No frozen second network required.
+</Step>
+
+<Step title="Take the pessimistic option">
+Form both the plain surrogate $r_t \hat A_t$ and the clipped one
+$\text{clip}(r_t, 1-\epsilon, 1+\epsilon)\hat A_t$, then take the **minimum**.
+Taking the min is what makes the objective a lower bound rather than a licence.
+</Step>
+
+<Step title="Run several epochs, then discard the batch">
+Typically 3-10 epochs of minibatch SGD. Then throw it away and collect again.
+</Step>
+</Steps>
+
+<KeyIdea>
+The min is the subtle part. Clipping alone would also switch off the gradient
+when the policy had moved too far in a *harmful* direction — exactly when you
+most need it back. The min keeps the unclipped term active in that case, so
+overshooting on a bad action is recoverable.
+</KeyIdea>
+
+## What it is not
+
+<Warning>
+PPO does not constrain the ratio. It flattens the objective in a region; it does
+not project, clamp, or bound anything about $\theta$. A single large step can
+land far outside $[1-\epsilon, 1+\epsilon]$, and after a few epochs on the same
+batch, ratios well outside the range are normal. TRPO enforced a genuine trust
+region with a hard KL constraint and second-order machinery; PPO traded that
+guarantee for a first-order objective you can implement in five lines. Serious
+implementations therefore also log the empirical KL and early-stop the epoch
+loop when it exceeds a target — which is, in effect, quietly restoring the thing
+that was traded away.
+</Warning>
+
+There is a second thing to know about PPO before you trust a benchmark of it.
+A careful reproduction found that much of its measured advantage over TRPO came
+from code-level details shipped with the reference implementation — advantage
+normalisation, value-function clipping, reward scaling, orthogonal
+initialisation, learning-rate annealing — rather than from the clipped objective
+itself. Level 4 covers that; the implication for you is that "we used PPO" does
+not specify an algorithm.
+
+<WatchThis />
