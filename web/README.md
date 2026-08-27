@@ -9,16 +9,22 @@ sync across devices (see `../sync/`).
 
 Every concept has **5 mastery levels**, each a separate MDX document:
 
-| Level | Name        | What it teaches                                      |
-| ----- | ----------- | ---------------------------------------------------- |
-| L1    | Intuition   | Plain-language explanation + real robotics examples  |
-| L2    | Math        | Formal definitions, clean LaTeX, derivations         |
-| L3    | Code        | Minimal runnable Python/PyTorch implementations      |
-| L4    | Frontier    | Seminal + 2023–2026 papers with arXiv links          |
-| L5    | Application | Failure modes, debugging, interview-grade answers    |
+| Part | Heading               | What it teaches                                     |
+| ---- | --------------------- | --------------------------------------------------- |
+| L1   | Understand            | Plain language, an analogy, a diagram, numbered steps |
+| L2   | The details           | Formal definitions and derivations, built up in steps |
+| L3   | In code               | Minimal runnable Python/PyTorch implementations       |
+| L4   | Frontier              | Seminal + 2023–2026 papers with arXiv links           |
+| L5   | Say it in an interview| The spoken answer, follow-ups, and traps              |
 
-Passing a level's check (≥80%) unlocks the next, grants XP, and creates/updates
-an SM-2 spaced-repetition card targeted at your current level. Daily sessions
+All five parts render as **one scrolling page** with a sticky section rail —
+they are not gated tabs. You frequently want the interview answer before you
+have ground through the math, and locking it behind three checks made the page
+hostile to how it actually gets used. Passing a check still records mastery,
+grants XP, and drives spaced repetition; it just no longer withholds reading.
+
+Passing a part's check (≥80%) grants XP and creates/updates an SM-2
+spaced-repetition card targeted at your current level. Daily sessions
 (warmup → core reviews → challenge quiz) keep concepts from decaying;
 confidence calibration shortens intervals when you're overconfident.
 
@@ -76,6 +82,21 @@ check:                 # level-up gate (pass ≥80%)
     options: ["...", "..."]
     answer: 0
     explanation: "..."
+media:                 # curated external explanations; rendered by <WatchThis />
+  - kind: lecture      # video | lecture | article | interactive
+    title: "CS 285 Lecture 2: Imitation Learning, Part 1"
+    url: https://www.youtube.com/watch?v=tbLaFtYpWWU
+    source: "UC Berkeley CS285 · Sergey Levine"
+    minutes: 17
+    note: "Watch this one if you watch nothing else."
+interview:             # L5 only; rendered by <InterviewAnswer />
+  answer: >-
+    The 45–90 second answer, written the way you would actually say it.
+  followUps:
+    - q: "So why not just always use DAgger?"
+      a: "Because it needs an expert you can query online…"
+  traps:
+    - "Saying it fails 'because of overfitting'."
 papers:                # L4 levels: rendered as PaperCards via <PaperCard refKey="..."/>
   - key: schulman2017ppo
     title: "Proximal Policy Optimization Algorithms"
@@ -86,8 +107,21 @@ papers:                # L4 levels: rendered as PaperCards via <PaperCard refKey
 ```
 
 Body is MDX: `$...$` / `$$...$$` math, fenced `python` blocks (Shiki-highlighted),
-and components: `<Intuition>`, `<KeyIdea>`, `<Warning>`, `<Derivation>`,
-`<CodeWalk>`, `<PaperCard>`, `<PaperGrid>`.
+and these components:
+
+| Component | Use it for |
+| --- | --- |
+| `<Intuition>` `<KeyIdea>` `<Warning>` | Callouts — the framing, the one thing to remember, the sharp edge |
+| `<Steps>` / `<Step title="…">` | A numbered walkthrough. Reach for this whenever the concept is really a *sequence* |
+| `<Figure src alt caption />` | A diagram from `public/figures/` — SVG, so it stays crisp and tiny on a phone |
+| `<Derivation title="…">` | A collapsible derivation |
+| `<CodeWalk title="…">` | An annotated code block |
+| `<WatchThis />` | Renders the level's `media` as link cards. Links, not embeds — embeds would break offline use |
+| `<InterviewAnswer />` | Renders the level's `interview` block: the spoken answer, follow-ups, traps |
+| `<PaperCard refKey="…" />` `<PaperGrid>` | Citations from the level's `papers` |
+
+`content/concepts/robot_learning/behavior_cloning/` is the worked reference for
+what `status: final` means across all five parts — use it as the template.
 
 Gotchas:
 - Never use `\$` inside math — micromark ends the span at the `$`. Use

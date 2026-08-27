@@ -9,7 +9,7 @@ test.describe("CORTEX static export", () => {
     await expect(page.getByText("Reinforcement Learning")).toBeVisible();
   });
 
-  test("concept page renders KaTeX math and Shiki-ready level tabs", async ({
+  test("concept page renders KaTeX math and every section up front", async ({
     page,
   }) => {
     await page.goto("/concepts/ppo_clipping");
@@ -18,8 +18,15 @@ test.describe("CORTEX static export", () => {
     ).toBeVisible();
     // Build-time KaTeX must be present in the prerendered HTML.
     expect(await page.locator(".katex").count()).toBeGreaterThan(0);
-    // Gating: L2 locked behind L1 on a fresh profile.
-    await expect(page.getByRole("tab", { name: /L1/ })).toBeVisible();
+
+    // Sections are navigation, not gates: on a fresh profile every authored
+    // part is already in the document and reachable from the rail.
+    const rail = page.getByRole("navigation", { name: "Sections" });
+    await expect(rail.getByRole("link", { name: "Understand" })).toBeVisible();
+    await expect(rail.getByRole("link", { name: "Interview" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Say it in an interview" }),
+    ).toBeVisible();
   });
 
   test("level pass persists across reload", async ({ page }) => {
@@ -34,10 +41,15 @@ test.describe("CORTEX static export", () => {
     await page.getByRole("button", { name: /Keep going/i }).click();
 
     await page.reload();
-    // Returning users land on their next open level (auto-advance), so the
-    // L1 tab shows the passed checkmark and its panel shows the banner.
-    await page.getByRole("tab", { name: /L1/ }).click();
+    // Mastery survives the reload: the part heading is marked passed, and so
+    // is its chip in the section rail.
     await expect(page.getByText(/Level 1 passed/).first()).toBeVisible();
+    await expect(
+      page
+        .getByRole("navigation", { name: "Sections" })
+        .getByRole("link", { name: "Understand" })
+        .getByText("Understand"),
+    ).toBeVisible();
     // XP badge reflects the 20 XP grant.
     await expect(page.getByText(/20\/100 XP/)).toBeVisible();
   });

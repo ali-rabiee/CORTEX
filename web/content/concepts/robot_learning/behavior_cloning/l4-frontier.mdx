@@ -1,0 +1,120 @@
+---
+concept: behavior_cloning
+level: 4
+status: final
+recall:
+  prompt: "Trace the line from ALVINN to modern behaviour cloning. What did each step change?"
+  keyPoints:
+    - "ALVINN (1989) established the recipe — camera in, steering out, supervised. The idea has not changed since."
+    - "DAgger (2011) diagnosed compounding error and fixed the *data distribution*: query the expert on states the learner visits, driving regret from $O(\\epsilon T^2)$ to $O(\\epsilon T)$."
+    - "ACT (2023) and Diffusion Policy (2023) fixed the *action representation* instead — chunking plus expressive multi-modal heads — and got dexterous real-world manipulation without ever querying an expert online."
+papers:
+  - key: pomerleau1989alvinn
+    title: "ALVINN: An Autonomous Land Vehicle in a Neural Network"
+    authors: "Dean A. Pomerleau"
+    venue: NeurIPS
+    year: 1989
+    url: https://proceedings.neurips.cc/paper/1988/hash/812b4ba287f5ee0bc9d43bbf5bbe87fb-Abstract.html
+    takeaway: "A 3-layer net maps a 30x32 camera image to a steering angle and drives a van. Behaviour cloning worked, on real hardware, before backprop was fashionable."
+  - key: ross2011dagger
+    title: "A Reduction of Imitation Learning and Structured Prediction to No-Regret Online Learning"
+    authors: "Stéphane Ross, Geoffrey Gordon, J. Andrew Bagnell"
+    venue: AISTATS
+    year: 2011
+    arxiv: "1011.0686"
+    takeaway: "Names compounding error, proves the $O(\\epsilon T^2)$ bound, and fixes it by aggregating expert labels on the learner's own states. The paper to cite when asked why naive cloning drifts."
+  - key: zhao2023act
+    title: "Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware"
+    authors: "Tony Z. Zhao, Vikash Kumar, Sergey Levine, Chelsea Finn"
+    venue: RSS
+    year: 2023
+    arxiv: "2304.13705"
+    takeaway: "ACT: a transformer predicting ~100-step action chunks with temporal ensembling, trained on 50 demos. Cloning alone, no online expert — and it threads zip ties and inserts batteries."
+  - key: chi2023diffusion
+    title: "Diffusion Policy: Visuomotor Policy Learning via Action Diffusion"
+    authors: "Cheng Chi, Siyuan Feng, Yilun Du, Zhenjia Xu, Eric Cousineau, Benjamin Burchfiel, Shuran Song"
+    venue: RSS
+    year: 2023
+    arxiv: "2303.04137"
+    takeaway: "Replaces the regression head with a conditional denoising diffusion model over action chunks, so the policy represents multi-modal $p(a \\mid o)$ instead of averaging it. Large, consistent gains across 15 tasks."
+check:
+  - id: bc_l4_c1
+    prompt: "DAgger and Diffusion Policy both improve on naive behaviour cloning. What is the fundamental difference in what they change?"
+    options:
+      - "DAgger changes the training data distribution; Diffusion Policy changes how the action distribution is represented"
+      - "DAgger is for continuous actions, Diffusion Policy for discrete ones"
+      - "DAgger is offline, Diffusion Policy is online"
+      - "They are the same idea in different notation"
+    answer: 0
+    explanation: "DAgger attacks covariate shift — it needs an expert available online to label states the learner reaches, which is often impractical on real robots. Diffusion Policy leaves the dataset alone and attacks mode averaging, plus chunking to reduce decision points. They are complementary, and the fact that the field largely chose the second reflects how expensive online expert queries are."
+  - id: bc_l4_c2
+    prompt: "ACT trains on roughly 50 demonstrations per task and succeeds at fine bimanual manipulation. Which claim does that most directly undermine?"
+    options:
+      - "That behaviour cloning requires an online expert to be practical"
+      - "That transformers can model action sequences"
+      - "That real-robot data collection is expensive"
+      - "That imitation learning needs a reward function"
+    answer: 0
+    explanation: "The $O(\\epsilon T^2)$ analysis suggests naive cloning should be hopeless over long horizons, and DAgger's remedy needs an online expert. ACT shows that shrinking the number of decision points (chunking) and modelling the action sequence well gets you most of the way there from a fixed, modest dataset. The bound is not wrong — it is worst-case, and chunking changes the $T$ it applies to."
+---
+
+## The idea is 35 years old
+
+<PaperCard refKey="pomerleau1989alvinn" />
+
+ALVINN drove a van on public roads using a neural network with fewer parameters
+than a single modern attention head. Camera in, steering out, trained on a human
+driving. Every architectural detail has changed since; the framing has not.
+
+## The diagnosis
+
+<PaperCard refKey="ross2011dagger" />
+
+This is the paper that turned "cloning is brittle" from folklore into a theorem,
+and gave the standard fix. DAgger's loop: roll out the current policy, ask the
+expert what *they* would have done at every state the learner visited, add those
+labels, retrain, repeat.
+
+The catch is the one interviewers press on. DAgger needs an expert you can query
+**online**, at arbitrary states — including states that are already going wrong.
+For a human teleoperator on a real robot, being asked "what would you do from
+this half-fallen position?" is awkward at best and impossible at worst. That
+practical difficulty is why the field's centre of gravity moved elsewhere.
+
+## The two 2023 papers that changed practice
+
+<PaperGrid>
+<PaperCard refKey="zhao2023act" />
+<PaperCard refKey="chi2023diffusion" />
+</PaperGrid>
+
+Both keep the plain cloning objective and a fixed offline dataset. Neither
+queries an expert online. They attack the *other* two weaknesses instead:
+
+<Steps>
+<Step title="Predict chunks, not single actions">
+ACT predicts ~100 actions at once. An episode that was 500 independent decisions
+becomes 5. Since compounding error scales with the number of decision points,
+this is a large constant-factor win for almost no cost.
+</Step>
+
+<Step title="Represent the action distribution honestly">
+Diffusion Policy's denoising head can put probability mass on "swerve left" and
+"swerve right" without inventing "drive straight." That directly removes the
+mode-averaging failure that MSE regression guarantees.
+</Step>
+
+<Step title="Ensemble across overlapping chunks">
+ACT's temporal ensembling averages predictions for the same timestep made from
+different observations, smoothing the seams where one chunk hands off to the
+next — recovering some reactivity that pure open-loop execution gives up.
+</Step>
+</Steps>
+
+<KeyIdea>
+The arc is worth being able to narrate in thirty seconds: 1989 established the
+recipe, 2011 explained the failure and fixed the data, 2023 fixed the
+representation instead and made it work on real hardware. Where a VLA like
+$\pi_0$ or OpenVLA sits on that line — cloning at scale, with a pretrained
+vision-language backbone — is a natural follow-up question.
+</KeyIdea>

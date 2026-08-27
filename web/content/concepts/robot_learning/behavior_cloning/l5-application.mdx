@@ -1,27 +1,140 @@
 ---
 concept: behavior_cloning
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Behavior Cloning (BC) fail in practice, and how would you
-    present it in an interview?
+  prompt: "Give your 60-second interview answer on behaviour cloning, then name the two failure modes and the fix for each."
   keyPoints:
-    - "Covariate shift / compounding errors: the policy makes a small error
-      $\\epsilon$ at each step, entering states where $d_{\\pi_\\theta}(s) \\neq
-      d_{\\pi^*}(s)$, causing the total error to grow as $\\mathcal{O}(\\epsilon
-      T^2)$ over horizon $T$."
-    - "Symptoms: works in easy cases but fails on slight perturbations, degrades
-      over longer horizons."
-    - "Fix: use DAgger (online expert correction), add noise during data
-      collection, use action chunking, or switch to offline RL."
-check: []
-papers: []
+    - "Frame it as supervised learning on (observation, action) pairs — no reward, no interaction — then immediately name the catch."
+    - "Compounding error / covariate shift: the policy creates its own state distribution, mistakes push it off-data, regret is $O(\\epsilon T^2)$. Fix by changing the data (DAgger, perturbed demos)."
+    - "Mode averaging: MSE fits the conditional mean, so multi-modal expert behaviour collapses to an action nobody demonstrated. Fix by changing the policy class (discretisation, diffusion)."
+    - "Close with why it dominates anyway: no reward engineering, no sim, no online expert — and chunking plus expressive heads made it work on real hardware."
+interview:
+  answer: >-
+    Behaviour cloning is imitation learning reduced to supervised learning. You
+    record an expert doing the task, break the trajectories into observation
+    and action pairs, and fit a policy to predict the action. No reward
+    function, no exploration, no environment interaction — which is exactly why
+    it's the default on real robots, where all three of those are expensive or
+    dangerous. The catch is that supervised learning assumes your test
+    distribution matches your training distribution, and a policy that acts
+    violates that assumption by construction. It generates its own inputs, so
+    the moment it makes a small error it's in a state the expert never visited
+    and has no data for, and the next error is larger. Ross and Bagnell
+    formalised that in the DAgger paper — regret scales as epsilon times T
+    squared rather than epsilon times T, because one mistake can corrupt every
+    remaining timestep. There's a second, independent problem people often
+    miss: if the expert is multi-modal — sometimes going left, sometimes right
+    — an MSE-trained policy fits the conditional mean and drives straight into
+    the obstacle. Those two failures need different fixes. Covariate shift is a
+    data problem, so DAgger changes where the data comes from. Mode averaging
+    is a representation problem, so diffusion policies and action
+    discretisation change how the policy models the action distribution. What
+    made cloning genuinely work in the last few years was mostly the second
+    route plus action chunking — ACT and Diffusion Policy get dexterous
+    real-world manipulation from about fifty demonstrations, without ever
+    querying an expert online.
+  followUps:
+    - q: "So why not just always use DAgger?"
+      a: >-
+        Because it needs an expert you can query online, at any state the
+        learner reaches — including ones that are already going wrong. Asking a
+        human teleoperator "what would you do from this half-dropped grasp?" is
+        awkward, slow, and sometimes impossible. It's clean in simulation with
+        a scripted expert. On real hardware with a human, the cost per label is
+        high enough that people generally prefer to collect more demonstrations
+        or improve the policy class instead.
+    - q: "Your validation loss is very low but the robot fails. What's happening?"
+      a: >-
+        Almost always one of two things. Either the validation split was made
+        per-timestep rather than per-episode, so near-duplicate consecutive
+        frames appear in both halves and the number is meaningless. Or the
+        split is honest and the number is simply measuring the wrong thing —
+        accuracy on the expert's state distribution, which is the distribution
+        the policy leaves as soon as it acts. Low action error and task success
+        are only loosely related; the only trustworthy metric is rollout
+        success rate.
+    - q: "How would you get more out of a fixed dataset, with no extra demos?"
+      a: >-
+        Action chunking first — it's nearly free and directly reduces the
+        number of decision points that compounding error scales with. Then an
+        expressive action head, diffusion or discretised tokens, if there's any
+        multi-modality. Then observation augmentation, random crops and colour
+        jitter, which buys robustness to the visual shift you'll actually see.
+        If I can perturb during collection, adding small disturbances and
+        recording the expert's corrections gives recovery data without needing
+        an online expert.
+    - q: "When is behaviour cloning the wrong choice entirely?"
+      a: >-
+        When you have no expert, when the task needs behaviour a human can't
+        demonstrate — anything beyond human reaction time or precision — or
+        when you need to exceed demonstrator performance rather than match it.
+        Cloning has no mechanism to be better than its data. If you have a
+        reliable reward and a usable simulator, RL can surpass the expert;
+        cloning structurally cannot.
+  traps:
+    - "Saying it fails 'because of overfitting'. It fails with zero training error and zero generalisation gap — the problem is distribution shift, which is a different thing."
+    - "Claiming more expert data fixes drift. More data from the same distribution deepens coverage where you already succeed and adds nothing where you fail."
+    - "Presenting DAgger as the standard modern solution. It's the standard *textbook* solution; the online-expert requirement is why real systems mostly went another way."
+    - "Blurring compounding error and mode averaging into one hand-wavy 'BC is brittle'. Separating them, and matching each to its fix, is most of the signal in this answer."
+check:
+  - id: bc_l5_c1
+    prompt: "An interviewer says: 'We have 10,000 teleoperated demos and our policy still drifts. Should we collect 10,000 more?' What is the strongest response?"
+    options:
+      - "Yes — drift is a data-scarcity problem and doubling the dataset halves the error"
+      - "Probably not on its own: more data from the same expert distribution doesn't cover the off-distribution states where you're failing. Chunking, a multi-modal action head, or recovery data would attack the actual cause"
+      - "No — switch to reinforcement learning, which does not have this problem"
+      - "Yes, but only if you also increase model capacity proportionally"
+    answer: 1
+    explanation: "This is the practical form of the covariate-shift question, and the interviewer is checking whether you diagnose or just spend. The failing states are absent from the distribution you keep sampling. What helps is fewer decision points (chunking), an honest action distribution, or data that actually covers recovery — perturbed demos, scripted resets, or online labels if an expert is available."
+  - id: bc_l5_c2
+    prompt: "Which pair of observations would most support a diagnosis of mode averaging rather than covariate shift?"
+    options:
+      - "The policy fails late in long episodes, and failures start with small tracking errors that grow"
+      - "The policy fails immediately at one specific decision point where demos disagree, producing a smooth action between the demonstrated options"
+      - "Training loss is high and validation loss is higher"
+      - "The policy succeeds in simulation but not on hardware"
+    answer: 1
+    explanation: "Mode averaging is local and reproducible: it appears at the exact states where the expert was inconsistent, and the emitted action is an interpolation of the demonstrated ones. Covariate shift is cumulative and shows up as growing drift over the horizon. Option 4 is the sim2real gap, a third and unrelated problem — being able to tell all three apart from symptoms is exactly the skill being tested."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Covariate shift / compounding errors: the policy makes a small error $\epsilon$ at each step, entering states where $d_{\pi_\theta}(s) \neq d_{\pi^*}(s)$, causing the total error to grow as $\mathcal{O}(\epsilon T^2)$ over horizon $T$. Symptoms: works in easy cases but fails on slight perturbations, degrades over longer horizons. Fix: use DAgger (online expert correction), add noise during data collection, use action chunking, or switch to offline RL.
+Interviewers rarely ask "what is behaviour cloning?" They describe a broken
+system and watch how you narrow it down.
 
-## Interview-ready answer
+<Steps>
+<Step title="Does it fail at a specific state, or progressively?">
+A repeatable failure at one decision point, with a smooth in-between action,
+means mode averaging. Errors that start small and grow over the episode mean
+compounding error. These have different fixes and confusing them is the most
+common mistake.
+</Step>
 
-BC is the simplest imitation learning approach — supervised learning minimizing $\|\pi_\theta(s) - a^*\|^2$ on expert $(s, a)$ pairs. It works surprisingly well when you have enough diverse demonstrations and the right architecture. The fundamental limitation is compounding errors from covariate shift: the learned state distribution $d_{\pi_\theta}$ diverges from the expert distribution $d_{\pi^*}$, with error growing as $\mathcal{O}(T^2)$. Practical fixes: DAgger for online correction, action chunking (predicting sequences of $K$ actions rather than single actions), data augmentation, and collecting demonstrations with intentional perturbations. For industry, BC is often the first thing to try — if it works with 50-100 demos, you've saved months over RL.
+<Step title="Check how the validation split was made">
+Per-timestep splits leak near-identical neighbouring frames across the split.
+If validation loss looks great and the robot doesn't work, suspect this before
+anything else.
+</Step>
+
+<Step title="Compare open-loop replay against closed-loop rollout">
+Replay the recorded observations through the policy and compare to the expert's
+actions. Low error there but failure on the robot isolates the problem to
+distribution shift rather than the fit itself.
+</Step>
+
+<Step title="Only then reach for architecture">
+Chunking, then an expressive action head, then augmentation. Reaching for a
+bigger backbone first is the answer that signals you haven't diagnosed anything.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The single strongest move in this answer is separating the two failure modes and
+matching each to its own fix. Most candidates produce one undifferentiated "BC
+is brittle because of distribution shift." Naming compounding error *and* mode
+averaging, and knowing that DAgger addresses only the first, is what reads as
+having actually built these systems.
+</Warning>

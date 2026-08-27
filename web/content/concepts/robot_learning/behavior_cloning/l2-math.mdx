@@ -1,23 +1,142 @@
 ---
 concept: behavior_cloning
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Behavior Cloning (BC), including the key
-    equations.
+  prompt: "Write the behaviour cloning objective, and state the compounding-error bound with its horizon dependence."
   keyPoints:
-    - "Supervised learning on expert demonstrations: learn $\\pi_\\theta(a|s)$
-      directly from $(s_i, a_i)$ pairs collected by an expert $\\pi^*$."
-    - "The objective is: $$\\mathcal{L}_{\\text{BC}}(\\theta) =
-      \\mathbb{E}_{(s,a) \\sim \\mathcal{D}_{\\text{expert}}} \\left[ \\|
-      \\pi_\\theta(s) - a \\|^2 \\right]$$ Simple and effective when
-      demonstrations are plentiful and the state space is well-covered."
-    - "Suffers from compounding errors due to covariate shift: training on
-      $d_{\\pi^*}(s)$ but executing under $d_{\\pi_\\theta}(s)$."
-check: []
-papers: []
+    - "Maximum likelihood on the expert's state distribution: $\\theta^* = \\arg\\max_\\theta \\mathbb{E}_{(o,a)\\sim\\mathcal{D}}[\\log \\pi_\\theta(a \\mid o)]$. Gaussian likelihood with fixed variance reduces this to MSE regression."
+    - "If per-step error under the expert distribution is $\\epsilon$, regret is $O(\\epsilon T^2)$, not $O(\\epsilon T)$ — one extra factor of $T$ because a mistake at step $t$ can corrupt all $T-t$ remaining steps."
+    - "MSE regression fits the conditional *mean*. With multi-modal expert behaviour the mean is a valid-looking action that may be catastrophic — the classic 'average of left and right is straight into the obstacle'."
+check:
+  - id: bc_l2_c1
+    prompt: "Why is the behaviour cloning regret bound $O(\\epsilon T^2)$ rather than $O(\\epsilon T)$?"
+    options:
+      - "Because the loss is quadratic, so errors square"
+      - "Because a mistake at step $t$ moves the policy off-distribution, so it can incur extra cost at each of the remaining $T - t$ steps — and summing that over all $t$ gives $T^2$"
+      - "Because the policy is evaluated $T$ times on $T$ states"
+      - "Because gradient variance grows with the horizon"
+    answer: 1
+    explanation: "Summing $T-t$ over $t = 1 \\ldots T$ gives $O(T^2)$. The extra factor of $T$ is entirely about *distribution shift*: standard supervised learning has no mechanism for one prediction to corrupt the inputs of later predictions. Note it says nothing about the loss being quadratic — the same bound holds for 0-1 loss."
+  - id: bc_l2_c2
+    prompt: "An expert sometimes steers left around an obstacle and sometimes right, roughly 50/50. You train with MSE regression on a deterministic policy. What does the learned policy do at the obstacle?"
+    options:
+      - "It picks left or right at random with equal probability"
+      - "It picks whichever direction was slightly more common in the data"
+      - "It outputs approximately the average of the two, steering straight into the obstacle"
+      - "It refuses to act because the loss has no minimum"
+    answer: 2
+    explanation: "MSE is minimised by the conditional mean $\\mathbb{E}[a \\mid o]$. Averaging two good but opposite actions yields an action that was never demonstrated and is worse than either. This single fact motivates most of modern policy architecture — discretising actions, mixture densities, and diffusion policies all exist to represent multi-modal $p(a \\mid o)$ instead of collapsing it."
 ---
 
-## Formal definition
+## The objective
 
-Supervised learning on expert demonstrations: learn $\pi_\theta(a|s)$ directly from $(s_i, a_i)$ pairs collected by an expert $\pi^*$. The objective is: $$\mathcal{L}_{\text{BC}}(\theta) = \mathbb{E}_{(s,a) \sim \mathcal{D}_{\text{expert}}} \left[ \| \pi_\theta(s) - a \|^2 \right]$$ Simple and effective when demonstrations are plentiful and the state space is well-covered. Suffers from compounding errors due to covariate shift: training on $d_{\pi^*}(s)$ but executing under $d_{\pi_\theta}(s)$.
+Behaviour cloning is maximum likelihood on a fixed dataset. Given demonstrations
+$\mathcal{D} = \{(o_i, a_i)\}_{i=1}^N$ drawn from the expert's own state
+distribution $d^{\pi^*}$:
+
+$$
+\theta^* = \arg\max_\theta \; \mathbb{E}_{(o,a) \sim \mathcal{D}}
+\big[\log \pi_\theta(a \mid o)\big]
+$$
+
+Everything else is a modelling choice about $\pi_\theta$:
+
+<Steps>
+<Step title="Gaussian policy with fixed variance → MSE">
+Model $\pi_\theta(a \mid o) = \mathcal{N}(\mu_\theta(o), \sigma^2 I)$ with
+$\sigma$ constant. Then $\log \pi_\theta(a\mid o) = -\frac{1}{2\sigma^2}\|a -
+\mu_\theta(o)\|^2 + \text{const}$, and maximising it is exactly minimising
+$\|a - \mu_\theta(o)\|^2$. This is why "BC" and "MSE regression on actions" get
+used interchangeably.
+</Step>
+
+<Step title="Discretised actions → cross-entropy">
+Bin each action dimension into $K$ tokens and predict a categorical
+distribution. The loss becomes ordinary cross-entropy, and — importantly — the
+policy can now represent more than one good action per observation.
+</Step>
+
+<Step title="Anything expressive → the modern versions">
+Mixture density networks, normalising flows, and diffusion heads all keep the
+same objective and only change how $\pi_\theta(a \mid o)$ is parameterised.
+Diffusion Policy is this objective with a denoising head bolted on.
+</Step>
+</Steps>
+
+<KeyIdea>
+The objective never changes. What changes across a decade of papers is how
+richly you can represent $p(a \mid o)$ — and how many actions you predict at
+once.
+</KeyIdea>
+
+## Where the extra factor of $T$ comes from
+
+This is the result to be able to reproduce on a whiteboard. Let $\epsilon$ be
+the probability that $\pi_\theta$ takes a different action from the expert, on
+states drawn from the expert's distribution:
+
+$$
+\mathbb{E}_{o \sim d^{\pi^*}}\big[\mathbb{1}\{\pi_\theta(o) \neq \pi^*(o)\}\big]
+\;\le\; \epsilon
+$$
+
+<Derivation title="From per-step error to $O(\epsilon T^2)$ regret">
+
+Split the rollout on whether the learner has deviated yet.
+
+**Case 1 — it never deviates.** This happens with probability at least
+$(1-\epsilon)^T$. The learner's trajectory is distributed exactly like the
+expert's, so it incurs no extra cost.
+
+**Case 2 — it first deviates at step $t$.** Up to $t$ it was on-distribution, so
+the deviation probability at each step was bounded by $\epsilon$. After step $t$
+the learner is off the expert's distribution, and we have *no guarantee at all*
+about its behaviour there — the bound assumes the worst, that it incurs maximum
+cost at every one of the remaining $T - t$ steps.
+
+Weighting each first-deviation time by its probability $\approx \epsilon$ and
+summing the damage:
+
+$$
+\text{regret} \;\lesssim\; \sum_{t=1}^{T} \epsilon \cdot (T - t)
+\;=\; \epsilon \cdot \frac{T(T-1)}{2} \;=\; O(\epsilon T^2)
+$$
+
+</Derivation>
+
+The single assumption doing all the work is *"after deviating we know nothing"*.
+That is not pessimism for its own sake — it is literally true, because the
+dataset contains no states off the expert's path.
+
+<Warning>
+Don't say the bound is $T^2$ "because errors accumulate linearly and then you
+sum them." Interviewers probe this. The first $T$ is the horizon; the second $T$
+is that **each** mistake can ruin **all** remaining steps, because there is no
+data teaching recovery. DAgger's contribution is to change the training
+distribution so the bound becomes $O(\epsilon T)$.
+</Warning>
+
+## The multi-modality trap
+
+Suppose at observation $o$ the expert goes left half the time and right half the
+time, both perfectly good. MSE regression minimises
+
+$$
+\mathbb{E}\big[\|a - \mu_\theta(o)\|^2\big]
+\quad\Longrightarrow\quad
+\mu_\theta(o) = \mathbb{E}[a \mid o]
+$$
+
+The minimiser is the conditional **mean** — the average of "swerve left" and
+"swerve right", which is "drive straight ahead into the obstacle." The policy
+has minimised its training loss by producing an action that appears nowhere in
+the data and is worse than every action in it.
+
+<KeyIdea>
+Two independent failure modes, often confused in interviews. **Compounding
+error** is about the state distribution and is fixed by changing where your data
+comes from. **Mode averaging** is about the action distribution and is fixed by
+changing how your policy represents it. Naming both, separately, reads as real
+understanding.
+</KeyIdea>

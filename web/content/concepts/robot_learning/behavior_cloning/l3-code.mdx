@@ -1,0 +1,131 @@
+---
+concept: behavior_cloning
+level: 3
+status: final
+recall:
+  prompt: "Sketch a behaviour cloning training loop in PyTorch. What is in a batch, and what does the model predict?"
+  keyPoints:
+    - "A batch is (observation, action) pairs sampled independently across demonstrations — trajectories are shuffled apart, there is no sequence dimension unless you chunk deliberately."
+    - "Encode the observation, predict actions, take MSE against the recorded expert action; normalise actions to roughly unit scale first or the loss is dominated by whichever dimension has the largest units."
+    - "Predict a chunk of the next $k$ actions, not one — it cuts the number of independent decisions per episode by $k$ and is the single cheapest fix for drift."
+check:
+  - id: bc_l3_c1
+    prompt: "Why normalise actions to zero mean and unit variance per dimension before computing the MSE loss?"
+    options:
+      - "It makes the network converge to a different, better optimum"
+      - "Without it, dimensions with larger physical units (gripper travel in mm vs. joint angles in rad) dominate the loss, and the small-unit dimensions are effectively ignored"
+      - "PyTorch's MSELoss requires inputs in $[-1, 1]$"
+      - "It prevents overfitting by acting as a regulariser"
+    answer: 1
+    explanation: "MSE weights every dimension by the square of its scale. If gripper position is in millimetres (range ~100) and joint angles in radians (range ~3), the gripper term is ~1000x larger and the joints are barely trained. Normalising with dataset statistics — and un-normalising at inference — puts every dimension on equal footing."
+  - id: bc_l3_c2
+    prompt: "Action chunking predicts the next $k$ actions from one observation and executes them open-loop. Why does this reduce compounding error?"
+    options:
+      - "It gives the network more parameters, so it fits the expert better"
+      - "An episode of length $T$ now involves only $T/k$ independent policy decisions, so there are $k$ times fewer opportunities to drift off-distribution"
+      - "It converts the problem from imitation learning to reinforcement learning"
+      - "Open-loop execution is inherently more accurate than closed-loop"
+    answer: 1
+    explanation: "The $O(\\epsilon T^2)$ bound is driven by the number of decision points. Chunking cuts that to $T/k$, giving roughly $O(\\epsilon T^2 / k)$. The cost is reduced reactivity — you cannot respond to a disturbance mid-chunk — which is why ACT executes chunks with temporal ensembling rather than purely open-loop."
+---
+
+## The entire training loop
+
+Nothing here is specific to robots. If you removed the variable names, this
+would look like any regression script.
+
+<CodeWalk title="Behaviour cloning, end to end">
+
+```python title="train_bc.py"
+import torch
+import torch.nn as nn
+
+class BCPolicy(nn.Module):
+    """Observation -> a chunk of k future actions."""
+
+    def __init__(self, obs_dim, act_dim, chunk=1, hidden=512):
+        super().__init__()
+        self.act_dim, self.chunk = act_dim, chunk
+        self.net = nn.Sequential(
+            nn.Linear(obs_dim, hidden), nn.ReLU(),
+            nn.Linear(hidden, hidden), nn.ReLU(),
+            nn.Linear(hidden, act_dim * chunk),
+        )
+
+    def forward(self, obs):                       # obs: (B, obs_dim)
+        out = self.net(obs)                       # (B, act_dim * chunk)
+        return out.view(-1, self.chunk, self.act_dim)
+
+
+def train(policy, loader, act_mean, act_std, epochs=100, lr=1e-4):
+    opt = torch.optim.AdamW(policy.parameters(), lr=lr, weight_decay=1e-4)
+
+    for _ in range(epochs):
+        for obs, act in loader:                   # act: (B, chunk, act_dim)
+            # Put every action dimension on the same scale, or MSE is
+            # dominated by whichever one has the largest physical units.
+            target = (act - act_mean) / act_std
+
+            pred = policy(obs)
+            loss = nn.functional.mse_loss(pred, target)
+
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+```
+
+</CodeWalk>
+
+The three lines that matter are the normalisation, the MSE, and the `chunk`
+reshape. Everything else is boilerplate you would write for any regressor.
+
+## The dataset is where the thinking happens
+
+<Steps>
+<Step title="Flatten trajectories into pairs">
+Demonstrations arrive as episodes. Index into them so that item $i$ is one
+observation and the $k$ actions that followed it. Near the end of an episode,
+pad the chunk by repeating the final action.
+</Step>
+
+<Step title="Compute normalisation statistics once, over the whole dataset">
+Save `act_mean` and `act_std` alongside the weights. Recomputing them per batch
+is a real bug — it makes the target a moving goalpost, and inference has no
+batch to compute them from.
+</Step>
+
+<Step title="Hold out whole episodes, never individual timesteps">
+Consecutive frames are nearly identical. A random per-timestep split puts
+near-duplicates in both train and validation, and your validation loss becomes
+meaningless — it will look excellent while the policy fails on the robot.
+</Step>
+</Steps>
+
+<Warning>
+Low validation loss is *not* evidence that behaviour cloning will work. It
+measures accuracy on the expert's state distribution, which is precisely the
+distribution the policy will leave the moment it acts. The only honest
+evaluation is rolling the policy out on the task and counting successes.
+</Warning>
+
+## Inference
+
+```python title="rollout.py"
+@torch.no_grad()
+def run_episode(policy, env, act_mean, act_std, chunk=1):
+    obs, done, steps = env.reset(), False, 0
+
+    while not done and steps < env.max_steps:
+        pred = policy(torch.as_tensor(obs).float().unsqueeze(0))
+        actions = (pred[0] * act_std + act_mean).cpu().numpy()  # un-normalise
+
+        # Execute the chunk open-loop, re-planning once it's exhausted.
+        for a in actions[:chunk]:
+            obs, _, done, _ = env.step(a)
+            steps += 1
+            if done:
+                break
+```
+
+Note what's absent: no reward, no value function, no environment interaction
+during training. That is the whole appeal — and the whole limitation.

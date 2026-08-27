@@ -293,3 +293,67 @@ button,
 html[data-sync-locked] #app-root {
   visibility: hidden;
 }
+
+/* ---------- <Steps> — numbered walkthroughs ---------- */
+
+.mdx-content ol.cortex-steps,
+ol.cortex-steps {
+  counter-reset: cortex-step;
+  list-style: none;
+  padding-left: 0;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.mdx-content li.cortex-step,
+li.cortex-step {
+  counter-increment: cortex-step;
+  position: relative;
+  padding-left: 2.75rem;
+  margin-top: 0 !important;
+}
+
+/* The number badge, and the rail connecting one step to the next. */
+.cortex-step::before {
+  content: counter(cortex-step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 40%, transparent);
+  color: var(--color-primary-light);
+  font-size: 0.8rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.cortex-step:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 0.875rem;
+  top: 2rem;
+  bottom: -1.25rem;
+  width: 1px;
+  background: var(--color-border);
+}
+
+.cortex-step-title {
+  font-size: 1rem;
+  font-weight: 620;
+  line-height: 1.75rem;
+  color: var(--color-foreground);
+}
+
+.cortex-step-body {
+  margin-top: 0.35rem;
+  color: var(--color-muted-foreground);
+}
+
+.cortex-step-body > * + * {
+  margin-top: 0.75rem;
+}

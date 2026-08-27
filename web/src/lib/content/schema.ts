@@ -41,13 +41,39 @@ export type Level = (typeof LEVELS)[number];
 
 export const LEVEL_INFO: Record<
   Level,
-  { slug: string; title: string; tagline: string }
+  { slug: string; title: string; short: string; tagline: string }
 > = {
-  1: { slug: "intuition", title: "Intuition", tagline: "What it is and why it matters" },
-  2: { slug: "math", title: "Math", tagline: "The formal machinery" },
-  3: { slug: "code", title: "Code", tagline: "From equations to Python" },
-  4: { slug: "frontier", title: "Frontier", tagline: "The papers that define the state of the art" },
-  5: { slug: "application", title: "Application", tagline: "Failure modes, debugging, interviews" },
+  1: {
+    slug: "intuition",
+    title: "Understand",
+    short: "Understand",
+    tagline: "What it is, in plain language",
+  },
+  2: {
+    slug: "math",
+    title: "The details",
+    short: "Details",
+    tagline: "The formal machinery, built up step by step",
+  },
+  3: {
+    slug: "code",
+    title: "In code",
+    short: "Code",
+    tagline: "From equations to Python",
+  },
+  4: {
+    slug: "frontier",
+    title: "Frontier",
+    short: "Papers",
+    tagline: "The papers that define the state of the art",
+  },
+  5: {
+    slug: "application",
+    title: "Say it in an interview",
+    // Kept short so the whole rail fits a phone without scrolling.
+    short: "Interview",
+    tagline: "The answer, the follow-ups, the traps",
+  },
 };
 
 /** Per-concept metadata (meta.yaml). */
@@ -96,6 +122,33 @@ export const paperRefSchema = z.object({
 });
 export type PaperRef = z.infer<typeof paperRefSchema>;
 
+/** A curated external resource — the video or lecture that explains it best. */
+export const mediaRefSchema = z.object({
+  kind: z.enum(["video", "lecture", "article", "interactive"]).default("video"),
+  title: z.string().min(1),
+  url: z.string().url(),
+  /** Who made it, e.g. "3Blue1Brown" or "CS285 · Sergey Levine". */
+  source: z.string().min(1),
+  /** Runtime in minutes, for videos and lectures. */
+  minutes: z.number().int().positive().optional(),
+  /** What to look for — a timestamp range, or the one idea worth the watch. */
+  note: z.string().optional(),
+});
+export type MediaRef = z.infer<typeof mediaRefSchema>;
+
+/** The spoken-answer material for a level 5 (application) file. */
+export const interviewSchema = z.object({
+  /** The 45–90 second answer, as you would actually say it out loud. */
+  answer: z.string().min(1),
+  /** What they ask next, and how to handle it. */
+  followUps: z
+    .array(z.object({ q: z.string().min(1), a: z.string().min(1) }))
+    .default([]),
+  /** Wrong turns that cost people the question. */
+  traps: z.array(z.string().min(1)).default([]),
+});
+export type InterviewMaterial = z.infer<typeof interviewSchema>;
+
 /** Frontmatter of a concept-level MDX file. */
 export const levelFrontmatterSchema = z.object({
   concept: z.string().min(1),
@@ -104,6 +157,8 @@ export const levelFrontmatterSchema = z.object({
   recall: recallSchema.optional(),
   check: z.array(checkQuestionSchema).default([]),
   papers: z.array(paperRefSchema).default([]),
+  media: z.array(mediaRefSchema).default([]),
+  interview: interviewSchema.optional(),
 });
 
 /** A quiz question (domain quiz banks). */

@@ -1,26 +1,132 @@
 ---
 concept: behavior_cloning
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Behavior Cloning (BC) in plain language: what is it, and why
-    does it matter?"
+  prompt: "Explain behaviour cloning in plain language. What is it, and what is the one thing that goes wrong?"
   keyPoints:
-    - Like learning to drive by watching dashcam footage of a good driver and
-      imitating their steering at each frame.
-    - Works great for situations the expert demonstrated.
-    - "But the moment you drift slightly off the expert's trajectory — perhaps
-      due to a minor prediction error — you enter states the expert never showed
-      you, and errors compound: small drift → unfamiliar state → bigger error →
-      more unfamiliar state."
-check: []
-papers: []
+    - "It is plain supervised learning: collect (observation, expert action) pairs and fit a network to predict the action."
+    - "The expert only ever visited good states, so the training set only covers good states."
+    - "One small error moves the robot slightly off the expert's path — into a state it has no data for — so the next error is bigger. Errors compound instead of cancelling."
+media:
+  - kind: lecture
+    title: "CS 285 Lecture 2: Imitation Learning, Part 1"
+    url: https://www.youtube.com/watch?v=tbLaFtYpWWU
+    source: "UC Berkeley CS285 · Sergey Levine"
+    minutes: 17
+    note: "The clearest existing explanation of why naive cloning drifts. If you watch one thing for this concept, watch this."
+  - kind: article
+    title: "ALOHA: fine-grained bimanual manipulation from 50 demonstrations"
+    url: https://tonyzhaozh.github.io/aloha/
+    source: "Zhao et al., Stanford"
+    note: "Videos of cloned policies doing real dexterous tasks. Useful for calibrating what BC can actually achieve in 2026 — the pessimism below is about *naive* cloning."
+check:
+  - id: bc_l1_c1
+    prompt: "You train a driving policy by cloning 100 hours of expert footage. On the road it drives well for 30 seconds, then drifts toward the shoulder and never recovers. What is the cleanest explanation?"
+    options:
+      - "The network underfits — 100 hours is not enough data to represent the steering function"
+      - "Once it drifts slightly, it is in states the expert never entered, so it has no training signal there and its errors grow rather than correct"
+      - "The learning rate was too high, so the policy diverged during training"
+      - "Cloning cannot represent continuous actions, only discrete ones"
+    answer: 1
+    explanation: "This is covariate shift. Training error can be near zero and the policy still fails, because the *state distribution* it meets at test time is one it created itself and never saw in training. Adding more expert data from the same distribution does not fix it — the missing data is precisely the recovery behaviour the expert never had to demonstrate."
+  - id: bc_l1_c2
+    prompt: "Which change attacks the compounding-error problem at its root, rather than just reducing per-step error?"
+    options:
+      - "A larger vision backbone"
+      - "Training longer with a lower learning rate"
+      - "Having the expert label the states the *learner* visits, and adding those to the dataset"
+      - "Adding weight decay"
+    answer: 2
+    explanation: "That is DAgger. Everything else lowers the error at states you already had data for. Only relabelling the learner's own states adds data where the policy is actually failing — it changes the training distribution to match the test distribution."
 ---
 
-## Intuition
+## The whole idea in one line
 
-Like learning to drive by watching dashcam footage of a good driver and imitating their steering at each frame. Works great for situations the expert demonstrated. But the moment you drift slightly off the expert's trajectory — perhaps due to a minor prediction error — you enter states the expert never showed you, and errors compound: small drift → unfamiliar state → bigger error → more unfamiliar state.
+Record an expert doing the task. Then train a network to guess what the expert
+would have done, using nothing but what the robot can see.
 
-## In practice
+That's it. There's no reward, no exploration, no environment interaction. If you
+can do supervised image classification, you can do behaviour cloning — swap the
+label "cat" for the label "move the gripper 2 cm left."
 
-Learning a 6-DOF pick-and-place policy from 100 teleoperated demonstrations. With image observations and a ResNet encoder: BC achieves 60% success. Adding data augmentation (random crops, color jitter) brings it to 75%. DAgger with 20 additional corrective demonstrations reaches 90%. The compounding error grows as $\mathcal{O}(T^2)$ in the horizon length $T$ for standard BC.
+<Intuition>
+You want to learn to drive, so you watch a hundred hours of dashcam footage from
+a good driver. At every frame you ask: *what did they do with the wheel here?*
+Then you practice matching that.
+
+You will be an excellent driver — on exactly the roads in the footage, in
+exactly the situations the good driver got into.
+</Intuition>
+
+## How it actually runs
+
+<Steps>
+<Step title="Collect demonstrations">
+A human teleoperates the robot through the task, 50–200 times. You record, at
+every timestep, what the robot saw (camera images, joint angles) and what the
+human did (the commanded action).
+</Step>
+
+<Step title="Throw away the time dimension">
+Chop the trajectories into independent $(\text{observation}, \text{action})$
+pairs and shuffle them. This is the step that makes it supervised learning — and
+also the step that causes all the trouble later.
+</Step>
+
+<Step title="Fit a network">
+Train $\pi_\theta(o) \rightarrow a$ to minimise the difference between its
+predicted action and the human's action. Mean squared error for continuous
+actions, cross-entropy if you discretised them. This is a completely ordinary
+training loop.
+</Step>
+
+<Step title="Run it on the robot">
+Feed live observations in, send predicted actions out, 10–50 times a second.
+Nothing is learning any more — the policy is frozen.
+</Step>
+</Steps>
+
+## Why it drifts
+
+Here is the part that trips people up, and the part interviewers ask about.
+
+Your policy is *good*. Say it gets each action 99% right. The 1% error nudges
+the robot slightly off the path the expert took. Fine — except the robot is now
+somewhere slightly unfamiliar, and on unfamiliar input the policy is worse than
+99%. So the next error is bigger, which puts it somewhere *more* unfamiliar.
+
+<Figure src="/figures/bc-compounding-error.svg"
+        alt="An expert trajectory and a cloned policy's trajectory starting from the same point; the gap between them grows at every step until the learner leaves the region entirely."
+        caption="Errors don't cancel out — they feed each other. The learner creates its own input distribution, and it drifts away from the one it was trained on." />
+
+<KeyIdea>
+Supervised learning assumes your test data looks like your training data. A
+robot policy *creates* its own test data by acting. The moment it makes a
+mistake, that assumption is broken — and it broke it itself.
+</KeyIdea>
+
+The expert never demonstrates recovery, because a good expert never needs to
+recover. So the one behaviour your policy most needs is the one behaviour
+guaranteed to be missing from your dataset.
+
+<Warning>
+"Just collect more data" does not fix this. More expert data makes the good
+states even better covered, and the states you actually fail in are still absent.
+You need data from a *different distribution* — either the learner's own states
+(DAgger), or deliberately perturbed demonstrations.
+</Warning>
+
+## So why is everyone still using it?
+
+Because in practice it works far better than the theory suggests, once you add
+a few things: many demonstrations, action chunking (predict the next $k$ actions
+instead of one), and expressive policies that can represent multi-modal action
+distributions. ALOHA and Diffusion Policy are both, underneath, behaviour
+cloning — and they do laundry-folding and coffee-making on real hardware.
+
+The pessimism above is about *naive* cloning. Knowing exactly where the naive
+version breaks is what lets you explain why the modern versions are built the
+way they are.
+
+<WatchThis />

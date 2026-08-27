@@ -3,9 +3,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { ConceptRing } from "@/components/concept-ring";
+import {
+  SectionHeading,
+  SectionRail,
+  type SectionItem,
+} from "@/components/concept-sections";
 import { DomainChip } from "@/components/domain-chip";
 import { LevelCheck } from "@/components/level-check";
-import { LevelTabs, type LevelTabItem } from "@/components/level-tabs";
 import { MathText } from "@/components/math-text";
 import { MdxBody } from "@/components/mdx/mdx-body";
 import {
@@ -14,7 +18,7 @@ import {
   getLevels,
   getRelatedConcepts,
 } from "@/lib/content/api";
-import type { Level } from "@/lib/content/schema";
+import { LEVEL_INFO, type Level } from "@/lib/content/schema";
 import { DOMAIN_HEX } from "@/lib/domains";
 
 export function generateStaticParams() {
@@ -44,9 +48,10 @@ export default async function ConceptPage({
   const related = getRelatedConcepts(concept);
   const color = DOMAIN_HEX[concept.domain];
 
-  const items: LevelTabItem[] = levels.map((l) => ({
+  const sections: SectionItem[] = levels.map((l) => ({
     level: l.level as Level,
-    status: l.status,
+    slug: LEVEL_INFO[l.level as Level].slug,
+    title: LEVEL_INFO[l.level as Level].short,
   }));
 
   return (
@@ -66,7 +71,7 @@ export default async function ConceptPage({
             <ConceptRing
               conceptId={concept.id}
               color={color}
-              availableLevels={items.map((i) => i.level)}
+              availableLevels={sections.map((i) => i.level)}
               size={56}
               strokeWidth={5}
             />
@@ -81,23 +86,35 @@ export default async function ConceptPage({
         </div>
       </header>
 
-      <LevelTabs
-        conceptId={concept.id}
-        items={items}
-        color={color}
-        panels={levels.map((l) => (
-          <div key={l.level}>
-            <MdxBody code={l.body} papers={l.papers} />
-            <LevelCheck
-              conceptId={concept.id}
-              conceptTitle={concept.title}
-              level={l.level as Level}
-              checks={l.check}
-              color={color}
-            />
-          </div>
-        ))}
-      />
+      <SectionRail sections={sections} conceptId={concept.id} color={color} />
+
+      {levels.map((l, i) => (
+        <section
+          key={l.level}
+          id={LEVEL_INFO[l.level as Level].slug}
+          /* Clear the sticky rail when jumped to via its anchor. */
+          className={`scroll-mt-16 ${i > 0 ? "mt-14 border-t border-border pt-10" : ""}`}
+        >
+          <SectionHeading
+            level={l.level as Level}
+            conceptId={concept.id}
+            color={color}
+          />
+          <MdxBody
+            code={l.body}
+            papers={l.papers}
+            media={l.media}
+            interview={l.interview}
+          />
+          <LevelCheck
+            conceptId={concept.id}
+            conceptTitle={concept.title}
+            level={l.level as Level}
+            checks={l.check}
+            color={color}
+          />
+        </section>
+      ))}
 
       {related.length > 0 && (
         <footer className="mt-12 border-t border-border pt-6">
