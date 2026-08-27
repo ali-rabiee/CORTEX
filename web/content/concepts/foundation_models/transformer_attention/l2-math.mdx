@@ -1,26 +1,197 @@
 ---
 concept: transformer_attention
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Transformer and Attention Mechanisms for
-    Embodied AI, including the key equations.
+  prompt: "Write scaled dot-product attention and derive why the $1/\\sqrt{d_k}$ scaling is there. Then explain the masking choices for a policy."
   keyPoints:
-    - "The transformer architecture processes sequences via self-attention:
-      $\\text{Attention}(Q, K, V) =
-      \\text{softmax}\\left(\\frac{QK^\\top}{\\sqrt{d_k}}\\right)V$, where
-      queries $Q = XW_Q$, keys $K = XW_K$, values $V = XW_V$ are linear
-      projections of input tokens."
-    - "Multi-head attention runs $h$ parallel heads: $\\text{MHA}(X) =
-      \\text{Concat}(\\text{head}_1, \\ldots, \\text{head}_h)W_O$."
-    - "Cross-attention conditions on a separate sequence (e.g., observation
-      tokens attend to language tokens): $\\text{CrossAttn}(X_{\\text{obs}},
-      X_{\\text{lang}}) = \\text{softmax}\\left(\\frac{Q_{\\text{obs}}
-      K_{\\text{lang}}^\\top}{\\sqrt{d_k}}\\right)V_{\\text{lang}}$."
-check: []
-papers: []
+    - "$\\text{Attn}(Q,K,V) = \\text{softmax}\\big(QK^\\top/\\sqrt{d_k}\\big)V$ — a softmax-weighted average of value vectors, with weights set by query-key similarity."
+    - "The $\\sqrt{d_k}$ is a variance argument: a dot product of two $d_k$-dimensional vectors with unit-variance entries has variance $d_k$, so unscaled logits grow like $\\sqrt{d_k}$ and saturate the softmax, killing gradients."
+    - "Multi-head splits $d$ into $h$ subspaces so different heads can attend on different criteria simultaneously — one relation per head instead of one averaged relation."
+    - "Masking encodes what may depend on what. A policy is causal *across time* but should be bidirectional *within an action chunk*, since chunk coherence needs later actions to inform earlier ones."
+check:
+  - id: ta_l2_c1
+    prompt: "Why divide the attention logits by $\\sqrt{d_k}$?"
+    options:
+      - "To normalise the output to unit length"
+      - "The dot product of two independent $d_k$-dimensional vectors with unit-variance entries has variance $d_k$, so logits scale like $\\sqrt{d_k}$; without the correction the softmax saturates at large $d_k$ and its gradient vanishes"
+      - "To make the attention weights sum to one"
+      - "Because the softmax requires inputs in $[-1, 1]$"
+    answer: 1
+    explanation: "It is a variance-control argument and it is worth being able to derive rather than recite. $q\\cdot k = \\sum_i q_i k_i$ is a sum of $d_k$ independent zero-mean unit-variance products, so its variance is $d_k$ and its typical magnitude is $\\sqrt{d_k}$. At $d_k = 64$ that is logits of order 8, which already pushes the softmax toward one-hot, and the gradient of a saturated softmax is nearly zero. Option 3 is what the softmax does regardless of scaling, which makes it the tempting wrong answer."
+  - id: ta_l2_c2
+    prompt: "What does multi-head attention provide that a single head with the same total dimension does not?"
+    options:
+      - "More parameters and therefore more capacity"
+      - "Several attention patterns computed simultaneously in different subspaces — one head can track the object being grasped while another tracks the gripper, whereas a single head must average all relations into one distribution over positions"
+      - "Lower computational cost"
+      - "Translation equivariance"
+    answer: 1
+    explanation: "The parameter count is essentially the same, since $h$ heads of dimension $d/h$ total $d$. What changes is that a single softmax produces exactly one distribution over positions, so any query can express only one relation per layer — and if two things matter at once, it must blend them into a compromise. Splitting into subspaces lets several relations coexist, which is the same argument for representing multiple modes that appears throughout this material."
+  - id: ta_l2_c3
+    prompt: "Your policy predicts a chunk of 16 future actions with learned queries. Should the queries attend to each other causally or bidirectionally?"
+    options:
+      - "Causally, matching how language models generate"
+      - "Bidirectionally: the whole chunk is produced in one forward pass from one observation, so there is no generation order to respect — and letting later actions inform earlier ones is what makes the chunk coherent as a motion"
+      - "They should not attend to each other at all"
+      - "Causally during training and bidirectionally at inference"
+    answer: 1
+    explanation: "Causal masking exists to prevent a token from seeing information that will not be available when it is generated. That constraint applies to autoregressive decoding and simply does not apply here — all 16 actions are emitted together from the same observation. Masking them causally throws away useful structure: knowing where the trajectory ends up genuinely should shape how it starts. Time across *chunks* is still causal, since a chunk cannot see future observations."
 ---
 
-## Formal definition
+## The operation
 
-The transformer architecture processes sequences via self-attention: $\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^\top}{\sqrt{d_k}}\right)V$, where queries $Q = XW_Q$, keys $K = XW_K$, values $V = XW_V$ are linear projections of input tokens. Multi-head attention runs $h$ parallel heads: $\text{MHA}(X) = \text{Concat}(\text{head}_1, \ldots, \text{head}_h)W_O$. Cross-attention conditions on a separate sequence (e.g., observation tokens attend to language tokens): $\text{CrossAttn}(X_{\text{obs}}, X_{\text{lang}}) = \text{softmax}\left(\frac{Q_{\text{obs}} K_{\text{lang}}^\top}{\sqrt{d_k}}\right)V_{\text{lang}}$. Positional encoding injects sequence order: sinusoidal $PE_{(pos, 2i)} = \sin(pos / 10000^{2i/d})$, learned embeddings, or RoPE. KV cache stores previously computed key-value pairs for autoregressive inference, avoiding $O(n^2)$ recomputation. Efficient attention variants (FlashAttention, linear attention, sliding window) reduce complexity for real-time robot control from $O(n^2)$ to $O(n \log n)$ or $O(n)$.
+$$
+\text{Attention}(Q, K, V) = \text{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}\right) V
+$$
+
+with $Q \in \mathbb{R}^{n\times d_k}$, $K \in \mathbb{R}^{m\times d_k}$,
+$V \in \mathbb{R}^{m\times d_v}$. Read it right to left: $QK^\top$ scores every
+query against every key, the softmax turns each row into a distribution over the
+$m$ positions, and multiplying by $V$ returns a weighted average of value
+vectors.
+
+<KeyIdea>
+Every output is a convex combination of value vectors. Attention cannot invent
+content — it can only decide, per query, how much of each existing value to mix.
+All the expressive power is in *what gets mixed*, which is why what the
+projections $W_Q, W_K, W_V$ learn matters more than the averaging itself.
+</KeyIdea>
+
+## The scaling factor
+
+<Derivation title="Why $1/\sqrt{d_k}$, and what breaks without it">
+
+Take $q, k \in \mathbb{R}^{d_k}$ with independent entries of mean 0 and variance
+1. Their dot product is
+
+$$
+q\cdot k = \sum_{i=1}^{d_k} q_i k_i
+$$
+
+Each term has mean $\mathbb{E}[q_i k_i] = 0$ and variance
+$\mathrm{Var}(q_i k_i) = \mathbb{E}[q_i^2]\mathbb{E}[k_i^2] = 1$ by
+independence. Summing $d_k$ independent terms:
+
+$$
+\mathrm{Var}(q\cdot k) = d_k
+\qquad\Longrightarrow\qquad
+|q\cdot k| \sim \sqrt{d_k}
+$$
+
+**What that does to the softmax.** At $d_k = 64$ typical logits are around 8,
+and differences between them are of the same order. $\text{softmax}$ of logits
+separated by 8 is essentially one-hot — and the Jacobian of a saturated softmax
+is nearly zero, so no gradient flows to the queries or keys. Training stalls
+before it starts, and the effect gets worse as $d_k$ grows.
+
+Dividing by $\sqrt{d_k}$ restores unit-variance logits regardless of dimension,
+which keeps the softmax in its responsive region.
+
+**The assumption doing the work** is that queries and keys have roughly
+unit-variance entries — which is what the initialisation and the layer
+normalisation before the projections are arranging. It is not a law; it is a
+condition the rest of the architecture maintains.
+
+</Derivation>
+
+## Multi-head
+
+$$
+\text{MHA}(X) = \big[\text{head}_1;\ \ldots;\ \text{head}_h\big]\,W^O,
+\qquad
+\text{head}_i = \text{Attention}(XW^Q_i,\, XW^K_i,\, XW^V_i)
+$$
+
+with $d_k = d/h$ per head, so the total parameter count is essentially unchanged.
+
+<Derivation title="What splitting into subspaces buys">
+
+A single softmax produces exactly **one** distribution over positions per query.
+So in a single-head layer, a query that needs to attend to two different things
+for two different reasons has no choice but to blend them — and the blended
+weights are a compromise that may serve neither purpose.
+
+With $h$ heads there are $h$ independent distributions, each computed in its own
+learned subspace. One head can track the object being manipulated, another the
+gripper's own position, another the language token that names the target. The
+output concatenates them, so downstream layers see all $h$ relations rather than
+their average.
+
+This is structurally the same argument as multi-modality in action
+distributions: one softmax can only express one mode, and the fix is to have
+several. Note the cost — each head has $d/h$ dimensions, so heads that are too
+narrow cannot represent a useful similarity at all, which is why $d_k$ is
+typically kept at 64 or more rather than $h$ being pushed arbitrarily high.
+
+</Derivation>
+
+## Masking is a statement about dependency
+
+The mask $M \in \{0, -\infty\}^{n\times m}$ is added to the logits before the
+softmax, so $-\infty$ removes an edge entirely:
+
+$$
+\text{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}} + M\right) V
+$$
+
+<Steps>
+<Step title="Causal, across time">
+Observation tokens from step $t$ must not see step $t+1$. This is a genuine
+constraint — future observations do not exist at deployment.
+</Step>
+
+<Step title="Bidirectional, within an action chunk">
+All $H$ actions are emitted in one forward pass from one observation, so there
+is no generation order to respect. Masking them causally discards real structure:
+where a trajectory ends up genuinely should influence how it starts. This is the
+detail most often copied wrongly from language modelling.
+</Step>
+
+<Step title="Cross-attention, for conditioning">
+Queries from one stream, keys and values from another — action queries attending
+over observation tokens, or observation tokens attending over language. Cost is
+$O(nm)$ rather than $O((n+m)^2)$, which matters when one stream is much longer.
+</Step>
+</Steps>
+
+<Warning>
+Copying a decoder-only language architecture wholesale into a policy imports a
+causal mask that was there for a reason that no longer applies. If your action
+chunk is generated in one pass, causal masking within it is pure loss.
+</Warning>
+
+## The cost, in tokens
+
+$$
+\text{time, memory} \;=\; O\big(n^2 d\big) \quad\text{for self-attention over } n \text{ tokens}
+$$
+
+Count what $n$ is for a robot:
+
+$$
+n = \underbrace{2 \times \left(\tfrac{224}{14}\right)^2}_{512\ \text{visual}}
+\;+\; \underbrace{1}_{\text{proprio}}
+\;+\; \underbrace{\sim 10}_{\text{language}}
+\;+\; \underbrace{H}_{\text{action queries}}
+$$
+
+<KeyIdea>
+Vision dominates, and the dependence is quadratic — halving the number of visual
+tokens cuts attention cost by roughly four. That is why practical robot
+transformers use large patches, small images, few views, or a convolutional
+trunk that pools before the sequence model. When a transformer policy is too
+slow, the token count is the first number to look at and usually the last one
+you need.
+</KeyIdea>
+
+## What you gave up
+
+Convolutions build in translation equivariance: shift the input, shift the
+output. Attention over patches has no such structure — position enters only
+through positional embeddings, and equivariance must be learned from data.
+
+At scale that is a benefit, since a learned inductive bias beats an imposed one
+when there is enough data to learn it. At 200 demonstrations it is a real cost,
+and it is why a convolutional trunk feeding a transformer remains a sensible
+default in robot learning rather than a legacy compromise.

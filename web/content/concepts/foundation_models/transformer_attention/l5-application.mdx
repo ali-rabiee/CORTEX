@@ -1,27 +1,168 @@
 ---
 concept: transformer_attention
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Transformer and Attention Mechanisms for Embodied AI fail in
-    practice, and how would you present it in an interview?
+  prompt: "Give your interview answer on attention for embodied AI. What does it buy a policy, what does it cost, and what is the masking trap?"
   keyPoints:
-    - "Quadratic attention bottleneck: with long observation histories (e.g.,
-      100 frames of 256 tokens each = 25,600 tokens), standard self-attention
-      requires $O(n^2) \\approx 6.5 \\times 10^8$ operations per layer, causing
-      inference to exceed real-time budgets."
-    - "KV cache memory blow-up: caching all past tokens exhausts GPU memory for
-      long-horizon tasks."
-    - "Positional encoding failures: models trained with fixed-length positional
-      encodings degrade when deployed with longer sequences."
-check: []
-papers: []
+    - "Lead with what attention is — content-based lookup returning a weighted mix of values — then say what it buys a *policy*: learned multimodal fusion, $O(1)$ path length for memory, and variable-length inputs."
+    - "Be able to derive the $\\sqrt{d_k}$ scaling as a variance argument; it is the standard probe and reciting it does not distinguish you."
+    - "Name the cost in tokens, not parameters: two 224px views at patch 14 is 512 tokens, and attention is quadratic in that."
+    - "The masking trap: causal across time, bidirectional within an action chunk emitted in one pass. Copying a language decoder imports a constraint that no longer applies."
+interview:
+  answer: >-
+    Attention is content-based lookup. Every token produces a query, a key, and
+    a value; you score each query against every key, softmax the scores into
+    weights, and return the weighted average of the values. So every output is a
+    convex combination of existing value vectors — attention can't invent
+    content, it decides what to mix, and all the expressiveness is in what the
+    query, key, and value projections learn. For a robot policy specifically it
+    buys three things a conv-plus-MLP doesn't. First, fusion you didn't have to
+    design: two camera views, proprioception, and a language instruction all
+    become tokens in one sequence, and how much each matters for this decision
+    is decided by content rather than fixed by the architecture — you never had
+    to write down that the wrist camera matters more during a grasp. Second,
+    memory: path length between any two positions is constant, so something from
+    500 steps ago is one hop away, where a recurrent network has to carry it
+    through 500 sequential updates that can each dilute it. Third, a variable
+    number of things — three objects or seven, the sequence just gets longer.
+    On the mechanism, the one derivation worth having is the scaling factor. A
+    dot product of two d-dimensional vectors with unit-variance entries has
+    variance d, so unscaled logits grow like root-d — at d equals 64 that's
+    logits around 8, which saturates the softmax and kills the gradient.
+    Dividing by root-d-k restores unit-variance logits at any dimension. And
+    multi-head is the same argument as multimodality elsewhere: one softmax
+    gives you exactly one distribution over positions, so a single head has to
+    average all the relations it needs into one compromise, while several heads
+    in separate subspaces can track the object and the gripper and the target
+    word simultaneously. The cost is quadratic in tokens, and in robotics the
+    token budget is almost entirely vision — a 224 by 224 image at patch 14 is
+    256 tokens, so two views is 512 before anything else. That's the number to
+    look at when a policy is too slow, not the parameter count. The trap I'd
+    flag is masking. Across time, causality is real — you can't see future
+    observations. But within an action chunk that's emitted in one forward pass
+    from one observation, there's no generation order to respect, so masking the
+    action queries causally throws away real structure. Where the motion ends up
+    genuinely should shape how it starts. It's the most common bug when someone
+    copies a decoder-only language architecture into a policy, and it doesn't
+    error — it just quietly makes the chunk less coherent.
+  followUps:
+    - q: "Would you use a pure transformer or a conv trunk feeding a transformer?"
+      a: >-
+        With a couple of hundred demonstrations, a conv trunk. ViT's result is
+        that patches beat convolutions given enough data and lose given less,
+        and robot datasets are firmly in the "less" regime — translation
+        equivariance is a genuine prior that a conv net gets for free and a
+        transformer has to learn. The trunk also pools before the sequence
+        model, which cuts the token count, and since attention is quadratic in
+        that, it's a large constant-factor win on top. I'd go patches-first when
+        I'm starting from a pretrained ViT or VLM backbone, because then the
+        data question is already answered by the pretraining and I want to
+        inherit those weights rather than bolt a conv net onto them.
+    - q: "Your transformer policy is too slow. Where do you look?"
+      a: >-
+        Token count first, because it's the only lever with a quadratic effect.
+        I'd print the sequence length and see where it goes — it's almost always
+        vision. Fewer views, larger patches, smaller images, or a conv trunk
+        that pools before the sequence model; halving the visual tokens cuts the
+        attention cost by about four. After that I'd make sure I'm using a fused
+        attention kernel rather than a hand-written softmax, since the n-by-n
+        matrix is the memory bottleneck and not materialising it is often the
+        difference between batch size 8 and 64. Then the ordinary things —
+        precision, KV caching if there's any autoregressive decode. Making the
+        model smaller is what I'd try last, because it usually costs more
+        performance per unit of speedup than the token budget does.
+    - q: "How do you know your attention policy is looking at the right thing?"
+      a: >-
+        Reshape the attention weights from an action query back onto the patch
+        grid and overlay them on the image. If the query attends to the object
+        and the gripper, the model found the task; if it's pinned to a table
+        corner or a fixed background feature, it found a shortcut that won't
+        survive a change of scene. That's the main interpretability an attention
+        policy gives you for free, and it's the same diagnostic as visualising
+        spatial-softmax keypoints. The complementary check is ablation — zero
+        the language tokens, then the wrist view, then proprioception, and
+        measure the drop. A modality whose removal changes nothing is costing
+        you tokens quadratically for no benefit, and I'd cut it.
+    - q: "Is a transformer actually necessary for a manipulation policy?"
+      a: >-
+        Not for a single task with one camera, no. A conv encoder with a spatial
+        softmax and an MLP head predicting an action chunk is a strong baseline
+        and much cheaper. Where the transformer earns its place is when you have
+        several heterogeneous inputs that need learned fusion, when you need
+        language conditioning, when the task needs memory beyond a frame stack,
+        or when you want to inherit a pretrained vision-language backbone —
+        which is really the dominant reason now. I'd frame it as: the
+        transformer is what lets you plug into pretrained weights and into
+        multiple modalities, and if you need neither, the simpler thing is
+        probably better at your data scale.
+  traps:
+    - "Explaining attention as 'the model focuses on important parts' without the query-key-value mechanism. The mechanism is the question."
+    - "Reciting $1/\\sqrt{d_k}$ without the variance argument. It is the standard follow-up and the derivation is two lines."
+    - "Quoting parameter count as the cost. The binding constraint in a robot transformer is the token count, and the dependence is quadratic."
+    - "Applying a causal mask within an action chunk. It imports a constraint from autoregressive generation that does not hold when the chunk is emitted in one pass."
+check:
+  - id: ta_l5_c1
+    prompt: "An interviewer asks why attention scales the logits by $1/\\sqrt{d_k}$. Which answer is complete?"
+    options:
+      - "To keep the attention weights summing to one"
+      - "The dot product of two $d_k$-dimensional unit-variance vectors has variance $d_k$, so logits grow like $\\sqrt{d_k}$; at $d_k = 64$ that saturates the softmax and its gradient vanishes, and the scaling restores unit-variance logits at any dimension"
+      - "To prevent numerical overflow in the exponential"
+      - "To make the output comparable in magnitude to the residual stream"
+    answer: 1
+    explanation: "The complete answer names the variance computation, the consequence for the softmax, and the dimension-independence the fix buys. Option 1 is what the softmax does regardless and is the common wrong answer. Overflow is a real numerical concern but is handled separately by subtracting the row max, and it is not why the term is in the paper — the argument is about gradients, not about floating point."
+  - id: ta_l5_c2
+    prompt: "A candidate proposes replacing their frame-stacked conv policy with a transformer, on 200 demonstrations, one camera, no language. What is the useful response?"
+    options:
+      - "Agree — transformers are strictly more expressive"
+      - "Push back on the regime: at 200 demonstrations the conv net's translation equivariance is a prior worth having, and a transformer must learn it from data. Without multiple modalities, language, or long-horizon memory, the transformer's advantages do not apply and it costs tokens quadratically"
+      - "Suggest they use a recurrent network instead"
+      - "Agree, provided they use a causal mask"
+    answer: 1
+    explanation: "The question is testing whether you reason about regime or about fashion. ViT's crossover result says a built-in inductive bias helps when data is scarce, and 200 demonstrations is very scarce. The transformer's real advantages — learned fusion across modalities, language conditioning, long-range memory, and inheriting pretrained weights — are all absent from this setup. The one argument that would change the answer is wanting to start from a pretrained VLM backbone, and it is worth naming that as the exception."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Quadratic attention bottleneck: with long observation histories (e.g., 100 frames of 256 tokens each = 25,600 tokens), standard self-attention requires $O(n^2) \approx 6.5 \times 10^8$ operations per layer, causing inference to exceed real-time budgets. KV cache memory blow-up: caching all past tokens exhausts GPU memory for long-horizon tasks. Positional encoding failures: models trained with fixed-length positional encodings degrade when deployed with longer sequences. Symptoms: latency spikes during long manipulation sequences, degraded performance on tasks longer than training distribution. Fix: use sliding window attention to bound context length, implement KV cache eviction (drop oldest or least-attended entries), use RoPE or ALiBi for length extrapolation, apply FlashAttention for memory-efficient computation.
+<Steps>
+<Step title="Too slow → count tokens, not parameters">
+The dependence is quadratic and vision dominates. Fewer views, larger patches,
+a conv trunk that pools before the sequence model. Then check you are on a fused
+attention kernel.
+</Step>
 
-## Interview-ready answer
+<Step title="Runs out of memory at a small batch → the $n\times n$ matrix">
+It is the attention matrix held for the backward pass, not the weights. Fused
+implementations recompute it in tiles and typically buy an order of magnitude in
+batch size.
+</Step>
 
-Transformers are the backbone of every modern foundation model used in robotics. The key mechanisms: (1) self-attention captures relationships within a modality (spatial relations between image patches, temporal dependencies between action tokens), (2) cross-attention fuses information across modalities (grounding language in vision), (3) KV caching enables efficient autoregressive generation for real-time control. For robotics-specific considerations: we need efficient attention because robots operate under strict latency budgets — FlashAttention and sliding window attention are essential. Positional encoding choice matters for generalization: RoPE handles variable-length sequences better than learned embeddings. The practical bottleneck is usually memory, not compute — KV cache management is critical for long-horizon tasks.
+<Step title="Action chunks look jittery at the seams → check the mask">
+If the action queries were masked causally, later actions cannot inform earlier
+ones and the chunk loses coherence. Within a chunk emitted in one pass, the mask
+should be open.
+</Step>
+
+<Step title="Attention pinned to background → shortcut learning">
+Overlay the weights on the patch grid. Queries fixed on a table corner mean the
+model found something correlated with the action in your data rather than the
+task. Augmentation and more scene variation, not a bigger model.
+</Step>
+
+<Step title="Diverges early in training → post-norm without warmup">
+Pre-norm (`norm_first=True`) trains stably from step one. The original post-norm
+formulation needs a learning-rate warmup, and copying an old implementation is a
+reliable way to lose a day.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+Two things separate a good answer here from a recitation. Derive the
+$\sqrt{d_k}$ scaling rather than stating it — it is the standard probe, it takes
+two lines, and everybody states it. And talk about the cost in *tokens*: a robot
+transformer's binding constraint is a 512-token visual budget with quadratic
+scaling, not its parameter count. That single reframing is what makes it clear
+you have profiled one of these rather than read about them.
+</Warning>

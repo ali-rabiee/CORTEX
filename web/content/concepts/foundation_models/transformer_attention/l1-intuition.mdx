@@ -1,29 +1,148 @@
 ---
 concept: transformer_attention
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Transformer and Attention Mechanisms for Embodied AI in plain
-    language: what is it, and why does it matter?"
+  prompt: "Explain attention in plain language, then say what it buys specifically for a robot policy that a convolutional network does not."
   keyPoints:
-    - Self-attention lets every token in a sequence 'look at' every other token
-      to decide what's relevant.
-    - For a robot processing a sequence of image patches and language tokens,
-      attention learns which visual region matters for each word in the
-      instruction.
-    - "Cross-attention is how the robot's visual stream asks questions of the
-      language stream: 'given I see these objects, which one does the
-      instruction refer to?' KV cache is like keeping notes from previous steps
-      so you don't re-read the entire history each time you generate the next
-      action token."
-check: []
-papers: []
+    - "Attention is content-based lookup: every token forms a query, compares it against every token's key, and pulls a weighted mix of their values. What is relevant is decided by content, not by position or by a hand-designed rule."
+    - "For robotics the first win is *fusion*: two cameras, proprioception, and a language instruction become one token sequence, and the model decides how to combine them instead of you."
+    - "The second is memory over an episode — attention reaches back an arbitrary distance in one step, where a recurrent network has to carry information forward through every intermediate step."
+    - "The cost is quadratic in sequence length, which for robotics is a real budget: two 224x224 views at patch size 14 is already 512 tokens before anything else."
+media:
+  - kind: video
+    title: "Attention in transformers, step-by-step"
+    url: https://www.youtube.com/watch?v=eMlx5fFNoYc
+    source: "3Blue1Brown"
+    minutes: 26
+    note: "The clearest visual account of queries, keys, and values as a lookup. If the mechanism has not clicked, watch this before reading any code."
+  - kind: video
+    title: "Attention is all you need (Transformer) — model explanation including math"
+    url: https://www.youtube.com/watch?v=bCz4OMemCcA
+    source: "Umar Jamil"
+    minutes: 58
+    note: "Longer and more mechanical: works through the shapes, the masking, and the training-versus-inference difference. Useful right before implementing one."
+  - kind: article
+    title: "Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware"
+    url: https://tonyzhaozh.github.io/aloha/
+    source: "Zhao, Kumar, Levine, Finn"
+    note: "A transformer policy doing real dexterous work. Look at the architecture section for learned action queries — a decoder-side pattern worth stealing, and quite different from how transformers are used in language."
+check:
+  - id: ta_l1_c1
+    prompt: "What does attention buy a robot policy that a convolutional encoder plus an MLP does not?"
+    options:
+      - "More parameters, and therefore more capacity"
+      - "Content-based fusion across heterogeneous inputs: image patches from several cameras, proprioception, and language become one sequence, and which parts matter for this decision is learned rather than fixed by the architecture"
+      - "Translation invariance"
+      - "The ability to process continuous actions"
+    answer: 1
+    explanation: "A conv-plus-MLP pipeline has to decide in advance how the modalities combine — usually concatenate the pooled features and hope. Attention makes that combination input-dependent: an action query can put most of its weight on the wrist camera when the gripper is near the object and on the overhead view when it is not, without anyone specifying that rule. Note that option 3 is a property conv nets have and transformers largely lack, which is a genuine cost, not a benefit."
+  - id: ta_l1_c2
+    prompt: "Why is attention better than a recurrent network for remembering something that happened 500 steps ago?"
+    options:
+      - "Attention has more parameters"
+      - "Attention reaches any earlier token in a single step, while an RNN must carry the information forward through 500 sequential updates, each of which can dilute or overwrite it"
+      - "Recurrent networks cannot process long sequences"
+      - "Attention is causal and RNNs are not"
+    answer: 1
+    explanation: "The path length between two positions is $O(1)$ for attention and $O(n)$ for recurrence, and that is the whole argument. Every intermediate recurrent update is an opportunity for the signal to be diluted, and gradients have to travel the same long path during training. The price is the quadratic cost — attention pays $O(n^2)$ compute to buy $O(1)$ path length, which is a good trade when $n$ is moderate and a bad one when it is huge."
+  - id: ta_l1_c3
+    prompt: "A policy uses two 224x224 camera views with 14x14 patches. Roughly how many visual tokens is that, and why does the number matter?"
+    options:
+      - "About 32 tokens; the number is not a constraint"
+      - "About 512 tokens, and since attention cost grows with the square of sequence length, the visual token budget is usually what determines whether the policy runs at control rate"
+      - "About 50,000 tokens, making transformers infeasible for robotics"
+      - "It depends only on the number of attention heads"
+    answer: 1
+    explanation: "$(224/14)^2 = 256$ patches per view, so 512 for two views before proprioception, language, or history are added. Because the attention matrix is $n \\times n$, doubling the token count roughly quadruples that cost — which is why practical robot transformers compress vision aggressively, use fewer or smaller views, or pool patches before the sequence model. Counting your tokens is the first thing to do when a policy is too slow."
 ---
 
-## Intuition
+## Lookup by meaning
 
-Self-attention lets every token in a sequence 'look at' every other token to decide what's relevant. For a robot processing a sequence of image patches and language tokens, attention learns which visual region matters for each word in the instruction. Cross-attention is how the robot's visual stream asks questions of the language stream: 'given I see these objects, which one does the instruction refer to?' KV cache is like keeping notes from previous steps so you don't re-read the entire history each time you generate the next action token.
+Attention is a dictionary lookup where the keys are learned and the match is
+soft. Every token produces three vectors: a **query** (what am I looking for), a
+**key** (what do I offer), and a **value** (what I will hand over). Compare each
+query against every key, turn the similarities into weights, and return the
+weighted mix of values.
 
-## In practice
+<Intuition>
+You are reading a paper and hit the word "it". To resolve what "it" refers to,
+you do not scan back word by word — you glance over the recent text and
+something lights up. That glance is query-key matching, and how strongly each
+candidate lights up is the attention weight.
 
-In RT-2, a ViT encodes a camera image into 256 visual tokens, which are concatenated with tokenized language instructions and fed through a PaLM-E transformer backbone. Self-attention within image tokens captures spatial relationships; cross-attention between image and language tokens grounds words to visual regions. For real-time deployment, KV caching reduces per-step inference from ~200ms to ~50ms by reusing cached keys/values from previous observation tokens. FlashAttention-2 further halves GPU memory usage, enabling larger context windows on edge devices like Jetson Orin.
+The mechanism does not know about grammar, position, or distance. It only knows
+that this query and that key look alike.
+</Intuition>
+
+## Why this matters for a policy specifically
+
+The language-model framing undersells what attention does for robotics. Three
+things.
+
+<Figure src="/figures/embodied-attention-tokens.svg"
+        alt="Patches from two cameras, a proprioception vector, and instruction words are each projected into one embedding space and concatenated into a single token sequence, alongside learned action queries. One action query attends across all of them with weights of varying strength."
+        caption="Every modality becomes tokens in one sequence, and an action query decides for itself how much of each to use. Nothing in the architecture says the wrist camera matters more during a grasp — that comes out of the content." />
+
+<Steps>
+<Step title="Fusion you did not have to design">
+A conv-plus-MLP pipeline commits in advance to how the modalities combine —
+usually concatenate the pooled features. Attention makes the combination
+input-dependent: weight the wrist view when the gripper is near the object, the
+overhead view when it is not, the word "cup" when disambiguating a target.
+</Step>
+
+<Step title="Memory that does not have to be carried">
+To use something from 500 steps ago, a recurrent network must pass it through
+500 sequential updates, each of which can dilute or overwrite it. Attention
+reaches it in one step. Path length $O(1)$ against $O(n)$ is the whole argument
+for transformers over RNNs on long-horizon tasks.
+</Step>
+
+<Step title="A variable number of things">
+Three objects on the table or seven, one camera or four — the sequence just gets
+longer. An MLP over a fixed concatenated vector cannot express that without
+padding to a maximum and hoping.
+</Step>
+</Steps>
+
+## The pattern worth stealing
+
+In language models, the output tokens are the same kind of thing as the input
+tokens. In a policy, they are not — you want actions out of an observation.
+
+The standard solution is **learned queries**: allocate one query vector per
+action you intend to predict, let each attend over the observation tokens, and
+read the action off its output. ACT does exactly this, with roughly a hundred
+learned queries for a hundred-step action chunk. The queries carry no
+information themselves; they are slots that learn what to look for.
+
+<KeyIdea>
+This also gives you action chunking for free, and gives it a nice property: the
+queries attend to *each other* as well as to the observation, so the predicted
+actions are coherent as a motion rather than being independently plausible
+per-step. That is a structural fix for the jitter a per-timestep policy produces.
+</KeyIdea>
+
+## What it costs
+
+<Warning>
+Every token attends to every token, so compute and memory grow with the *square*
+of sequence length. In robotics that budget is spent almost entirely on vision:
+a 224x224 image at patch size 14 is 256 tokens, so two camera views is 512
+before proprioception, language, history, or action queries.
+
+Doubling the token count roughly quadruples the attention cost. This is why
+practical robot transformers compress vision aggressively — fewer views, smaller
+images, larger patches, or a convolutional trunk that pools before the sequence
+model. When a transformer policy is too slow, count your tokens before reaching
+for anything else.
+</Warning>
+
+There is a second cost that gets less attention. Convolutions have translation
+equivariance built in; transformers do not, and have to learn it from data. That
+is fine at scale and expensive when you have 200 demonstrations — one of several
+reasons hybrid designs, with a conv trunk feeding a transformer, remain common
+in robot learning rather than being a legacy compromise.
+
+<WatchThis />
