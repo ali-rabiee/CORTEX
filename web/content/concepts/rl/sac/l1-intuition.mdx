@@ -1,25 +1,143 @@
 ---
 concept: sac
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Soft Actor-Critic (SAC) in plain language: what is it, and why
-    does it matter?"
+  prompt: "Explain SAC in plain language. What is the entropy term for, and why is SAC so much more sample-efficient than PPO?"
   keyPoints:
-    - SAC is like a policy that's rewarded for being both good and creative.
-    - The entropy term $\alpha\, H(\pi)$ encourages exploration by penalizing
-      deterministic behavior.
-    - The automatic temperature $\alpha$ finds the right balance — early in
-      training $\alpha$ is high (explore more), later it decreases (exploit
-      more).
-check: []
-papers: []
+    - "SAC maximises reward *plus* the policy's entropy: be good, and stay as undecided as you can while being good."
+    - "The entropy term is not just an exploration bonus. It changes the objective, so the optimal policy keeps probability on every action that is nearly as good — which is what stops premature collapse and produces robustness to perturbation."
+    - "Sample efficiency comes from being off-policy: a replay buffer is reused thousands of times, unlike PPO where a batch buys a handful of epochs."
+    - "The price is deadly-triad territory — bootstrapping, function approximation, off-policy data all at once — which is why SAC needs twin critics, target networks, and a tuned temperature to stay stable."
+media:
+  - kind: article
+    title: "Soft Actor-Critic"
+    url: https://spinningup.openai.com/en/latest/algorithms/sac.html
+    source: "OpenAI Spinning Up"
+    note: "The reference statement of the three losses. Note their remark on the entropy-regularised value functions — getting the soft-value bookkeeping right is where most reimplementations go wrong."
+  - kind: article
+    title: "Policy Gradient Algorithms"
+    url: https://lilianweng.github.io/posts/2018-04-08-policy-gradient/
+    source: "Lilian Weng"
+    note: "The SAC section places it in the family tree next to TD3, DDPG, and PPO. Useful for seeing which pieces SAC inherited versus invented."
+  - kind: video
+    title: "Soft Actor Critic (V2)"
+    url: https://www.youtube.com/watch?v=_nFXOZpo50U
+    source: "Olivier Sigaud"
+    minutes: 32
+    note: "Walks through the maximum-entropy objective and the two SAC papers, including why the second one replaced the fixed temperature with automatic tuning."
+check:
+  - id: sac_l1_c1
+    prompt: "How does SAC's entropy term differ from adding an epsilon-greedy exploration schedule?"
+    options:
+      - "It does not — both add randomness to the policy"
+      - "Epsilon-greedy perturbs a policy that is optimal for the plain reward objective; SAC changes the *objective itself*, so the optimal policy is genuinely stochastic and keeps mass on every near-optimal action"
+      - "The entropy term only applies during evaluation"
+      - "Epsilon-greedy works in continuous action spaces and entropy does not"
+    answer: 1
+    explanation: "This is the distinction that matters. Epsilon-greedy is noise bolted onto a policy that, absent the noise, would be deterministic; the noise is uniform and uninformed, and you anneal it away. SAC's optimal policy is a Boltzmann distribution over $Q$ — the randomness is shaped by how good each action is, it is part of what is being optimised, and it never gets annealed away. That is why SAC policies are robust to perturbations rather than merely well-explored."
+  - id: sac_l1_c2
+    prompt: "Why is SAC typically an order of magnitude more sample-efficient than PPO?"
+    options:
+      - "Because the entropy term speeds up convergence"
+      - "Because it is off-policy: every transition goes into a replay buffer and is reused many times, whereas PPO discards each batch after a few epochs"
+      - "Because it uses two critics instead of one"
+      - "Because it does not need a value function"
+    answer: 1
+    explanation: "The replay buffer is the whole story on sample efficiency, and it is the axis to reason on when choosing between the two. PPO's clipping buys a handful of epochs per batch; SAC will revisit the same transition thousands of times. The entropy term helps exploration and robustness, and twin critics help stability, but neither is why the sample counts differ by 10x or more."
+  - id: sac_l1_c3
+    prompt: "What is the cost of SAC's off-policy design?"
+    options:
+      - "It cannot handle continuous actions"
+      - "It combines bootstrapping, function approximation, and off-policy data — all three legs of the deadly triad — so it needs target networks, twin critics with a min, and careful temperature tuning to remain stable"
+      - "It requires a model of the environment"
+      - "It only works with discrete rewards"
+    answer: 1
+    explanation: "PPO is on-policy, so it is missing a leg of the triad and is correspondingly forgiving; SAC has all three and its machinery exists to compensate. Every stabiliser has a specific job: target networks slow the feedback loop between estimate and target, the min over twin critics counteracts the overestimation that the max operator induces, and the temperature keeps the entropy term from either dominating or vanishing. Knowing which stabiliser addresses which failure is what makes debugging SAC tractable."
 ---
 
-## Intuition
+## Good, and undecided
 
-SAC is like a policy that's rewarded for being both good and creative. The entropy term $\alpha\, H(\pi)$ encourages exploration by penalizing deterministic behavior. The automatic temperature $\alpha$ finds the right balance — early in training $\alpha$ is high (explore more), later it decreases (exploit more). The dual optimization on $\alpha$ elegantly targets a desired entropy level without manual tuning.
+Standard RL asks for the policy that collects the most reward. SAC asks for
+something slightly different:
 
-## In practice
+$$
+\text{maximise} \quad \underbrace{\text{expected reward}}_{\text{do well}}
+\;+\;\alpha\,\underbrace{\text{policy entropy}}_{\text{stay uncommitted}}
+$$
 
-Training a dexterous hand to rotate a cube in MuJoCo. SAC reaches 90% success in 2M steps vs PPO needing 10M steps. The replay buffer lets SAC reuse past experience. Key: use two Q-networks with $Q = \min(Q_{\phi_1}, Q_{\phi_2})$ to prevent overestimation. Target network update rate $\tau = 0.005$, learning rate $\alpha_{\text{lr}} = 3 \times 10^{-4}$, replay buffer size $|\mathcal{B}| = 10^6$.
+Entropy measures how spread out the action distribution is. So SAC is being
+asked: get the reward, and among all the ways of getting it, be the one that
+keeps the most options open.
+
+<Intuition>
+Two routes home take almost exactly the same time. A greedy commuter measures
+both once, finds one is 30 seconds faster, and takes it every single day — and
+never notices when it closes for roadworks.
+
+A commuter who keeps taking both, weighted by how good they are, pays a few
+seconds a day and is never stranded. That is the entropy term, and note that
+it is not "explore randomly" — the second route is chosen because it is nearly
+as good, not because a coin came up heads.
+</Intuition>
+
+## Why this is not just an exploration bonus
+
+<Figure src="/figures/sac-soft-vs-greedy.svg"
+        alt="Left: a Q function with two nearly equal peaks and a greedy policy placing all probability on the taller one. Right: the same Q with a maximum-entropy policy proportional to exp(Q/alpha), which keeps substantial probability on both peaks."
+        caption="The optimal max-entropy policy is a Boltzmann distribution over Q. The stochasticity is shaped by value — good actions get more probability, near-equal actions get near-equal probability — and it is never annealed away." />
+
+<KeyIdea>
+Epsilon-greedy adds uniform, uninformed noise to a policy that would otherwise
+be deterministic, and you turn it off over time. SAC changes what "optimal"
+means, so the best policy *is* stochastic, in a way that depends on how good
+each action is. That is why the resulting controllers tend to be robust to
+disturbances: they never learned to depend on one narrow strategy.
+</KeyIdea>
+
+The value function inherits the same softening. Instead of
+$V(s) = \max_a Q(s,a)$, the max-entropy value is a log-sum-exp — a smooth
+maximum. That is where the "soft" in Soft Actor-Critic comes from, and it is a
+statement about the operator, not about the policy being gentle.
+
+## The pieces, and what each one is for
+
+<Steps>
+<Step title="A replay buffer">
+Every transition is stored and reused thousands of times. This is the entire
+reason SAC is roughly an order of magnitude more sample-efficient than PPO, and
+the reason it is the default when environment steps are expensive.
+</Step>
+
+<Step title="Twin critics, and take the minimum">
+Two independently initialised $Q$ networks; targets use $\min(Q_1, Q_2)$. Taking
+a max over noisy estimates is upward-biased, and the min is a blunt but
+effective counterweight. Bootstrapping would otherwise propagate the inflation
+backwards through the whole chain.
+</Step>
+
+<Step title="A stochastic actor with reparameterised sampling">
+The action is $a = \tanh(\mu_\theta(s) + \sigma_\theta(s)\odot\epsilon)$, which
+is differentiable with respect to the policy parameters. That lets gradients
+flow from $Q$ through the action into the actor — a much lower-variance
+estimator than the score-function form policy gradients use.
+</Step>
+
+<Step title="An automatically tuned temperature">
+$\alpha$ trades reward against entropy, and the right value changes over
+training and across reward scales. The second SAC paper made it self-tuning by
+targeting a fixed entropy level, which removed the algorithm's most annoying
+hyperparameter.
+</Step>
+</Steps>
+
+<Warning>
+SAC bootstraps, uses function approximation, and trains on off-policy data — all
+three legs of the deadly triad at once. Every stabiliser above is there for a
+named reason, and none is optional. If you are debugging SAC, match the symptom
+to the mechanism: exploding $Q$ values are a triad problem, a critic that is
+stably wrong in the optimistic direction is an overestimation problem, and a
+policy that goes deterministic early is a temperature problem.
+</Warning>
+
+<WatchThis />

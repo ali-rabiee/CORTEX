@@ -1,24 +1,160 @@
 ---
 concept: sac
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Soft Actor-Critic (SAC) fail in practice, and how would you
-    present it in an interview?
+  prompt: "Give your interview answer on SAC. What does the entropy term actually change, and how do you choose between SAC and PPO?"
   keyPoints:
-    - "Q-function overestimation: despite the double-Q trick $\\min(Q_{\\phi_1},
-      Q_{\\phi_2})$, value estimates can still diverge in complex environments."
-    - "Symptoms: $Q$-values grow unbounded, policy degrades suddenly."
-    - "Fix: increase target network update period ($\\tau = 0.005$), add reward
-      scaling $r' = r / \\sigma_r$, use layer normalization in critics."
-check: []
-papers: []
+    - "Say what maximum entropy changes: not an exploration bonus bolted on, but a different objective whose optimal policy is a Boltzmann distribution over $Q$."
+    - "Attribute sample efficiency to the replay buffer, not to entropy or twin critics. That is the axis on which the SAC-versus-PPO choice is made."
+    - "Name each stabiliser's job: twin-critic min for overestimation, target networks for the triad, auto-tuned temperature for entropy scale."
+    - "Have the tanh log-Jacobian correction ready — it is the concrete implementation detail that shows you have written one rather than read one."
+interview:
+  answer: >-
+    SAC is an off-policy actor-critic that optimises reward plus the entropy of
+    the policy. That's the defining choice and it's worth being precise about
+    what it changes. It isn't an exploration bonus added to a policy that would
+    otherwise be deterministic — it changes the objective, so the optimal
+    policy is genuinely stochastic. If you solve the max-entropy problem for a
+    fixed Q, you get a Boltzmann distribution: pi proportional to exp of Q over
+    the temperature. It's a two-line Lagrangian argument, and substituting it
+    back gives a value function that's a log-sum-exp instead of a max, which is
+    where the word soft comes from. The practical consequence is that the
+    policy keeps probability on every action that's nearly as good, weighted by
+    how good, and it never anneals that away — which is why SAC controllers
+    tend to be robust to perturbations rather than depending on one narrow
+    strategy. In practice the actor loss is a KL projection of the policy onto
+    exp of Q over alpha, and the intractable partition function drops out of
+    the gradient because it doesn't depend on the policy. The actor uses the
+    reparameterisation trick — action equals tanh of mu plus sigma times noise
+    — so gradients flow through the action into Q. That matters a lot: the
+    pathwise gradient sees grad-a Q, the shape of the value landscape, instead
+    of just a scalar weight on grad log pi, so it's far lower variance than the
+    score-function estimator. Where SAC actually wins is sample efficiency, and
+    that comes from being off-policy — every transition goes in a replay buffer
+    and gets reused thousands of times, where PPO gets a handful of epochs per
+    batch. The price is that it has all three legs of the deadly triad at once.
+    So the machinery isn't optional: twin critics with a min in the target
+    against overestimation bias, target networks to slow the feedback loop, and
+    an auto-tuned temperature so the entropy weight tracks the reward scale.
+  followUps:
+    - q: "How do you decide between SAC and PPO for a given project?"
+      a: >-
+        Almost entirely on what's scarce. If I have a fast parallel simulator
+        and compute is cheap, PPO is simpler, more forgiving, and scales
+        beautifully with parallel environments — it's on-policy, so it's
+        missing a leg of the triad and just doesn't fail in the ways SAC does.
+        If environment steps are the binding constraint, real hardware or a slow
+        simulator, SAC's replay buffer is worth an order of magnitude and I'll
+        pay for it in tuning. The secondary consideration is action space: SAC
+        needs a differentiable sampling path for the reparameterisation, so
+        discrete actions need a relaxation like Gumbel-softmax or a different
+        formulation, whereas PPO handles both natively.
+    - q: "Your SAC run has Q-values climbing steadily and returns flat. Diagnosis?"
+      a: >-
+        Climbing Q with flat returns means the critic is inflating and the
+        policy is exploiting it, so I'd separate the two causes. Overestimation
+        first: check the twin-critic min is actually being applied in the
+        target, not just that two critics exist — using the mean instead of the
+        min is a real and common bug. Then the triad: check the target network
+        is being used and tau isn't so large it's effectively absent. Then I'd
+        look at the entropy term in the critic target specifically. If the
+        actor has the entropy bonus and the target doesn't, the critic is
+        estimating the hard Q while the policy optimises the soft one, and
+        they'll pull against each other. And I'd sanity check the reward scale,
+        since values live on a scale of roughly R max over one minus gamma.
+    - q: "Why the tanh correction, and what happens without it?"
+      a: >-
+        Actions are bounded so you squash a Gaussian sample through a tanh, and
+        that's a change of variables, so the log-probability needs the
+        log-Jacobian: minus the sum of log one minus tanh squared. Without it
+        you're reporting the entropy of the pre-squash Gaussian, which is wrong
+        in a specific direction — the correction blows up as the action
+        approaches the bounds, which is exactly where a converged policy lives.
+        So you overestimate entropy where it matters, the auto-tuner responds by
+        driving alpha down, the policy saturates further, and you get a slow
+        drift to determinism. It trains fine and quietly stops being a
+        max-entropy method. That's my favourite example of a bug that never
+        crashes.
+    - q: "Where does SAC sit in robot learning right now?"
+      a: >-
+        Mostly locomotion and online fine-tuning rather than manipulation from
+        scratch. For manipulation, imitation-based methods — action chunking,
+        diffusion policies, VLAs — dominate pretraining, because demonstrations
+        are easier to get than a reward function you'd trust and safe online
+        exploration on a real arm is genuinely hard. Where SAC-family methods
+        earn their place is when there's a well-specified reward and either a
+        good simulator or a safe way to collect real interaction: legged
+        locomotion, and increasingly RL fine-tuning on top of an
+        imitation-pretrained policy, where you start from something competent
+        and the exploration problem is much smaller.
+  traps:
+    - "Calling the entropy term an exploration bonus. It changes the objective; the optimal policy is stochastic in a value-dependent way and is never annealed. That distinction is the point of the method."
+    - "Attributing SAC's sample efficiency to entropy or twin critics. It comes from the replay buffer, and that is what the SAC-versus-PPO decision turns on."
+    - "Using the mean of the twin critics instead of the min. The min is there specifically to counteract the upward bias that a max over noisy estimates creates."
+    - "Dropping the entropy term from the critic target while keeping it in the actor loss. The critic then estimates the hard $Q$ while the policy optimises the soft objective, and they work against each other."
+check:
+  - id: sac_l5_c1
+    prompt: "A team reports their SAC policy 'became deterministic after a while and got brittle', with $\\alpha$ having decayed close to zero. What is the most likely implementation cause?"
+    options:
+      - "The learning rate on the temperature is too high"
+      - "The $\\tanh$ log-Jacobian correction is missing from $\\log\\pi$, so entropy is overestimated near the action bounds — the auto-tuner drives $\\alpha$ down, the policy saturates further, and the loop reinforces itself"
+      - "The replay buffer is too large"
+      - "The twin critics are not initialised independently"
+    answer: 1
+    explanation: "The signature is the specific combination: a policy drifting to determinism together with $\\alpha$ collapsing, in a run that never crashed. The missing correction makes reported entropy too high exactly where a converged policy operates, and the auto-tuner responds rationally to the wrong number. A high temperature learning rate would produce oscillation rather than a one-way drift, and independent initialisation matters for the min but not for entropy."
+  - id: sac_l5_c2
+    prompt: "You have a real robot arm, no simulator, and a well-defined dense reward. Roughly 4 hours of safe interaction per day. SAC or PPO?"
+    options:
+      - "PPO, because it is more stable and stability matters most on hardware"
+      - "SAC, because environment steps are the binding constraint and the replay buffer reuses each transition thousands of times — the tuning burden is worth an order of magnitude in sample efficiency"
+      - "Neither; only imitation learning is viable on hardware"
+      - "PPO with a very large number of epochs per batch, to approximate off-policy reuse"
+    answer: 1
+    explanation: "Four hours a day makes samples the scarce resource, and that is precisely the axis SAC wins on. PPO's stability advantage is real but it is a compute-for-samples trade you can only take when samples are cheap. Option 4 is the tempting one and it does not work: pushing epochs up drives the policy far outside the region where the batch is informative, which is the failure PPO's clipping is there to bound in the first place."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Q-function overestimation: despite the double-Q trick $\min(Q_{\phi_1}, Q_{\phi_2})$, value estimates can still diverge in complex environments. Symptoms: $Q$-values grow unbounded, policy degrades suddenly. Fix: increase target network update period ($\tau = 0.005$), add reward scaling $r' = r / \sigma_r$, use layer normalization in critics.
+<Steps>
+<Step title="Q-values climbing, returns flat → overestimation">
+Check the min over twin critics is actually in the *target* (using the mean is a
+common and quiet bug), and that the critics were initialised independently.
+Then check target-network $\tau$.
+</Step>
 
-## Interview-ready answer
+<Step title="Policy goes deterministic, $\alpha$ collapses → the tanh correction">
+The log-Jacobian term is missing or misapplied. Print the reported entropy
+against a hand-computed value for a saturated action; the discrepancy grows near
+the bounds.
+</Step>
 
-SAC maximizes both reward and entropy via the objective $J = \mathbb{E}[\sum \gamma^t (r + \alpha H(\pi))]$, which prevents premature convergence and provides natural exploration. The key innovation is the automatic temperature parameter $\alpha$ that adapts the entropy-reward trade-off by solving a constrained optimization targeting entropy $\bar{H} = -\dim(\mathcal{A})$. Being off-policy with a replay buffer gives SAC much better sample efficiency than PPO. For robot learning where real data is expensive, SAC is often preferred. The trade-off: it can exploit simulator artifacts stored in the replay buffer during sim2real transfer.
+<Step title="Critic and actor seem to fight each other → inconsistent objectives">
+Verify the entropy term appears in *both* the critic target and the actor loss.
+If it is in only one, they are optimising different reward functions.
+</Step>
+
+<Step title="Unstable early, fine later → reward scale">
+Values live on a scale of $R_{\max}/(1-\gamma)$, and $\alpha$ has to trade
+against that scale. Auto-tuning handles most of it, but an unnormalised reward
+in the hundreds will make the early phase violent regardless.
+</Step>
+
+<Step title="Sample-efficient but never reaches good performance → exploration, not stability">
+Max-entropy exploration is local: it keeps mass on nearby good actions, it does
+not solve a hard exploration problem. If the reward is sparse and the good
+behaviour is far away, no temperature setting finds it — that is a
+demonstrations or shaping problem.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+Two sentences carry this answer. The first is that maximum entropy changes the
+objective rather than adding noise, with the Boltzmann policy as evidence you
+can derive it. The second is that sample efficiency comes from the replay
+buffer, not from entropy — because that is the sentence that lets you answer
+"SAC or PPO?" as an engineering decision about what is scarce, rather than as a
+preference.
+</Warning>

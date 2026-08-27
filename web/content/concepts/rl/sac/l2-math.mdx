@@ -1,24 +1,206 @@
 ---
 concept: sac
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Soft Actor-Critic (SAC), including the
-    key equations.
+  prompt: "State the maximum-entropy objective, derive the optimal policy and the soft value function, and explain the tanh log-probability correction."
   keyPoints:
-    - "SAC is an off-policy actor-critic algorithm that maximizes a trade-off
-      between expected return and entropy: $$J(\\pi) = \\mathbb{E}_{\\tau \\sim
-      \\pi}\\left[\\sum_{t=0}^{T} \\gamma^t \\bigl(r(s_t, a_t) + \\alpha\\,
-      H(\\pi(\\cdot|s_t))\\bigr)\\right]$$ It uses two Q-networks with clipped
-      double-Q ($Q = \\min(Q_{\\phi_1}, Q_{\\phi_2})$), and automatic
-      temperature $\\alpha$ tuning via the dual objective: $$\\alpha^* =
-      \\arg\\min_\\alpha \\; \\mathbb{E}_{a \\sim \\pi}[-\\alpha \\log \\pi(a|s)
-      - \\alpha \\bar{H}]$$ where $\\bar{H}$ is the target entropy (typically
-      $-\\dim(\\mathcal{A})$)."
-check: []
-papers: []
+    - "$J(\\pi) = \\sum_t \\mathbb{E}[r_t + \\alpha\\mathcal{H}(\\pi(\\cdot\\mid s_t))]$. Setting $\\alpha \\to 0$ recovers standard RL, so max-ent is a strict generalisation."
+    - "Maximising $\\mathbb{E}_\\pi[Q] + \\alpha\\mathcal{H}(\\pi)$ subject to normalisation gives $\\pi^*(a\\mid s) \\propto \\exp(Q(s,a)/\\alpha)$, and substituting back gives $V(s) = \\alpha\\log\\int \\exp(Q(s,a)/\\alpha)\\,da$ — the log-sum-exp that makes it 'soft'."
+    - "$a = \\tanh(u)$ needs a change-of-variables correction: $\\log\\pi(a\\mid s) = \\log\\mu(u\\mid s) - \\sum_i \\log(1 - \\tanh^2 u_i)$. Omitting it is the most common SAC bug and it silently mis-scales the entropy."
+    - "The temperature is the dual variable of a constrained problem — maximise reward subject to entropy at least $\\bar{\\mathcal{H}}$ — giving $\\mathcal{L}(\\alpha) = \\mathbb{E}[-\\alpha(\\log\\pi(a\\mid s) + \\bar{\\mathcal{H}})]$."
+check:
+  - id: sac_l2_c1
+    prompt: "Why is $\\pi^*(a\\mid s) \\propto \\exp(Q(s,a)/\\alpha)$ the optimal policy for the maximum-entropy objective?"
+    options:
+      - "Because the exponential is the only positive function"
+      - "Because maximising $\\mathbb{E}_\\pi[Q] + \\alpha\\mathcal{H}(\\pi)$ over distributions with a normalisation constraint gives, via the Lagrangian, $\\log\\pi = Q/\\alpha + \\text{const}$"
+      - "Because $Q$ is assumed Gaussian"
+      - "Because the entropy of a Boltzmann distribution is maximal"
+    answer: 1
+    explanation: "It is a constrained variational problem with a two-line solution: differentiate $\\sum_a \\pi(a)Q(a) - \\alpha\\sum_a \\pi(a)\\log\\pi(a) + \\lambda(\\sum_a\\pi(a) - 1)$ with respect to $\\pi(a)$, set to zero, and solve. The exponential falls out of differentiating the entropy. Notice the limits it implies: $\\alpha\\to 0$ concentrates on the argmax and recovers greedy, $\\alpha\\to\\infty$ gives the uniform policy."
+  - id: sac_l2_c2
+    prompt: "Your SAC implementation computes $\\log \\pi(a\\mid s)$ from the pre-squash Gaussian without the $\\tanh$ correction. What happens?"
+    options:
+      - "Nothing, since the correction is a constant"
+      - "The entropy is systematically mis-estimated — the correction $-\\sum_i \\log(1 - \\tanh^2 u_i)$ is state- and action-dependent and grows near the action bounds — so the temperature auto-tuner targets the wrong quantity and the entropy bonus is wrong exactly where the policy saturates"
+      - "The actor loss becomes non-differentiable"
+      - "The critic diverges immediately"
+    answer: 1
+    explanation: "The correction is a log-Jacobian, so it varies with the action, and it blows up as $|\\tanh u| \\to 1$ — precisely where a well-trained policy spends its time. Omitting it makes the reported entropy too high near the bounds, which makes the auto-tuned $\\alpha$ too small, which lets the policy saturate further. The failure is a slow drift toward determinism rather than an immediate crash, which is what makes it so easy to ship."
+  - id: sac_l2_c3
+    prompt: "SAC's actor uses the reparameterised gradient $\\nabla_\\theta \\mathbb{E}[Q(s, a_\\theta)]$ rather than the score-function form. What is the advantage?"
+    options:
+      - "It is unbiased, whereas the score-function estimator is biased"
+      - "It differentiates *through* the action into $Q$, so the gradient uses $\\nabla_a Q$ — the shape of the value landscape — instead of only a scalar weight on $\\nabla\\log\\pi$, which is dramatically lower variance"
+      - "It avoids needing a critic"
+      - "It works for discrete actions, which the score function does not"
+    answer: 1
+    explanation: "Both estimators are unbiased for the same gradient; they differ enormously in variance. The score-function form only ever multiplies $\\nabla_\\theta\\log\\pi$ by a scalar, so it learns nothing about *which direction* in action space is better. The pathwise form has access to $\\nabla_a Q$, which points directly uphill. Option 4 is backwards, and is the real limitation: reparameterisation needs a differentiable sampling path, which discrete actions do not have without a relaxation like Gumbel-softmax."
 ---
 
-## Formal definition
+## The objective
 
-SAC is an off-policy actor-critic algorithm that maximizes a trade-off between expected return and entropy: $$J(\pi) = \mathbb{E}_{\tau \sim \pi}\left[\sum_{t=0}^{T} \gamma^t \bigl(r(s_t, a_t) + \alpha\, H(\pi(\cdot|s_t))\bigr)\right]$$ It uses two Q-networks with clipped double-Q ($Q = \min(Q_{\phi_1}, Q_{\phi_2})$), and automatic temperature $\alpha$ tuning via the dual objective: $$\alpha^* = \arg\min_\alpha \; \mathbb{E}_{a \sim \pi}[-\alpha \log \pi(a|s) - \alpha \bar{H}]$$ where $\bar{H}$ is the target entropy (typically $-\dim(\mathcal{A})$).
+$$
+J(\pi) = \sum_{t} \mathbb{E}_{(s_t,a_t)\sim\rho_\pi}
+\Big[r(s_t,a_t) + \alpha\,\mathcal{H}\big(\pi(\cdot\mid s_t)\big)\Big],
+\qquad
+\mathcal{H}(\pi) = -\mathbb{E}_{a\sim\pi}\big[\log\pi(a\mid s)\big]
+$$
+
+Set $\alpha = 0$ and this is ordinary RL, so nothing is lost by adopting it —
+maximum entropy is a strict generalisation with a knob.
+
+The value functions inherit the entropy term:
+
+$$
+V(s) = \mathbb{E}_{a\sim\pi}\big[Q(s,a) - \alpha\log\pi(a\mid s)\big],
+\qquad
+Q(s,a) = r(s,a) + \gamma\,\mathbb{E}_{s'}\big[V(s')\big]
+$$
+
+<Derivation title="The optimal policy is Boltzmann, and the value is a log-sum-exp">
+
+**Step 1 — the one-state problem.** For a fixed $Q$, find the distribution
+maximising $\mathbb{E}_\pi[Q] + \alpha\mathcal{H}(\pi)$ subject to
+$\sum_a \pi(a) = 1$. The Lagrangian:
+
+$$
+\mathcal{L} = \sum_a \pi(a) Q(a) - \alpha\sum_a \pi(a)\log\pi(a) + \lambda\Big(\sum_a\pi(a) - 1\Big)
+$$
+
+**Step 2 — differentiate with respect to $\pi(a)$ and set to zero.**
+
+$$
+Q(a) - \alpha\big(\log\pi(a) + 1\big) + \lambda = 0
+\quad\Longrightarrow\quad
+\log\pi(a) = \frac{Q(a)}{\alpha} + \frac{\lambda}{\alpha} - 1
+$$
+
+**Step 3 — exponentiate and normalise.** The constant is absorbed by the
+partition function:
+
+$$
+\boxed{\;\pi^*(a\mid s) = \frac{\exp\big(Q(s,a)/\alpha\big)}{Z(s)},
+\qquad Z(s) = \int \exp\big(Q(s,a)/\alpha\big)\,da\;}
+$$
+
+**Step 4 — substitute back to get the value.** With $\pi = \pi^*$,
+$\log\pi^* = Q/\alpha - \log Z$, so
+$Q - \alpha\log\pi^* = \alpha\log Z$, a constant in $a$. Therefore
+
+$$
+V(s) = \alpha \log \int \exp\big(Q(s,a)/\alpha\big)\, da
+$$
+
+a **log-sum-exp**: a smooth maximum, which is where "soft" comes from. Note
+$V(s) \ge \max_a Q(s,a)$, and the limits behave: $\alpha\to0$ recovers the hard
+max and a greedy policy; $\alpha\to\infty$ gives the uniform policy.
+
+</Derivation>
+
+## What SAC actually computes
+
+The partition function $Z(s)$ is intractable for a continuous action space, so
+SAC never evaluates it. Instead the policy improvement step is written as a KL
+projection onto the family the network can represent:
+
+$$
+\pi_{\text{new}} = \arg\min_{\pi' \in \Pi}\;
+D_{\mathrm{KL}}\!\left(\pi'(\cdot\mid s)\;\Big\|\;
+\frac{\exp\big(Q^{\pi_{\text{old}}}(s,\cdot)/\alpha\big)}{Z(s)}\right)
+$$
+
+Expanding the KL gives $\mathbb{E}_{a\sim\pi'}[\log\pi' - Q/\alpha] + \log Z$,
+and $\log Z$ does not depend on $\pi'$ — so it drops out of the gradient. The
+actor loss is what remains:
+
+$$
+\mathcal{L}(\theta) = \mathbb{E}_{s\sim\mathcal{D},\,a\sim\pi_\theta}
+\big[\alpha\log\pi_\theta(a\mid s) - Q(s,a)\big]
+$$
+
+<KeyIdea>
+The intractable normaliser vanishing from the gradient is what makes the whole
+scheme practical. You never need $Z$; you only need to move the policy toward
+$\exp(Q/\alpha)$, and the KL objective's gradient does not see the constant.
+</KeyIdea>
+
+## The squashing correction
+
+Actions are bounded, so SAC samples $u \sim \mathcal{N}(\mu_\theta(s), \sigma_\theta(s))$
+and outputs $a = \tanh(u)$. Change of variables then requires the log-Jacobian:
+
+<Derivation title="$\log\pi(a\mid s)$ after the $\tanh$">
+
+For an invertible elementwise map $a = f(u)$, densities transform as
+$\pi(a) = \mu(u)\,\big|\det(\mathrm{d}a/\mathrm{d}u)\big|^{-1}$. With
+$a_i = \tanh(u_i)$, the Jacobian is diagonal with entries
+$\mathrm{d}a_i/\mathrm{d}u_i = 1 - \tanh^2(u_i)$, so
+
+$$
+\log\pi(a\mid s) = \log\mu(u\mid s) - \sum_i \log\big(1 - \tanh^2(u_i)\big)
+$$
+
+Implementations add a small $\varepsilon$ inside the log, since the term
+diverges as $|\tanh u_i| \to 1$.
+
+</Derivation>
+
+<Warning>
+Omitting this correction is the most common SAC bug and it does not announce
+itself. The term is action-dependent and grows without bound near the action
+limits — exactly where a converged policy operates. Skip it and the reported
+entropy is too high at the bounds, the auto-tuner drives $\alpha$ too low, and
+the policy saturates further in a slow feedback loop. You get a run that trains,
+looks fine, and quietly becomes deterministic.
+</Warning>
+
+## The temperature as a dual variable
+
+Rather than tuning $\alpha$, pose the constrained problem: maximise expected
+reward subject to the policy's entropy being at least $\bar{\mathcal{H}}$.
+
+$$
+\max_\pi\; \mathbb{E}\Big[\sum_t r_t\Big]
+\quad\text{s.t.}\quad
+\mathbb{E}\big[-\log\pi(a_t\mid s_t)\big] \ge \bar{\mathcal{H}}
+$$
+
+The Lagrange multiplier on that constraint *is* $\alpha$, and minimising the
+dual gives
+
+$$
+\mathcal{L}(\alpha) = \mathbb{E}_{a\sim\pi}\big[-\alpha\big(\log\pi(a\mid s) + \bar{\mathcal{H}}\big)\big]
+$$
+
+Gradient descent on this raises $\alpha$ when entropy is below target and lowers
+it when above. The standard heuristic $\bar{\mathcal{H}} = -\dim(\mathcal{A})$
+is exactly that — a heuristic — but it removed the one hyperparameter that
+otherwise had to be retuned for every reward scale.
+
+## Two stabilisers, each for a named failure
+
+<Steps>
+<Step title="Twin critics with a min, against overestimation">
+The soft value still contains a maximisation, so the Jensen argument applies:
+the expectation of a max over noisy estimates exceeds the max of the
+expectations. Using $\min(Q_1, Q_2)$ in the target trades a downward bias for
+the upward one, and bootstrapping means the upward bias would otherwise
+compound.
+</Step>
+
+<Step title="Target networks, against the triad">
+Off-policy data plus bootstrapping plus function approximation has no
+convergence guarantee. A slowly-updated target copy (Polyak $\tau \approx 0.005$)
+slows the feedback loop between the estimate and the thing it is being fitted
+to. It does not remove the problem; it makes the timescales separate.
+</Step>
+
+<Step title="Entropy in *both* the critic target and the actor loss">
+The critic target subtracts $\alpha\log\pi(a'\mid s')$ so that it estimates the
+*soft* $Q$. Keep the entropy in the actor and drop it from the target and the
+two components are optimising different reward functions — a subtle
+inconsistency that shows up as a policy fighting its own critic.
+</Step>
+</Steps>

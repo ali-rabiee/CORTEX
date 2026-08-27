@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 300" role="img"
+     aria-labelledby="sst ssd" font-family="system-ui, -apple-system, sans-serif">
+  <title id="sst">A greedy policy compared with a maximum-entropy policy on a bimodal Q</title>
+  <desc id="ssd">The action-value function has two peaks of nearly equal height.
+    A greedy policy puts all of its probability on the marginally taller one and
+    stops exploring the other. The maximum-entropy policy is proportional to the
+    exponential of Q over the temperature, so it keeps substantial probability on
+    both peaks, and its value is a log-sum-exp rather than a max.</desc>
+
+  <!-- Q curve, shared shape drawn twice -->
+  <!-- ===== LEFT: greedy ===== -->
+  <text x="24" y="26" fill="#f85149" font-size="12.5" font-weight="600">greedy: &#960;(a) = &#948;(a &#8722; argmax Q)</text>
+
+  <line x1="40" y1="150" x2="290" y2="150" stroke="#484f58" stroke-width="1.2"/>
+  <text x="296" y="154" fill="#8b949e" font-size="10.5">a</text>
+
+  <path d="M 44 142 C 70 142, 78 74, 104 74 C 130 74, 138 138, 164 138
+           C 190 138, 198 68, 224 68 C 250 68, 262 140, 286 144"
+        fill="none" stroke="#8b949e" stroke-width="2"/>
+  <text x="100" y="62" fill="#8b949e" font-size="10.5" text-anchor="middle">Q</text>
+
+  <line x1="224" y1="150" x2="224" y2="182" stroke="#30363d" stroke-width="1" stroke-dasharray="3 3"/>
+  <line x1="104" y1="150" x2="104" y2="182" stroke="#30363d" stroke-width="1" stroke-dasharray="3 3"/>
+
+  <line x1="224" y1="266" x2="224" y2="190" stroke="#f85149" stroke-width="10"/>
+  <text x="224" y="284" fill="#f85149" font-size="10.5" text-anchor="middle">all mass here</text>
+  <text x="104" y="284" fill="#8b949e" font-size="10.5" text-anchor="middle">never tried again</text>
+  <line x1="104" y1="266" x2="104" y2="262" stroke="#484f58" stroke-width="10"/>
+
+  <text x="164" y="206" fill="#8b949e" font-size="10.5" text-anchor="middle">&#960;(a)</text>
+
+  <line x1="320" y1="20" x2="320" y2="284" stroke="#30363d" stroke-width="1"/>
+
+  <!-- ===== RIGHT: max-ent ===== -->
+  <text x="344" y="26" fill="#3fb950" font-size="12.5" font-weight="600">max-ent: &#960;(a) &#8733; exp(Q(a)/&#945;)</text>
+
+  <line x1="360" y1="150" x2="610" y2="150" stroke="#484f58" stroke-width="1.2"/>
+  <text x="616" y="154" fill="#8b949e" font-size="10.5">a</text>
+
+  <path d="M 364 142 C 390 142, 398 74, 424 74 C 450 74, 458 138, 484 138
+           C 510 138, 518 68, 544 68 C 570 68, 582 140, 606 144"
+        fill="none" stroke="#8b949e" stroke-width="2"/>
+  <text x="420" y="62" fill="#8b949e" font-size="10.5" text-anchor="middle">Q</text>
+
+  <path d="M 364 266 C 390 266, 398 214, 424 214 C 450 214, 458 262, 484 262
+           C 510 262, 518 196, 544 196 C 570 196, 582 264, 606 266"
+        fill="none" stroke="#3fb950" stroke-width="2.6"/>
+  <text x="424" y="204" fill="#3fb950" font-size="10.5" text-anchor="middle">kept</text>
+  <text x="544" y="186" fill="#3fb950" font-size="10.5" text-anchor="middle">preferred</text>
+  <text x="484" y="284" fill="#3fb950" font-size="10.5" text-anchor="middle">&#960;(a)</text>
+
+  <text x="480" y="112" fill="#e6edf3" font-size="11">V(s) = &#945; log &#8747; exp(Q(s,a)/&#945;) da</text>
+  <text x="480" y="128" fill="#8b949e" font-size="10.5">a soft max, not a hard one &#8212; hence &#8220;soft&#8221;</text>
+</svg>
