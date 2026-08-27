@@ -1,28 +1,160 @@
 ---
 concept: dqn
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Deep Q-Network (DQN), including the key
-    equations.
+  prompt: "Write DQN's loss and target, explain why the target must be treated as a constant, and derive why Double DQN removes the overestimation bias."
   keyPoints:
-    - "DQN combines Q-learning with deep neural networks by approximating
-      $Q^*(s,a)$ with a neural network $Q_\\theta(s,a)$, trained to minimize the
-      Bellman error: $$L(\\theta) = \\mathbb{E}_{(s,a,r,s') \\sim
-      \\mathcal{B}}\\left[\\left(Q_\\theta(s,a) - \\underbrace{\\left(r +
-      \\gamma \\max_{a'} Q_{\\bar{\\theta}}(s',
-      a')\\right)}_{\\text{target}}\\right)^2\\right]$$ Key innovations: (1)
-      experience replay buffer $\\mathcal{B}$ to break correlations; (2) target
-      network $Q_{\\bar{\\theta}}$ updated periodically ($\\bar{\\theta}
-      \\leftarrow \\theta$ every $C = 10000$ steps) for stable targets."
-    - "Double DQN decouples selection and evaluation: $y = r + \\gamma
-      Q_{\\bar{\\theta}}(s', \\arg\\max_{a'} Q_\\theta(s', a'))$."
-    - "Dueling DQN separates value and advantage streams: $Q(s,a) = V(s) +
-      A(s,a) - \\frac{1}{|\\mathcal{A}|}\\sum_{a'} A(s,a')$."
-check: []
-papers: []
+    - "$\\mathcal{L}(\\theta) = \\mathbb{E}_{\\mathcal{D}}\\big[(r + \\gamma\\max_{a'}Q_{\\theta^-}(s',a') - Q_\\theta(s,a))^2\\big]$, with the target computed under no-grad from the frozen copy."
+    - "This is *semi-gradient*: the true gradient of the squared Bellman error would also differentiate the target, and doing so makes it a different (worse-behaved) algorithm — the residual gradient method."
+    - "$\\mathbb{E}[\\max_a \\hat Q] \\ge \\max_a \\mathbb{E}[\\hat Q]$ by Jensen, so a max over noisy estimates is upward biased, and bootstrapping compounds it."
+    - "Double DQN uses $Q_\\theta$ to select and $Q_{\\theta^-}$ to evaluate: $y = r + \\gamma Q_{\\theta^-}(s', \\arg\\max_{a'}Q_\\theta(s',a'))$. The two noise sources are then independent, so selecting an upward error no longer guarantees evaluating one."
+check:
+  - id: dqn_l2_c1
+    prompt: "DQN's update is called a *semi-gradient* method. What does that mean?"
+    options:
+      - "Only half of the network's parameters are updated per step"
+      - "The gradient is taken with respect to $Q_\\theta(s,a)$ only; the target is treated as a constant even though it also depends on network parameters — differentiating through it gives a different algorithm"
+      - "The gradient is clipped to half its magnitude"
+      - "It uses a first-order approximation of the Bellman operator"
+    answer: 1
+    explanation: "The squared Bellman error contains $\\theta$ in both terms, so its true gradient has a second piece from the target. Ignoring that piece is deliberate. Taking it — the residual-gradient method — does give proper gradient descent on a well-defined objective, but that objective's minimiser is not the Bellman fixed point under sampling, and in stochastic environments it is biased by the double-sampling problem. The semi-gradient form corresponds to the value-iteration backup, which is the thing you actually want."
+  - id: dqn_l2_c2
+    prompt: "Why does Double DQN's decoupling remove most of the overestimation, when both networks are still noisy?"
+    options:
+      - "Because $Q_{\\theta^-}$ is more accurate than $Q_\\theta$"
+      - "Because the noise that determined the argmax is now independent of the noise used to evaluate it — so an action selected because its error happened to be positive is not thereby evaluated with that same positive error"
+      - "Because it averages the two networks' predictions"
+      - "Because the target network changes more slowly, so its errors are smaller"
+    answer: 1
+    explanation: "The bias comes from the *correlation* between selection and evaluation, not from noise magnitude. In standard DQN the same network does both, so $\\max_a$ is guaranteed to land on the action whose error is largest and then report that inflated number. Decouple them and the selected action's error in the second network is just a fresh draw, with expectation zero. Note the honest caveat: the two networks are not truly independent, since one is a delayed copy of the other, so the correction is substantial rather than complete."
+  - id: dqn_l2_c3
+    prompt: "Why is the Huber loss usually preferred over squared error for the TD residual?"
+    options:
+      - "It converges faster on all problems"
+      - "TD residuals occasionally take very large values — a mis-estimated bootstrap, a rare high reward — and squared error turns those into enormous gradients; Huber is linear beyond a threshold, so a single bad target cannot dominate the batch"
+      - "It makes the loss differentiable, which squared error is not"
+      - "It is required for the target network to work"
+    answer: 1
+    explanation: "It is robustness to outliers in the target, and the outliers here are structural rather than accidental: bootstrapped targets are wrong early in training and reward distributions are often heavy-tailed. With squared error, one transition with a residual of 100 contributes 10,000 to the loss and a proportional gradient. Huber caps the gradient magnitude, which is why it is paired with reward clipping in the original work — two versions of the same defence."
 ---
 
-## Formal definition
+## The loss
 
-DQN combines Q-learning with deep neural networks by approximating $Q^*(s,a)$ with a neural network $Q_\theta(s,a)$, trained to minimize the Bellman error: $$L(\theta) = \mathbb{E}_{(s,a,r,s') \sim \mathcal{B}}\left[\left(Q_\theta(s,a) - \underbrace{\left(r + \gamma \max_{a'} Q_{\bar{\theta}}(s', a')\right)}_{\text{target}}\right)^2\right]$$ Key innovations: (1) experience replay buffer $\mathcal{B}$ to break correlations; (2) target network $Q_{\bar{\theta}}$ updated periodically ($\bar{\theta} \leftarrow \theta$ every $C = 10000$ steps) for stable targets. Double DQN decouples selection and evaluation: $y = r + \gamma Q_{\bar{\theta}}(s', \arg\max_{a'} Q_\theta(s', a'))$. Dueling DQN separates value and advantage streams: $Q(s,a) = V(s) + A(s,a) - \frac{1}{|\mathcal{A}|}\sum_{a'} A(s,a')$.
+$$
+\mathcal{L}(\theta) = \mathbb{E}_{(s,a,r,s')\sim\mathcal{D}}
+\Big[\big(\underbrace{r + \gamma(1-d)\max_{a'}Q_{\theta^-}(s',a')}_{\text{target } y,\ \text{no grad}} - Q_\theta(s,a)\big)^2\Big]
+$$
+
+with $\theta^-$ a periodically-copied snapshot and $d$ the terminal flag. Two
+details in that expression carry most of the algorithm.
+
+<Warning>
+The max belongs to the **next** state, inside the target. The current state's
+$Q$ is indexed by the action actually logged in the transition — `gather`, not
+`max`. Swapping them means regressing $Q(s, \cdot)$ toward targets for actions
+you never took, which is not Q-learning and is a surprisingly common bug that
+still trains and still improves, just to the wrong thing.
+</Warning>
+
+## Why the target is held constant
+
+<Derivation title="Semi-gradient, and what taking the full gradient would give you">
+
+The squared Bellman error contains $\theta$ in both terms. Its true gradient is
+
+$$
+\nabla_\theta \mathcal{L} = -2\,\mathbb{E}\Big[\big(y - Q_\theta(s,a)\big)
+\big(\nabla_\theta Q_\theta(s,a) - \gamma\nabla_\theta \max_{a'}Q_\theta(s',a')\big)\Big]
+$$
+
+DQN drops the second term inside the brackets. That is a choice, not an
+oversight, and it has a name.
+
+**What you get by keeping it.** The residual-gradient method is honest gradient
+descent on a well-defined objective, and it converges more reliably. But its
+minimiser is not what you want: with stochastic transitions, an unbiased
+estimate of the squared expected residual needs *two independent* samples of
+$s'$ from the same $(s,a)$ — the double-sampling problem — and with one sample
+you minimise the expected squared residual instead, which penalises the
+environment's inherent stochasticity as though it were model error. The result
+is a systematically conservative value function.
+
+**What the semi-gradient form is.** Treating $y$ as a constant makes each update
+a regression step toward the Bellman backup, so the algorithm is *approximate
+value iteration* rather than gradient descent on anything. That is why it has no
+convergence guarantee under function approximation, and why the target network
+and replay buffer are load-bearing rather than decorative.
+
+</Derivation>
+
+<KeyIdea>
+The frozen target makes this framing exact. With $\theta^-$ fixed, $y$ really is
+a constant and each phase between target copies is an ordinary supervised
+regression problem with a fixed dataset. The instability has not been removed —
+it has been pushed onto the slow timescale of the target updates, where it is
+manageable.
+</KeyIdea>
+
+## Overestimation, and the one-line fix
+
+<Derivation title="Why $\max$ inflates, and why decoupling repairs it">
+
+Write $\hat Q(s,a) = Q(s,a) + \varepsilon(s,a)$ with $\mathbb{E}[\varepsilon] = 0$
+per action. Since $\max$ is convex, Jensen gives
+
+$$
+\mathbb{E}\Big[\max_a \hat Q(s,a)\Big] \;\ge\; \max_a \mathbb{E}\big[\hat Q(s,a)\big] = \max_a Q(s,a)
+$$
+
+with strict inequality whenever the errors are non-degenerate. The mechanism is
+selection: $\arg\max_a \hat Q$ preferentially picks actions whose $\varepsilon$
+happened to be positive, and then reports the inflated value. Bootstrapping
+carries it backwards, so the bias accumulates over the horizon rather than
+averaging out.
+
+**The fix.** Split the roles. Standard DQN computes
+
+$$
+y = r + \gamma\, \hat Q\Big(s',\, \arg\max_{a'} \hat Q(s',a')\Big)
+$$
+
+with the *same* $\hat Q$ in both places, so the selection noise and the
+evaluation noise are the same random variable — selecting a positive error
+guarantees evaluating one. Double DQN uses two:
+
+$$
+y = r + \gamma\, Q_{\theta^-}\Big(s',\, \arg\max_{a'} Q_{\theta}(s',a')\Big)
+$$
+
+Now the action is chosen by $\theta$'s noise and scored by $\theta^-$'s. Given
+the selected action, the second network's error is an independent draw with
+expectation zero, so there is no systematic inflation.
+
+**The assumption doing the work is independence of the two error terms**, and it
+holds only approximately here — $\theta^-$ is a delayed copy of $\theta$, so
+their errors are correlated. That is why Double DQN reduces the bias
+substantially rather than eliminating it, and why TD3 and SAC went further with
+two independently initialised critics and a $\min$.
+
+</Derivation>
+
+## Two practical terms
+
+<Steps>
+<Step title="Huber loss on the residual">
+TD residuals have heavy tails — a bootstrapped target can be badly wrong early,
+and rewards are often spiky. Squared error turns a residual of 100 into a
+gradient proportional to 100; the Huber loss is linear beyond a threshold, so
+one bad target cannot dominate a batch. Reward clipping in the original paper is
+the same defence applied one step earlier.
+</Step>
+
+<Step title="Exploration is bolted on, not derived">
+The greedy policy explores nothing, so DQN adds $\epsilon$-greedy with an
+annealed schedule. This is uninformed, uniform noise on top of an otherwise
+deterministic policy — worth contrasting with maximum-entropy methods, where
+stochasticity is part of the objective and is shaped by value rather than by a
+coin flip.
+</Step>
+</Steps>

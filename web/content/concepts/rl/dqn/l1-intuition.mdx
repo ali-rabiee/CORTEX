@@ -1,25 +1,147 @@
 ---
 concept: dqn
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Deep Q-Network (DQN) in plain language: what is it, and why
-    does it matter?"
+  prompt: "Explain DQN in plain language. What were the two stabilisers, and which correlation does each one break?"
   keyPoints:
-    - DQN was the breakthrough that showed deep RL could work at scale —
-      learning to play Atari from raw pixels.
-    - Before DQN (2013/2015), neural nets + Q-learning was unstable.
-    - "The two key tricks solved this: the replay buffer provides i.i.d.-like
-      minibatches (SGD needs this), and the target network provides a stable
-      regression target (chasing a moving target caused oscillation)."
-check: []
-papers: []
+    - "Q-learning with a neural network estimating $Q(s,a)$ from pixels, acting greedily with an $\\epsilon$-greedy schedule for exploration."
+    - "Replay buffer: sample past transitions at random instead of learning from consecutive frames. Breaks correlation *between samples in a batch*."
+    - "Frozen target network: compute the regression target from a periodically-copied older network. Breaks correlation *between the prediction and the target it is chasing*."
+    - "Only works when $\\arg\\max_a Q(s,a)$ is cheap — i.e. a small discrete action set. Continuous control needs an actor to approximate the argmax, which is where DDPG, TD3, and SAC come from."
+media:
+  - kind: article
+    title: "Playing Atari with Deep Reinforcement Learning"
+    url: https://arxiv.org/abs/1312.5602
+    source: "Mnih et al., DeepMind"
+    note: "The original workshop paper. Short, and the ablation showing what happens without replay is the part worth reading — it is the clearest evidence that the stabilisers were the contribution, not the architecture."
+  - kind: lecture
+    title: "RL Course by David Silver — Lecture 6: Value Function Approximation"
+    url: https://www.youtube.com/watch?v=UoPei5o4fps
+    source: "Google DeepMind · David Silver"
+    minutes: 97
+    note: "Builds up to DQN from tabular Q-learning, and is explicit about why function approximation breaks the convergence guarantees — which is exactly the gap the stabilisers are filling."
+  - kind: article
+    title: "Reinforcement Learning: An Introduction (2nd ed.)"
+    url: http://incompleteideas.net/book/the-book-2nd.html
+    source: "Sutton & Barto"
+    note: "Chapters 6 and 11. Chapter 11's treatment of the deadly triad is the theoretical background for why DQN needed anything beyond 'Q-learning with a network'."
+check:
+  - id: dqn_l1_c1
+    prompt: "Why does learning from consecutive frames break neural-network Q-learning?"
+    options:
+      - "Consecutive frames are too similar to compress"
+      - "Gradient descent assumes roughly independent samples; a batch of consecutive frames is effectively one sample repeated, so the network overfits to whatever is happening right now and forgets everything else"
+      - "Consecutive frames violate the Markov property"
+      - "The reward is delayed, so consecutive frames have no gradient"
+    answer: 1
+    explanation: "Stochastic gradient descent's behaviour rests on batches being a reasonable sample of the data distribution. Four frames from one second of gameplay are near-duplicates, so the effective batch size is one and the update is enormous and local — the network chases the current situation and loses competence elsewhere. The replay buffer restores approximate independence by drawing from across the whole history."
+  - id: dqn_l1_c2
+    prompt: "What problem does the frozen target network solve that the replay buffer does not?"
+    options:
+      - "It reduces memory usage"
+      - "It stops the regression target from moving every time the network is updated — otherwise you are chasing a target that shifts because you moved, which is a feedback loop the replay buffer does nothing about"
+      - "It makes the policy deterministic"
+      - "It handles continuous actions"
+    answer: 1
+    explanation: "The two stabilisers break two different correlations, and this is the distinction interviewers probe. Replay decorrelates samples *within a batch*. The target network decorrelates the *prediction from the target*: without it, updating $Q(s,a)$ also moves $Q(s',a')$, which changes the target you were regressing toward, which changes the update. Freezing a copy for a few thousand steps separates those timescales."
+  - id: dqn_l1_c3
+    prompt: "Why can't you use DQN directly for a 7-DoF robot arm with continuous torques?"
+    options:
+      - "Neural networks cannot represent continuous $Q$ functions"
+      - "Acting requires $\\arg\\max_a Q(s,a)$, which is a search over the action space at every timestep — trivial for 18 Atari buttons, a nonconvex optimisation problem in $\\mathbb{R}^7$"
+      - "Continuous actions make the reward undefined"
+      - "The replay buffer cannot store continuous actions"
+    answer: 1
+    explanation: "The argmax is the structural limitation of value-based methods, and everything in continuous control is a response to it. DDPG and its descendants train an actor network to approximate the argmax; SAC does the same with a stochastic actor. QT-Opt took the other route and ran a cross-entropy-method optimisation over actions at every step — workable, and expensive, which tells you how real the constraint is."
 ---
 
-## Intuition
+## Q-learning, with a network
 
-DQN was the breakthrough that showed deep RL could work at scale — learning to play Atari from raw pixels. Before DQN (2013/2015), neural nets + Q-learning was unstable. The two key tricks solved this: the replay buffer provides i.i.d.-like minibatches (SGD needs this), and the target network provides a stable regression target (chasing a moving target caused oscillation). Double DQN fixes the overestimation from $\max$: instead of using the same network to both pick and evaluate the best action (optimistic), use the online network to pick and the target network to evaluate. Dueling architecture recognizes that sometimes knowing 'this state is good' matters more than knowing the value of each action.
+Tabular Q-learning keeps a number for every state-action pair and updates it
+toward $r + \gamma\max_{a'}Q(s',a')$. It has convergence guarantees and it is
+useless for anything with more states than you can enumerate.
 
-## In practice
+DQN replaces the table with a convolutional network taking raw pixels. The
+update rule is unchanged. That substitution alone does not work — and the
+interesting content of DQN is what had to be added to make it work.
 
-DQN for Atari Breakout: input $s = 4$ stacked grayscale $84 \times 84$ frames, 3-layer CNN + 2 FC layers, output $Q(s, a)$ for each of $|\mathcal{A}| = 4$ actions. Hyperparameters: $|\mathcal{B}| = 10^6$, batch size $B = 32$, target update every $C = 10000$ steps, $\gamma = 0.99$, $\epsilon$-greedy with $\epsilon$ annealed from 1.0 to 0.1 over 1M frames, learning rate $\alpha = 2.5 \times 10^{-4}$ (Adam). Training: 50M frames $\approx 10$ days on a single GPU. DQN achieves superhuman performance on ~29/49 Atari games. For robotics: DQN is rarely used directly (discrete actions are limiting), but its ideas (replay, target nets) underpin SAC and TD3.
+<Intuition>
+Learning a game by keeping a running opinion of how good each button is in each
+situation. Press the button you currently think is best, see what happens,
+revise.
+
+The awkward part is that your opinion about *this* situation is derived from
+your opinion about the *next* one — which you are also revising, using this one.
+Everyone is quoting everyone else's estimate, and nothing is anchored.
+</Intuition>
+
+## Why it does not work naively
+
+Two correlations wreck it, and DQN's two famous components each remove one.
+
+<Figure src="/figures/dqn-decorrelation.svg"
+        alt="Top: consecutive near-identical frames feeding a single network that both predicts and sets its own target. Bottom left: a replay buffer with a batch sampled from across the whole history. Bottom right: an online network and a periodically-copied frozen target network."
+        caption="Two different correlations, two different fixes. Conflating them is the standard mistake — replay decorrelates samples from each other, the target network decorrelates the prediction from what it is chasing." />
+
+<Steps>
+<Step title="Consecutive samples are near-duplicates">
+Four frames from one second of gameplay are essentially one observation.
+Gradient descent behaves as if the batch is a sample of the data distribution,
+and here it is a sample of the last second — so the network overfits to the
+present moment and loses competence everywhere else.
+</Step>
+
+<Step title="The replay buffer fixes it">
+Store a million transitions; draw each batch uniformly at random. A batch now
+spans hours of experience, and it lets each transition be reused many times,
+which is a large sample-efficiency win as a side effect.
+</Step>
+
+<Step title="The target moves because you moved">
+The regression target is $r + \gamma\max_{a'}Q_\theta(s',a')$, computed with the
+network you are updating. Change $\theta$ to fit one state and you have changed
+the target for every state — you are chasing something that runs when you
+approach it.
+</Step>
+
+<Step title="The frozen target network fixes it">
+Keep a copy $Q_{\theta^-}$, updated by copying $\theta$ every few thousand steps.
+Compute targets with the copy. The thing being chased now holds still long
+enough to be caught, which turns an unstable feedback loop into a sequence of
+ordinary regression problems.
+</Step>
+</Steps>
+
+<KeyIdea>
+The stabilisers *are* the contribution. Neural function approximation of $Q$ was
+not new in 2013; making it not diverge was. Both fixes are answers to the deadly
+triad — bootstrapping, function approximation, and off-policy data have no
+convergence guarantee together — and neither removes the problem. They separate
+timescales so the failure happens slowly enough to outrun.
+</KeyIdea>
+
+## The limitation that shaped everything after
+
+Acting requires $\arg\max_a Q(s,a)$. With eighteen Atari buttons that is an
+eighteen-way comparison. With a 7-DoF arm's continuous torques it is a nonconvex
+optimisation problem you would have to solve at every control step.
+
+<Warning>
+This is why DQN is not a robotics algorithm as written, and why the entire
+continuous-control literature looks the way it does. DDPG, TD3, and SAC all
+train an actor network whose job is to *approximate the argmax* so it can be
+evaluated in one forward pass. QT-Opt took the alternative route and ran a
+cross-entropy-method optimisation over the action space at every step — it
+worked, on real robot grasping, and its cost is a fair measure of how binding
+the constraint is.
+</Warning>
+
+There is one more thing worth knowing before you trust a $Q$-value. The max over
+noisy estimates is upward-biased — it selects whichever action's error happened
+to be positive — and bootstrapping propagates that inflation backwards. Double
+DQN fixes it in one line by using the online network to *select* the action and
+the target network to *evaluate* it, so the two noises are independent. Level 2
+derives why that works.
+
+<WatchThis />

@@ -1,25 +1,163 @@
 ---
 concept: dqn
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Deep Q-Network (DQN) fail in practice, and how would you
-    present it in an interview?
+  prompt: "Give your interview answer on DQN. Which correlation does each stabiliser break, and why is DQN not directly usable in robotics?"
   keyPoints:
-    - "Q-value overestimation: the $\\max$ operator in the target $r + \\gamma
-      \\max_{a'} Q(s', a')$ systematically overestimates because
-      $\\mathbb{E}[\\max] \\geq \\max \\mathbb{E}$."
-    - Over millions of updates, this compounds — Q-values grow to $10^3$-$10^4$
-      while true values are $\sim 10^2$.
-    - The policy then selects actions based on hallucinated high values.
-check: []
-papers: []
+    - "The contribution was the stabilisers, not the network. Neural $Q$ approximation existed; making it not diverge did not."
+    - "Replay decorrelates samples within a batch. The target network decorrelates the prediction from the target it is chasing. Two different problems — conflating them is the standard slip."
+    - "The argmax over actions is the structural limit: fine for 18 buttons, a nonconvex optimisation for continuous torques. DDPG/TD3/SAC train an actor to approximate it; QT-Opt runs CEM at every step."
+    - "Double DQN's fix is about the *correlation* between selection and evaluation, not about one network being more accurate."
+interview:
+  answer: >-
+    DQN is Q-learning with a convolutional network estimating Q from pixels, and
+    the interesting part isn't the network — neural value approximation wasn't
+    new. What was new is the two things that made it not diverge, and I'd want
+    to be precise that they solve different problems. The first is the replay
+    buffer. If you learn from consecutive frames, a batch is four near-identical
+    observations, so the effective batch size is one and the network overfits to
+    whatever's happening right now and forgets everything else. Sampling
+    uniformly from a million stored transitions means a batch spans hours of
+    experience, and as a side effect every transition gets reused many times,
+    which is a large sample-efficiency win. The second is the frozen target
+    network. The regression target is r plus gamma max Q, computed with the
+    network you're updating — so fitting one state moves the target for every
+    state, and you're chasing something that runs away when you approach. Keep a
+    copy, refresh it every few thousand steps, and each phase between copies
+    becomes an ordinary supervised regression against a fixed target. So:
+    replay decorrelates samples from each other, the target network decorrelates
+    the prediction from the target. Both are answers to the deadly triad, and
+    neither removes it — they separate timescales so the instability is slow
+    enough to outrun. The other thing worth naming is overestimation. The max
+    over noisy estimates is upward biased by Jensen, because the argmax selects
+    whichever action's error happened to be positive and then reports that
+    inflated number, and bootstrapping propagates it. Double DQN fixes it by
+    using the online network to select the action and the target network to
+    evaluate it, so the selection noise and the evaluation noise are
+    independent. And the structural limitation, which matters for robotics:
+    acting requires an argmax over actions. That's an eighteen-way comparison in
+    Atari and a nonconvex optimisation in seven-dimensional continuous torque
+    space. That single constraint is why continuous control looks the way it
+    does — DDPG, TD3, and SAC all train an actor whose job is to approximate the
+    argmax in one forward pass.
+  followUps:
+    - q: "Is the update actually gradient descent on something?"
+      a: >-
+        No, and that's worth being precise about. It's a semi-gradient method:
+        the squared Bellman error has theta in both terms, and DQN differentiates
+        only the prediction, treating the target as a constant. If you did take
+        the full gradient you'd get the residual-gradient method, which is
+        honest gradient descent and converges more reliably — but its minimiser
+        isn't the Bellman fixed point under sampling. You'd need two independent
+        next-state samples from the same state-action pair to estimate it
+        without bias, the double-sampling problem, and with one sample you end
+        up penalising the environment's inherent stochasticity as if it were
+        model error, which gives you a systematically conservative value
+        function. So the semi-gradient form is chosen deliberately: it makes
+        each step approximate value iteration, which is the thing you want, at
+        the cost of having no convergence guarantee.
+    - q: "Would you use DQN on a robot?"
+      a: >-
+        Not as written, because of the argmax. If the action space is genuinely
+        discrete and small — a mode selector, a discrete gripper command, a
+        choice among a handful of skills — then it's fine and it's simple. For
+        continuous control I'd reach for SAC. The interesting middle ground is
+        discretising: QT-Opt ran a cross-entropy-method optimisation over
+        continuous actions at every timestep and made value-based RL work on
+        real grasping, and Q-Transformer discretised each action dimension into
+        tokens and did autoregressive Q-learning over them, which lets a
+        value-based method scale the same way the imitation models do. So the
+        idea survives in robotics; the vanilla argmax doesn't.
+    - q: "Rainbow combined six extensions. Do you know which ones mattered?"
+      a: >-
+        The ablations pointed most strongly at prioritised replay, multi-step
+        returns, and the distributional formulation, with double Q-learning and
+        duelling contributing less on their own once the others were present.
+        The reading I'd offer is that two of the three big ones are about credit
+        assignment speed rather than stability — multi-step returns propagate
+        reward faster than one backup per step, and prioritisation focuses
+        updates where the error is. The distributional result is the odd one,
+        since the policy still acts on the mean, so learning the full return
+        distribution seems to help as a representation-learning effect rather
+        than because the distribution is used.
+    - q: "How is DQN's exploration different from SAC's?"
+      a: >-
+        DQN's is bolted on and SAC's is derived. Epsilon-greedy adds uniform,
+        uninformed noise to a policy that would otherwise be deterministic, and
+        you anneal it away — the randomness doesn't know anything about which
+        actions are nearly as good. SAC changes the objective to include policy
+        entropy, so the optimal policy is a Boltzmann distribution over Q: the
+        stochasticity is shaped by value, it's part of what's being optimised,
+        and it never gets annealed. That's why max-entropy policies tend to be
+        robust to perturbation rather than merely well-explored. Neither solves
+        hard exploration, though — both are local.
+  traps:
+    - "Saying replay and the target network both 'stabilise training' without distinguishing them. They break different correlations, and the difference is the question."
+    - "Describing Double DQN as using a more accurate network for evaluation. The mechanism is decorrelating selection from evaluation; accuracy is not the issue."
+    - "Calling the DQN update gradient descent on the Bellman error. It is semi-gradient — the target is deliberately treated as a constant, and taking the full gradient gives a different algorithm with a different fixed point."
+    - "Forgetting the argmax constraint. It is the single reason DQN does not transfer to continuous control and the reason actor-critic methods exist."
+check:
+  - id: dqn_l5_c1
+    prompt: "A candidate says 'the replay buffer and the target network both stabilise DQN by reducing correlation'. What is the useful follow-up distinction?"
+    options:
+      - "There is none — the statement is complete"
+      - "They reduce *different* correlations: replay decorrelates samples within a batch, so gradient descent sees something like independent data; the target network decorrelates the prediction from the target, breaking the feedback loop where updating a value moves the thing it is regressing toward"
+      - "The target network reduces variance while replay reduces bias"
+      - "Replay is optional; the target network is not"
+    answer: 1
+    explanation: "The statement is true and undifferentiated, and the follow-up is exactly where an interviewer probes. Being able to name which correlation each one breaks demonstrates you understand why *both* were needed rather than treating them as two flavours of the same trick. It also predicts what happens when you remove each: without replay the network overfits the present moment; without the target network the values oscillate or diverge."
+  - id: dqn_l5_c2
+    prompt: "You are asked to add RL to a robot whose action is a choice among 6 pre-built motion primitives. Is DQN reasonable?"
+    options:
+      - "No — DQN is only for Atari-like pixel inputs"
+      - "Yes: the action space is small and discrete, so the argmax that blocks DQN in continuous control is a six-way comparison — this is exactly the regime value-based methods suit"
+      - "No — robots always require policy gradient methods"
+      - "Yes, but only after discretising the state space as well"
+    answer: 1
+    explanation: "The constraint on DQN is the action space, not the domain or the observation type. Six primitives is a trivial argmax, and a value-based method brings real advantages here: off-policy learning from a replay buffer, the ability to learn from logged data, and no on-policy sample waste. The tempting wrong answers generalise 'DQN is not for robotics' past its actual cause, which is precisely the reasoning error the question is checking for."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Q-value overestimation: the $\max$ operator in the target $r + \gamma \max_{a'} Q(s', a')$ systematically overestimates because $\mathbb{E}[\max] \geq \max \mathbb{E}$. Over millions of updates, this compounds — Q-values grow to $10^3$-$10^4$ while true values are $\sim 10^2$. The policy then selects actions based on hallucinated high values. Symptoms: Q-values monotonically increasing, divergence from true returns, eventual collapse. Fix: Double DQN ($y = r + \gamma Q_{\bar{\theta}}(s', \arg\max_{a'} Q_\theta(s',a'))$) reduces overestimation. Also: DQN fails in continuous action spaces — $\max_{a'} Q(s', a')$ requires enumeration over $\mathcal{A}$. For continuous control, use SAC or TD3 instead.
+<Steps>
+<Step title="Q-values growing without bound → the triad, then overestimation">
+Check the target network exists and its update period is not so long that it is
+stale or so short that it is absent. Then add Double DQN, which costs one line.
+Then check reward scale — values live on a scale of $R_{\max}/(1-\gamma)$.
+</Step>
 
-## Interview-ready answer
+<Step title="Performance oscillates violently → target update period">
+Too-frequent copies reintroduce the moving-target feedback loop; too-infrequent
+ones mean you are regressing toward a stale value function for thousands of
+steps. This is a real hyperparameter, not a formality.
+</Step>
 
-DQN was the seminal paper (Mnih et al., 2013/2015) that demonstrated deep RL at scale. The two key innovations — experience replay and target networks — solved the instability of combining neural function approximation with Q-learning. The core training loop: sample $(s,a,r,s')$ from replay buffer, compute target $y = r + \gamma \max_{a'} Q_{\bar{\theta}}(s',a')$, minimize $(Q_\theta(s,a) - y)^2$. Important extensions: Double DQN (fixes overestimation), Dueling DQN (separates $V$ and $A$ streams), PER (prioritized sampling), and Rainbow (combines all improvements). For robotics, DQN's principles (replay, target nets, double-Q) are embedded in SAC and TD3, but DQN itself is limited to discrete actions. The overestimation problem and the deadly triad are still active research topics that every off-policy method must address.
+<Step title="Learns then forgets → replay buffer too small or sampling wrong">
+A buffer that only spans recent experience is a slow version of learning from
+consecutive frames. Check capacity and that sampling is genuinely uniform over
+it.
+</Step>
+
+<Step title="Loss looks fine, agent does not improve → check the gather">
+Indexing the current state's $Q$ with `max` instead of the logged action trains
+a coherent-looking but wrong objective. It will not error and the loss will fall.
+</Step>
+
+<Step title="Continuous actions → wrong algorithm, not wrong tuning">
+No amount of tuning fixes an intractable argmax. Either the action space is
+genuinely small and discrete, or you need an actor.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+DQN is often asked as a historical warm-up, and the answer that stands out
+treats it as a case study in the deadly triad rather than a story about Atari.
+Name the two correlations separately, say that neither stabiliser removes the
+problem but both separate timescales, and finish on the argmax constraint as the
+thing that generated the entire continuous-control literature. That framing
+turns a dated algorithm into evidence that you understand why the modern ones
+are shaped the way they are.
+</Warning>
