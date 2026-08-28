@@ -1,25 +1,249 @@
 ---
 concept: attention_mechanism
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Attention Mechanism — Scaled Dot-Product
-    Attention with Q/K/V, including the key equations.
+  prompt: "Derive the $1/\\sqrt{d_k}$ scaling, the FLOP and memory costs of attention, and the online-softmax trick that makes FlashAttention possible."
   keyPoints:
-    - "Scaled dot-product attention computes a weighted sum of values $V$ where
-      the weights are determined by the compatibility of queries $Q$ with keys
-      $K$: $$\\text{Attention}(Q, K, V) =
-      \\text{softmax}\\left(\\frac{QK^T}{\\sqrt{d_k}}\\right)V$$ The scaling
-      factor $\\sqrt{d_k}$ prevents the dot products from growing large in
-      magnitude (for large $d_k$, dot products have variance $\\sim d_k$), which
-      would push softmax into saturated regions with vanishing gradients."
-    - "In cross-attention, $Q$ comes from the decoder and $K, V$ from the
-      encoder; in self-attention, all three are projections of the same input:
-      $Q = XW^Q$, $K = XW^K$, $V = XW^V$."
-check: []
-papers: []
+    - "$q\\cdot k$ over $d_k$ unit-variance dimensions has variance $d_k$, so unscaled logits grow like $\\sqrt{d_k}$ and saturate the softmax; dividing restores unit-variance logits at any dimension."
+    - "Cost: $\\Theta(n^2 d)$ arithmetic against $\\Theta(16 n d^2)$ for the FFN, so they cross at $n\\approx 8d$. Memory is $\\Theta(n^2)$ per head and is what binds first."
+    - "The softmax can be computed in one pass with a running maximum and a running denominator, rescaling as you go — which is what lets attention be tiled without ever materialising the $n\\times n$ matrix."
+    - "Attention is a kernel smoother: $\\sum_j \\alpha_{ij} v_j$ with $\\alpha \\propto \\exp(q_i^\\top k_j/\\sqrt{d_k})$ is Nadaraya–Watson regression with an exponential kernel in a learned space."
+check:
+  - id: am_l2_c1
+    prompt: "Why does the softmax need a running *maximum* as well as a running sum when computed in tiles?"
+    options:
+      - "To normalise the attention weights"
+      - "For numerical stability: $\\exp$ of a large logit overflows, so you subtract the maximum — and when processing tiles you have not seen all logits yet, so both the max and the accumulated sum must be corrected as later tiles reveal larger values"
+      - "Because the maximum determines the attention weights"
+      - "To make the operation differentiable"
+    answer: 1
+    explanation: "The standard trick $\\operatorname{softmax}(x)_i = e^{x_i - \\max x}/\\sum_j e^{x_j - \\max x}$ needs the global maximum, which a streaming computation does not have. The online formulation carries a running max $m$ and running sum $\\ell$, and when a new tile contains a larger value it rescales the accumulated sum by $e^{m_{\\text{old}} - m_{\\text{new}}}$. That correction is what makes the tiled computation exact rather than approximate, and it is the mathematical core of FlashAttention."
+  - id: am_l2_c2
+    prompt: "At what sequence length does attention's arithmetic match the feed-forward block's, and why is that the useful comparison?"
+    options:
+      - "At $n = d$; below that attention is negligible"
+      - "At $n \\approx 8d$, from $2n^2 d$ against $16 n d^2$ — useful because it tells you the regime you are in, and for $d = 4096$ that is about 32k tokens, far above most sequence lengths in use"
+      - "At $n = \\sqrt{d}$"
+      - "The comparison is not meaningful since they compute different things"
+    answer: 1
+    explanation: "Setting $2n^2 d = 16 n d^2$ gives $n = 8d$. The comparison matters because it tells you which term to optimise: below the crossover, halving attention's FLOPs changes almost nothing about total training time, while the FFN is where the arithmetic actually goes. It also explains why linear-attention methods, which reduce exactly the term that was not dominant, delivered less than their asymptotics promised."
+  - id: am_l2_c3
+    prompt: "In what sense is attention a kernel smoother?"
+    options:
+      - "It is not; the analogy is loose"
+      - "$\\sum_j \\alpha_{ij}v_j$ with $\\alpha_{ij}\\propto \\exp(q_i^\\top k_j/\\sqrt{d_k})$ is exactly Nadaraya–Watson regression with an exponential kernel — attention is nonparametric regression whose *metric* is learned rather than fixed"
+      - "Only for a single head"
+      - "Only when the queries and keys are identical"
+    answer: 1
+    explanation: "The form is identical to classical kernel regression: predict at a query point by averaging observed values weighted by a kernel evaluated between the query and each data point. What is new is that the kernel's metric is learned — $W_Q$ and $W_K$ define the space in which similarity is measured — and the 'data points' are other positions in the same sequence. Seeing this explains why attention generalises by interpolation and why it has no mechanism for extrapolating beyond the convex hull of its values."
 ---
 
-## Formal definition
+## The operation, and the scaling
 
-Scaled dot-product attention computes a weighted sum of values $V$ where the weights are determined by the compatibility of queries $Q$ with keys $K$: $$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V$$ The scaling factor $\sqrt{d_k}$ prevents the dot products from growing large in magnitude (for large $d_k$, dot products have variance $\sim d_k$), which would push softmax into saturated regions with vanishing gradients. In cross-attention, $Q$ comes from the decoder and $K, V$ from the encoder; in self-attention, all three are projections of the same input: $Q = XW^Q$, $K = XW^K$, $V = XW^V$.
+$$
+\text{Attention}(Q,K,V) = \operatorname{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}\right)V,
+\qquad Q\in\mathbb{R}^{n\times d_k},\ K\in\mathbb{R}^{m\times d_k},\ V\in\mathbb{R}^{m\times d_v}
+$$
+
+<Derivation title="Why $1/\sqrt{d_k}$">
+
+Let $q, k \in \mathbb{R}^{d_k}$ have independent entries with mean 0 and
+variance 1. Then
+
+$$
+q\cdot k = \sum_{i=1}^{d_k} q_i k_i,
+\qquad
+\mathbb{E}[q_ik_i] = 0,
+\qquad
+\mathrm{Var}(q_ik_i) = \mathbb{E}[q_i^2]\mathbb{E}[k_i^2] = 1
+$$
+
+so $\mathrm{Var}(q\cdot k) = d_k$ and typical logits have magnitude
+$\sqrt{d_k}$.
+
+**What that does.** At $d_k = 64$, logits are around 8 and the differences
+between them are of the same order. A softmax over logits separated by 8 is
+essentially one-hot, and the Jacobian of a saturated softmax is nearly zero — so
+no gradient reaches the queries or keys, and it gets worse as $d_k$ grows.
+
+Dividing by $\sqrt{d_k}$ restores unit-variance logits at any dimension.
+
+**The assumption doing the work** is that queries and keys have roughly
+unit-variance entries, which is what the initialisation and the layer norm before
+the projections maintain. It is a condition the architecture arranges, not a law.
+
+</Derivation>
+
+## Attention as nonparametric regression
+
+<Derivation title="It is Nadaraya–Watson with a learned metric">
+
+Classical kernel regression predicts at a query point $x$ by averaging observed
+values weighted by a kernel:
+
+$$
+\hat f(x) = \frac{\sum_j K(x, x_j)\, y_j}{\sum_j K(x, x_j)}
+$$
+
+Attention's row $i$ is
+
+$$
+o_i = \sum_j \alpha_{ij} v_j,
+\qquad
+\alpha_{ij} = \frac{\exp\big(q_i^\top k_j/\sqrt{d_k}\big)}{\sum_{j'}\exp\big(q_i^\top k_{j'}/\sqrt{d_k}\big)}
+$$
+
+which is the same expression with $K(q_i, k_j) = \exp(q_i^\top k_j/\sqrt{d_k})$.
+
+**What is new is that the metric is learned.** $W_Q$ and $W_K$ define the space
+in which similarity is measured, so the model chooses what "nearby" means rather
+than inheriting a fixed kernel.
+
+**Two consequences worth carrying.** Attention generalises by *interpolation*
+among its values, so it has no mechanism to produce an output outside their
+convex hull. And the softmax temperature — here fixed at $1/\sqrt{d_k}$ —
+controls the bandwidth: sharper attention is a narrower kernel, attending to
+fewer positions more strongly.
+
+</Derivation>
+
+## Cost, in both resources
+
+<Derivation title="FLOPs, memory, and where they cross">
+
+**Arithmetic.** $QK^\top$ is $n \times m \times d_k$ multiply-accumulates and
+$AV$ is $n \times m \times d_v$, so for self-attention with $m = n$ and
+$d_k = d_v = d/h$ summed over $h$ heads:
+
+$$
+C_{\text{attn}} \approx 2\,n^2 d \ \text{MACs}
+$$
+
+The feed-forward block with the standard $4\times$ expansion is two matrices of
+size $d \times 4d$, forward and backward:
+
+$$
+C_{\text{ffn}} \approx 16\, n\, d^2
+$$
+
+Setting them equal:
+
+$$
+2n^2 d = 16 n d^2 \quad\Longrightarrow\quad \boxed{\,n = 8d\,}
+$$
+
+At $d = 4096$ that is $n \approx 32{,}768$. Below it, attention is a small
+fraction of the arithmetic: 1.6% at $n = 512$, 6% at 2k, 25% at 8k.
+
+**Memory.** The attention matrix is $b \cdot h \cdot n^2$ entries and must be
+retained for the backward pass. At $b = 8$, $h = 32$, $n = 8192$, fp16:
+
+$$
+8 \times 32 \times 8192^2 \times 2\ \text{bytes} = 32\ \text{GiB per layer}
+$$
+
+**The conclusion.** Memory binds first, by a wide margin. So the productive
+optimisation is not reducing $n^2$ arithmetic — it is not writing the matrix
+down.
+
+</Derivation>
+
+## The online softmax
+
+<Derivation title="Computing a softmax in one streaming pass">
+
+The stable softmax needs the global maximum:
+
+$$
+\operatorname{softmax}(x)_i = \frac{e^{x_i - m}}{\sum_j e^{x_j - m}},
+\qquad m = \max_j x_j
+$$
+
+A tiled computation does not have $m$ yet. Carry a running maximum $m$ and a
+running denominator $\ell$, and correct them as tiles arrive. Processing a new
+tile with local maximum $\tilde m$ and local sum $\tilde\ell$:
+
+$$
+m^{\text{new}} = \max(m, \tilde m),
+\qquad
+\ell^{\text{new}} = e^{\,m - m^{\text{new}}}\,\ell \;+\; e^{\,\tilde m - m^{\text{new}}}\,\tilde\ell
+$$
+
+and the accumulated output is rescaled by the same factor
+$e^{\,m - m^{\text{new}}}$.
+
+**This is exact.** No approximation is introduced — the rescaling exactly
+compensates for having normalised by a stale maximum. That is why FlashAttention
+can claim exact attention while never materialising the $n\times n$ matrix, and
+why it recomputes tiles in the backward pass rather than storing them: recomputing
+costs arithmetic, which is the resource that was not binding.
+
+</Derivation>
+
+<KeyIdea>
+The general lesson is worth more than the kernel. When an operation is
+memory-bound, trading arithmetic for memory traffic is a win even if it increases
+total FLOPs — and the way to find such trades is to ask which intermediate
+results are being written down only because the naive implementation happened to
+compute them in that order.
+</KeyIdea>
+
+## The inference-time cost: the KV cache
+
+Autoregressive generation reuses the keys and values of all previous tokens, so
+they are cached. The cache size is
+
+$$
+2 \cdot L \cdot h_{kv} \cdot d_{\text{head}} \cdot n \cdot b \cdot \text{bytes}
+$$
+
+linear in context, and often the binding memory constraint when serving.
+
+<Steps>
+<Step title="Multi-head: $h_{kv} = h$">
+32 layers, 32 heads, $d_{\text{head}} = 128$, 32k context, fp16: about 16 GiB
+per sequence.
+</Step>
+
+<Step title="Grouped-query: $h_{kv} = g < h$">
+Share each key-value pair across several query heads. With $g = 8$, the same
+configuration is 4 GiB — a 4x reduction for a small quality cost.
+</Step>
+
+<Step title="Multi-query: $h_{kv} = 1$">
+One shared key-value head. 0.5 GiB, and a larger quality cost, which is why
+grouped-query is the usual compromise.
+</Step>
+</Steps>
+
+<Warning>
+Note that this changes the *inference* memory profile and barely changes training
+FLOPs. It is a serving decision that leaks into the architecture, which is why
+models are now designed with $h_{kv} < h$ from the start rather than converted
+afterwards — and it is a good example of a deployment constraint determining a
+modelling choice.
+</Warning>
+
+## Multi-head, formally
+
+$$
+\text{MHA}(X) = \big[\text{head}_1;\ldots;\text{head}_h\big]W^O,
+\qquad
+\text{head}_i = \text{Attention}(XW_i^Q, XW_i^K, XW_i^V)
+$$
+
+with $d_k = d/h$, so the parameter count is essentially unchanged. The gain is
+not capacity: a single softmax yields exactly one distribution over positions per
+query, so one head must blend all the relations it needs into a compromise, while
+$h$ heads let several coexist in separate learned subspaces.
+
+$$
+\text{one head} \ \Rightarrow\ \text{one relation per layer}
+\qquad
+h \ \text{heads} \ \Rightarrow\ h \ \text{relations}
+$$
+
+This is structurally the same argument that appears wherever a single softmax has
+to represent multiple modes, and the same trade applies — heads too narrow to
+represent a useful similarity are worse than fewer, wider ones.

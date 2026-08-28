@@ -1,25 +1,169 @@
 ---
 concept: attention_mechanism
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Attention Mechanism — Scaled Dot-Product Attention with Q/K/V
-    fail in practice, and how would you present it in an interview?
+  prompt: "Give your interview answer on attention. What is the mechanism, and what is the correction most candidates need on its cost?"
   keyPoints:
-    - "Attention collapse: all queries attend to the same key, producing
-      near-identical outputs across positions."
-    - "Symptoms: attention entropy drops to near zero, representation rank
-      collapses."
-    - "Root causes: insufficient training data, learning rate too high, or
-      missing residual connections."
-check: []
-papers: []
+    - "State the operation precisely — a softmax-weighted average of value vectors — and note the consequence, that every output is a convex combination and cannot invent content."
+    - "Derive the $\\sqrt{d_k}$ scaling as a variance argument; it is the standard probe and reciting it does not distinguish you."
+    - "Correct the cost framing: at width 4096 attention only matches the FFN's FLOPs at ~32k tokens, and what binds first is the $n^2$ memory, 32 GiB per layer at 8k with batch 8."
+    - "Separate the two memory problems: FlashAttention for the transient training intermediate, grouped-query for the persistent inference cache."
+interview:
+  answer: >-
+    Attention is a soft dictionary lookup. Every position produces a query, a
+    key, and a value; you score each query against every key, softmax the scores
+    into weights, and the output is the weighted average of the values. The
+    consequence worth stating is that every output is a convex combination of
+    value vectors, so attention can't create content — it decides what to mix,
+    and all the expressiveness lives in the projections that decide what the
+    keys and values are. It's also literally Nadaraya-Watson kernel regression
+    with an exponential kernel, where the metric is learned rather than fixed,
+    which explains why it generalises by interpolation and has no mechanism to
+    produce something outside the convex hull of its values. On the scaling
+    factor: the dot product of two d-dimensional vectors with unit-variance
+    entries has variance d, so unscaled logits grow like root-d — at d equals 64
+    that's logits around 8, which saturates the softmax and kills the gradient.
+    Dividing by root-d-k restores unit-variance logits at any dimension. Where
+    I'd want to correct the usual framing is the cost. Everyone says attention
+    is quadratic and therefore expensive, and that points at the wrong resource.
+    Attention costs about 2 n-squared d and the feed-forward block costs about
+    16 n d-squared, so they cross at n equals eight d — for width 4096, about
+    32,000 tokens. Below that attention is a small fraction of the arithmetic:
+    1.6 percent at 512 tokens, 6 percent at 2k, 25 percent at 8k. So halving
+    attention's FLOPs at typical sequence lengths barely changes training time.
+    What actually binds is memory. The n-by-n matrix at 8192 tokens with batch 8
+    and 32 heads in fp16 is 32 gigabytes for a single layer, and autograd holds
+    it for the backward pass. That's what FlashAttention addresses — it tiles
+    the computation, carries a running softmax maximum and denominator so no
+    tile needs the global normaliser, and recomputes tiles in the backward pass
+    instead of storing them. It computes exact attention and it actually uses
+    more FLOPs, and it's faster anyway because GPUs are far more starved of
+    memory bandwidth than of arithmetic. That's also why the whole
+    sub-quadratic-approximation wave from 2020-21 didn't displace exact
+    attention: an asymptotic win in the resource that wasn't binding lost to a
+    constant-factor win in the one that was.
+  followUps:
+    - q: "What about the inference side?"
+      a: >-
+        Different memory problem, and orthogonal. FlashAttention is about a
+        transient intermediate inside one forward pass; at inference there's no
+        backward pass, and what accumulates is the KV cache — the keys and
+        values of every previous token, held so you don't recompute them per
+        generated token. It grows linearly with context and per concurrent
+        sequence, and for a 32-layer, 32-head model with head dimension 128 at
+        32k context that's about 16 gigabytes per sequence. The fix is sharing
+        key-value heads across query heads: grouped-query attention with 8
+        groups takes it to 4 gigabytes, multi-query with one shared head to
+        about half a gigabyte with a larger quality cost. What I find
+        interesting is that this is a serving constraint that propagated back
+        into the architecture — models are now designed with fewer KV heads than
+        query heads from the start rather than converted afterwards.
+    - q: "So is multi-head about capacity?"
+      a: >-
+        No, and that's worth being precise about, because the parameter count is
+        essentially unchanged — h heads of dimension d over h total d. The gain
+        is that a single softmax produces exactly one distribution over
+        positions per query. So a single-head layer has a query that needs to
+        attend to two different things for two different reasons and no choice
+        but to blend them into a compromise serving neither. Several heads in
+        separate learned subspaces let several relations coexist. It's the same
+        one-softmax-one-mode argument that shows up wherever you need to
+        represent multiple things at once. The cost is dimension per head — a
+        head too narrow can't represent a useful similarity at all, which is why
+        d_k is usually kept at 64 or more rather than pushing h up arbitrarily.
+    - q: "When would a sub-quadratic method actually be the right choice?"
+      a: >-
+        When you're genuinely past the crossover, which means sequence lengths
+        well beyond eight times the model width — so very long context with a
+        modest width, or something like genomics or long audio where n is in the
+        hundreds of thousands. There the quadratic term really does dominate the
+        arithmetic and the asymptotics start to matter. I'd still want the
+        comparison run against FlashAttention rather than against a naive
+        baseline, because a lot of the reported speedups in that literature were
+        measured against implementations that materialised the matrix. And I'd
+        weigh exactness: an exact method needs no quality argument and can be
+        adopted by default, while an approximation has to be defended per
+        application, which is a real adoption cost that never appears in the
+        speedup table.
+    - q: "How would you debug an attention layer that isn't learning?"
+      a: >-
+        First check the logit scale, since that's the failure the scaling factor
+        exists to prevent — if someone reimplemented it and dropped the
+        1/root-d_k, or the queries and keys aren't roughly unit-variance because
+        the norm placement is wrong, the softmax saturates and the gradient
+        vanishes. I'd print the attention entropy per head: near-uniform means
+        the head isn't discriminating and is just returning an average,
+        near-zero means it's saturated. Then the mask, because a causal mask
+        applied where it shouldn't be is silent — it doesn't error, it just
+        removes information. And I'd check norm placement: post-norm needs a
+        learning-rate warmup to train at depth and diverges without one, which
+        is a very common inheritance from copying an old implementation.
+  traps:
+    - "Describing attention as 'focusing on important parts'. That is the effect; the operation is a softmax-weighted average of values, and the distinction is what an interviewer is listening for."
+    - "Reciting $1/\\sqrt{d_k}$ without the variance argument. It is the standard follow-up and takes two lines."
+    - "Saying attention is expensive because it is quadratic in FLOPs. At ordinary sequence lengths the FFN dominates the arithmetic; memory is what binds."
+    - "Conflating FlashAttention with the KV cache problem. One is a transient training intermediate, the other is persistent inference state, and they need different fixes."
+check:
+  - id: am_l5_c1
+    prompt: "A candidate says their model is slow because 'attention is quadratic', and proposes a linear-attention variant. Sequence length is 2048, width 4096. What is the response?"
+    options:
+      - "Agree — linear attention will give a large speedup"
+      - "At $n = 2048$ and $d = 4096$, attention is about 6% of the arithmetic — the FFN dominates, so eliminating attention's FLOPs entirely would save under 6%. Profile first, and if memory is the issue use a fused exact kernel rather than an approximation"
+      - "Suggest reducing the number of heads"
+      - "Suggest gradient checkpointing"
+    answer: 1
+    explanation: "The crossover is at $n \\approx 8d$, so at 2048 tokens with width 4096 the sequence is well below it and the quadratic term is small. Replacing attention with something free would leave 94% of the arithmetic untouched, and would introduce an approximation with a quality question. If the actual symptom is memory rather than time, a fused exact kernel addresses it without any approximation — which is the better answer to a problem that has been misdiagnosed."
+  - id: am_l5_c2
+    prompt: "You are serving a long-context model and run out of memory as concurrent requests increase, though a single request is fine. What is happening?"
+    options:
+      - "Attention matrix memory; use FlashAttention"
+      - "The KV cache scales with both context length and the number of concurrent sequences, so capacity is consumed per request — grouped-query attention reduces it by the group factor, and so does quantising the cache"
+      - "Activation memory; use gradient checkpointing"
+      - "Optimiser state; there is none at inference"
+    answer: 1
+    explanation: "The detail that identifies it is the scaling with concurrency: a transient per-forward-pass intermediate does not accumulate across requests, and the KV cache does — each in-flight sequence holds its own. FlashAttention would help the per-step cost and not this. Checkpointing and optimiser state are training concerns with no inference analogue, which makes options 3 and 4 diagnostic of not having separated training from serving memory."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Attention collapse: all queries attend to the same key, producing near-identical outputs across positions. Symptoms: attention entropy drops to near zero, representation rank collapses. Root causes: insufficient training data, learning rate too high, or missing residual connections. Fix: add attention dropout ($p = 0.1$), use multi-head attention for diversity, re-parameterize with talking heads or sigma-attention. Also: causal masking errors in autoregressive models cause information leakage from future tokens.
+<Steps>
+<Step title="Out of memory at a small batch → the $n^2$ matrix, not the parameters">
+$b h n^2 \cdot 2$ bytes in fp16, retained for the backward pass. Use a fused
+exact kernel before reducing the batch.
+</Step>
 
-## Interview-ready answer
+<Step title="Slow, and you assumed it was attention → profile the FFN">
+Below $n \approx 8d$ the feed-forward block dominates the arithmetic. Optimising
+attention there is optimising 6% of the problem.
+</Step>
 
-Attention computes $\text{softmax}(QK^T / \sqrt{d_k})V$ — a differentiable, content-based addressing mechanism. The $\sqrt{d_k}$ scaling is crucial: for $d_k$-dimensional Gaussian-distributed vectors, $q \cdot k$ has variance $d_k$, so scaling stabilizes softmax entropy. Multi-head attention projects into $h$ subspaces, capturing diverse relationships. In robotics, I use cross-attention to ground language instructions in visual observations — the query is the language embedding, keys/values are spatial features. Key implementation detail: FlashAttention fuses the softmax and matmul into a single kernel, reducing HBM reads from $O(n^2)$ to $O(n^2 d / M)$ where $M$ is SRAM size.
+<Step title="Out of memory as concurrency rises at inference → the KV cache">
+It accumulates per sequence and per token. Grouped-query attention or cache
+quantisation; FlashAttention does not address it.
+</Step>
+
+<Step title="Not learning at all → check the logit scale and the mask">
+A missing $1/\sqrt{d_k}$, mis-placed norm, or a causal mask applied where it
+should not be. None of these error; they just remove the gradient or the
+information.
+</Step>
+
+<Step title="Diverges early at depth → post-norm without warmup">
+Pre-norm trains stably from step one. A common inheritance from copying an older
+implementation.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The distinguishing move here is correcting the cost framing with numbers.
+Everyone can say attention is quadratic; very few can say that at width 4096 it
+only matches the feed-forward block's FLOPs at around 32k tokens, that the
+binding resource below that is the memory holding the $n^2$ matrix, and that
+FlashAttention is faster while using *more* arithmetic. That last point in
+particular signals you have profiled one of these rather than read about them —
+and the underlying lesson, that an asymptotic win in the wrong resource loses to
+a constant-factor win in the right one, generalises well past attention.
+</Warning>

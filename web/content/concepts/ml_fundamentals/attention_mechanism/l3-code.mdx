@@ -1,0 +1,217 @@
+---
+concept: attention_mechanism
+level: 3
+status: final
+recall:
+  prompt: "Implement attention three ways — naive, fused, and with a KV cache — and show the online softmax that makes tiling exact."
+  keyPoints:
+    - "The naive implementation materialises an $(b, h, n, n)$ tensor and holds it for the backward pass. That tensor, not the parameters, is what runs you out of memory."
+    - "`F.scaled_dot_product_attention` dispatches to a fused kernel that never materialises it; use it rather than a hand-written softmax unless you are learning."
+    - "The online softmax carries a running max and denominator and rescales as tiles arrive — exact, not approximate, which is the whole point."
+    - "At inference, cache K and V and share key-value heads across query heads. The cache is linear in context and is usually the binding memory constraint when serving."
+check:
+  - id: am_l3_c1
+    prompt: "Why does the hand-written version run out of memory at a batch size the fused version handles easily?"
+    options:
+      - "The fused kernel uses lower precision"
+      - "The hand-written version materialises the $(b, h, n, n)$ attention tensor and autograd retains it for the backward pass; the fused kernel recomputes tiles instead of storing them"
+      - "The fused kernel uses fewer parameters"
+      - "PyTorch frees intermediate tensors more aggressively in fused kernels"
+    answer: 1
+    explanation: "The parameters are the same in both cases — what differs is the intermediate. Autograd keeps whatever the backward pass needs, and a naive implementation needs the softmax output, which is $b\\,h\\,n^2$ entries. At batch 8, 32 heads, 8192 tokens in fp16 that is 32 GiB for one layer. The fused kernel recomputes those tiles in the backward pass, trading arithmetic — the resource that was not binding — for memory traffic, which was."
+  - id: am_l3_c2
+    prompt: "In the online softmax, what is the rescaling factor $e^{m_{\\text{old}} - m_{\\text{new}}}$ correcting for?"
+    options:
+      - "Numerical drift accumulated across tiles"
+      - "The accumulated sum and output were normalised using a stale maximum; when a later tile contains a larger value, everything computed so far must be rescaled to the new maximum — which makes the streaming result exactly equal to the one-pass result"
+      - "The difference in tile sizes"
+      - "The softmax temperature"
+    answer: 1
+    explanation: "It is an exact algebraic correction, not an approximation or a stability patch. Having divided earlier terms by $e^{m_{\\text{old}}}$, discovering a larger maximum means every one of them is off by the ratio $e^{m_{\\text{old}} - m_{\\text{new}}}$ — apply that factor and the running state is identical to what a one-pass computation with full knowledge would have produced. This exactness is what lets FlashAttention claim exact attention rather than an approximation."
+  - id: am_l3_c3
+    prompt: "You are serving a model and run out of memory at long context, though the weights fit comfortably. What is the likely cause and fix?"
+    options:
+      - "Activation memory; use gradient checkpointing"
+      - "The KV cache, which grows linearly with context and per sequence — reduce it by sharing key-value heads across query heads (grouped-query attention), which cuts it by the group factor"
+      - "The optimiser state; switch to SGD"
+      - "The attention matrix; use FlashAttention"
+    answer: 1
+    explanation: "At inference there is no backward pass, so activation memory and optimiser state are irrelevant — options 1 and 3 are training concerns. FlashAttention does help and addresses a per-step cost rather than the accumulating one. The cache is what grows with every generated token and with every concurrent sequence: 16 GiB per sequence at 32k context for a 32-layer, 32-head model, which grouped-query attention with 8 groups reduces to 4 GiB."
+---
+
+## The naive version, and why it is a teaching tool
+
+<CodeWalk title="Attention written out">
+
+```python title="naive.py"
+import torch, torch.nn.functional as F
+
+def attention_naive(q, k, v, mask=None):
+    """q, k, v: (B, H, N, Dh). Correct, readable, and the reason your batch
+    size is small."""
+    d_k = q.shape[-1]
+
+    # This tensor is (B, H, N, N). At B=8, H=32, N=8192, fp16 that is 32 GiB —
+    # and autograd retains it for the backward pass.
+    scores = (q @ k.transpose(-2, -1)) / d_k ** 0.5
+
+    if mask is not None:
+        scores = scores + mask                    # -inf where disallowed
+
+    attn = scores.softmax(dim=-1)
+    return attn @ v
+```
+
+</CodeWalk>
+
+The parameters are identical to the fused version. What differs is the
+intermediate: the naive form writes down an $(b, h, n, n)$ tensor and keeps it,
+and that is what you run out of.
+
+```python title="fused.py"
+def attention_fused(q, k, v, attn_mask=None, is_causal=False):
+    """Dispatches to a kernel that never materialises the n-by-n tensor and
+    recomputes tiles in the backward pass. Scaling by 1/sqrt(d_k) is applied
+    internally."""
+    return F.scaled_dot_product_attention(
+        q, k, v, attn_mask=attn_mask, is_causal=is_causal
+    )
+```
+
+## The online softmax, which is what makes tiling exact
+
+<CodeWalk title="Streaming attention in one pass">
+
+```python title="online_softmax.py"
+import torch
+
+def attention_tiled(q, k, v, tile=256):
+    """Reference implementation of the FlashAttention idea. Slow in Python,
+    exact, and the point is the rescaling — not the speed.
+    """
+    B, H, N, Dh = q.shape
+    scale = Dh ** -0.5
+
+    out = torch.zeros_like(q)
+    m = torch.full((B, H, N, 1), float("-inf"), device=q.device)  # running max
+    l = torch.zeros((B, H, N, 1), device=q.device)                # running sum
+
+    for start in range(0, N, tile):
+        kt = k[:, :, start:start + tile]
+        vt = v[:, :, start:start + tile]
+
+        s = (q @ kt.transpose(-2, -1)) * scale        # (B,H,N,tile) — small
+        m_tile = s.amax(dim=-1, keepdim=True)
+        m_new = torch.maximum(m, m_tile)
+
+        # Everything accumulated so far was normalised by a STALE maximum.
+        # This factor corrects it exactly — it is algebra, not a stability
+        # patch, which is why the tiled result equals the one-pass result.
+        rescale = torch.exp(m - m_new)
+        p = torch.exp(s - m_new)
+
+        l = rescale * l + p.sum(dim=-1, keepdim=True)
+        out = rescale * out + p @ vt
+        m = m_new
+
+    return out / l
+```
+
+</CodeWalk>
+
+<KeyIdea>
+The trade being made is arithmetic for memory traffic. Recomputing tiles in the
+backward pass costs more FLOPs and less bandwidth, and it is a win because
+attention was never FLOP-bound at ordinary sequence lengths. That inversion —
+spend the abundant resource to save the scarce one — is the transferable idea,
+and it applies well beyond attention.
+</KeyIdea>
+
+## Multi-head, with the shapes made explicit
+
+```python title="mha.py"
+import torch.nn as nn
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, d_model, n_heads, n_kv_heads=None):
+        super().__init__()
+        self.h = n_heads
+        # Grouped-query: fewer KV heads than query heads. A serving decision
+        # that leaks into the architecture, so it is set at design time.
+        self.h_kv = n_kv_heads or n_heads
+        self.dh = d_model // n_heads
+
+        self.q_proj = nn.Linear(d_model, n_heads * self.dh, bias=False)
+        self.k_proj = nn.Linear(d_model, self.h_kv * self.dh, bias=False)
+        self.v_proj = nn.Linear(d_model, self.h_kv * self.dh, bias=False)
+        self.o_proj = nn.Linear(n_heads * self.dh, d_model, bias=False)
+
+    def forward(self, x, is_causal=True):
+        B, N, _ = x.shape
+        q = self.q_proj(x).view(B, N, self.h, self.dh).transpose(1, 2)
+        k = self.k_proj(x).view(B, N, self.h_kv, self.dh).transpose(1, 2)
+        v = self.v_proj(x).view(B, N, self.h_kv, self.dh).transpose(1, 2)
+
+        if self.h_kv != self.h:                     # broadcast KV across groups
+            rep = self.h // self.h_kv
+            k = k.repeat_interleave(rep, dim=1)
+            v = v.repeat_interleave(rep, dim=1)
+
+        o = F.scaled_dot_product_attention(q, k, v, is_causal=is_causal)
+        return self.o_proj(o.transpose(1, 2).reshape(B, N, -1))
+```
+
+## The KV cache
+
+<CodeWalk title="Incremental decoding, and the memory it accumulates">
+
+```python title="kv_cache.py"
+class KVCache:
+    """Grows linearly with context AND with concurrent sequences. At 32 layers,
+    32 heads, d_head 128, 32k context, fp16: ~16 GiB per sequence with full
+    multi-head, ~4 GiB with 8 KV groups, ~0.5 GiB with one shared head.
+
+    At inference there is no backward pass, so this — not activations — is what
+    you run out of.
+    """
+
+    def __init__(self, layers, batch, max_len, n_kv_heads, d_head, device, dtype):
+        shape = (batch, n_kv_heads, max_len, d_head)
+        self.k = [torch.zeros(shape, device=device, dtype=dtype) for _ in range(layers)]
+        self.v = [torch.zeros(shape, device=device, dtype=dtype) for _ in range(layers)]
+        self.pos = 0
+
+    def append(self, layer, k_new, v_new):
+        n = k_new.shape[2]
+        self.k[layer][:, :, self.pos:self.pos + n] = k_new
+        self.v[layer][:, :, self.pos:self.pos + n] = v_new
+        return self.k[layer][:, :, : self.pos + n], self.v[layer][:, :, : self.pos + n]
+
+    def advance(self, n):
+        self.pos += n
+
+    def bytes(self):
+        return sum(t.numel() * t.element_size() for t in self.k + self.v)
+```
+
+</CodeWalk>
+
+## Diagnostics
+
+<Steps>
+<Step title="Print the attention tensor's size before assuming it fits">
+$b \cdot h \cdot n^2 \cdot 2$ bytes in fp16. If it exceeds a few GiB, you need a
+fused kernel, not a smaller batch.
+</Step>
+
+<Step title="Check attention entropy per head">
+Near-uniform weights mean a head is not discriminating and is contributing an
+average; near one-hot means it has saturated. Both are worth knowing before
+concluding a model needs more heads.
+</Step>
+
+<Step title="Profile before optimising the quadratic term">
+At $n \ll 8d$ the FFN dominates the arithmetic. Halving attention's FLOPs when it
+is 6% of the total changes almost nothing, and that is the usual case.
+</Step>
+</Steps>

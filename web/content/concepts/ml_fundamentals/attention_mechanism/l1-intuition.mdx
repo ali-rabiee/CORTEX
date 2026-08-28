@@ -1,25 +1,156 @@
 ---
 concept: attention_mechanism
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Attention Mechanism — Scaled Dot-Product Attention with Q/K/V
-    in plain language: what is it, and why does it matter?"
+  prompt: "Explain scaled dot-product attention as a mechanism. Then say what its real cost is, and why the usual 'quadratic' framing misleads."
   keyPoints:
-    - Attention is a soft dictionary lookup.
-    - The query asks 'what am I looking for?', keys advertise 'what do I
-      contain?', and values hold 'what do I deliver?'.
-    - The dot product $QK^T$ measures relevance, softmax converts it to a
-      probability distribution over keys, and the output is the expected value
-      under that distribution.
-check: []
-papers: []
+    - "A soft dictionary lookup: every query is compared against every key, the similarities become weights, and the output is a weighted average of the values."
+    - "Every output is a convex combination of value vectors, so attention cannot create content — it decides what to mix, and all the expressiveness is in the learned projections."
+    - "The 'quadratic cost' framing points at arithmetic, and at ordinary sequence lengths the arithmetic is cheap: for width 4096, attention only matches the feed-forward block's FLOPs at about 32k tokens."
+    - "What actually binds is memory. The $n \\times n$ matrix is 32 GiB per layer at 8k tokens with batch 8 and 32 heads, and it has to be held for the backward pass — which is what FlashAttention removes."
+media:
+  - kind: video
+    title: "Attention in transformers, step-by-step"
+    url: https://www.youtube.com/watch?v=eMlx5fFNoYc
+    source: "3Blue1Brown"
+    minutes: 26
+    note: "The clearest visual account of queries, keys, and values. Watch it once for the mechanism, then read Level 2 for why the scaling factor is there."
+  - kind: article
+    title: "The Illustrated Transformer"
+    url: https://jalammar.github.io/illustrated-transformer/
+    source: "Jay Alammar"
+    note: "Still the best diagram-per-concept walkthrough of the shapes. Useful the first few times you implement multi-head attention and lose track of what is being transposed."
+  - kind: article
+    title: "FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness"
+    url: https://arxiv.org/abs/2205.14135
+    source: "Dao, Fu, Ermon, Rudra, Ré"
+    note: "Read the introduction even if you skip the kernel details. Its reframing — that attention is bounded by memory traffic rather than arithmetic — is the single most useful correction to how the operation is usually taught."
+check:
+  - id: am_l1_c1
+    prompt: "What is the most precise description of what attention computes?"
+    options:
+      - "It focuses the model on the important parts of the input"
+      - "A weighted average of value vectors, where the weights come from a softmax over query-key similarities — so every output is a convex combination of existing values"
+      - "A learned convolution with an input-dependent kernel"
+      - "A similarity score between two sequences"
+    answer: 1
+    explanation: "Saying 'it focuses on what is important' describes the effect and not the operation, and it is what an interviewer is listening past. The precise version has a consequence worth stating: because the output is a convex combination, attention cannot invent content that is not in some value vector — it can only decide what to mix. All the expressive power therefore sits in the $W_Q$, $W_K$, $W_V$ projections that decide what the values *are* and which queries match which keys. Option 3 is a defensible analogy and not the definition."
+  - id: am_l1_c2
+    prompt: "For a model of width 4096, at what sequence length does attention's FLOP cost roughly match the feed-forward block's?"
+    options:
+      - "About 512 tokens"
+      - "About 32,000 tokens — below that the FFN dominates the arithmetic, so at ordinary sequence lengths attention is a small fraction of the compute"
+      - "About 2,000 tokens"
+      - "Attention always dominates, at every length"
+    answer: 1
+    explanation: "Attention costs roughly $2n^2 d$ while the feed-forward block costs roughly $16 n d^2$, so they cross when $n \\approx 8d$ — at $d = 4096$, about 32k tokens. Below that the ratio is small: 1.6% at 512 tokens, 6% at 2k, 25% at 8k. This is worth carrying because the reflexive 'attention is quadratic and therefore expensive' is pointing at the wrong resource for most models people actually run."
+  - id: am_l1_c3
+    prompt: "If the arithmetic is cheap, why was FlashAttention such a large win?"
+    options:
+      - "It reduces the number of floating-point operations"
+      - "Because the binding cost is memory: the $n\\times n$ attention matrix must be written to and read from high-bandwidth memory and held for the backward pass — 32 GiB per layer at 8k tokens, batch 8, 32 heads — and FlashAttention never materialises it"
+      - "It approximates the attention matrix with a low-rank factorisation"
+      - "It allows larger learning rates"
+    answer: 1
+    explanation: "FlashAttention computes *exact* attention — it changes no arithmetic and approximates nothing, which rules out option 3. What it changes is data movement: by tiling the computation and maintaining a running softmax normaliser, it never writes the full matrix to memory, and it recomputes tiles in the backward pass rather than storing them. The speedup comes from GPUs being far more starved of memory bandwidth than of arithmetic, which is exactly the reframing the paper is named for."
 ---
 
-## Intuition
+## A soft dictionary lookup
 
-Attention is a soft dictionary lookup. The query asks 'what am I looking for?', keys advertise 'what do I contain?', and values hold 'what do I deliver?'. The dot product $QK^T$ measures relevance, softmax converts it to a probability distribution over keys, and the output is the expected value under that distribution. The $\sqrt{d_k}$ scaling keeps the softmax temperature reasonable — without it, high-dimensional dot products would produce near-one-hot distributions that kill gradient flow.
+$$
+\text{Attention}(Q,K,V) = \operatorname{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}\right)V
+$$
 
-## In practice
+Read it right to left. $QK^\top$ scores every query against every key. The
+softmax turns each row into a distribution over positions. Multiplying by $V$
+returns a weighted average of value vectors.
 
-In a robotic manipulation transformer policy, cross-attention between robot state queries ($Q$ from proprioception) and visual keys/values ($K, V$ from ViT features) enables the policy to selectively attend to task-relevant image regions. With $d_k = 64$ and 8 heads, each head learns different spatial attention patterns — one might focus on the gripper, another on the target object. Attention weights are directly interpretable: visualizing them reveals which image patches drive each action dimension.
+<Intuition>
+An ordinary dictionary lookup is exact: you supply a key, you get its value.
+Attention is the soft version — you supply a query, every key reports how well it
+matches, and you receive a blend of their values weighted by the match.
+
+The learned part is not the blending. It is deciding what the keys and values
+*are*, which is what the projections do.
+</Intuition>
+
+<KeyIdea>
+Every output is a **convex combination** of value vectors, so attention cannot
+create content that is not already in some value. It only decides what to mix.
+All the expressive power lives in $W_Q$, $W_K$, $W_V$ — which is why "attention
+focuses on the important parts" is a description of the effect rather than of the
+operation, and why an interviewer will push past it.
+</KeyIdea>
+
+## The cost, and where the usual framing goes wrong
+
+"Attention is quadratic in sequence length" is true and routinely misapplied. It
+is quadratic in *both* arithmetic and memory, and those two hit at very different
+scales.
+
+<Figure src="/figures/attention-memory-vs-flops.svg"
+        alt="Left: attention FLOPs as a fraction of the feed-forward block, rising from 0.016 at 512 tokens to 1.0 at 32k. Right: the materialised attention matrix per layer, 0.13 GiB at 512 tokens and 32 GiB at 8192."
+        caption="At width 4096, attention's arithmetic only matches the feed-forward block at about 32k tokens. Its memory footprint is already 32 GiB per layer at 8k. The binding constraint at ordinary lengths is memory traffic." />
+
+<Steps>
+<Step title="The arithmetic">
+Attention costs about $2n^2 d$; the feed-forward block costs about $16 n d^2$.
+They cross at $n \approx 8d$ — around 32,000 tokens at $d = 4096$. Below that,
+attention is 1.6% of the FFN's FLOPs at 512 tokens and 25% at 8k.
+</Step>
+
+<Step title="The memory">
+The $n\times n$ matrix, per head, per layer, held for the backward pass. At
+$n = 8192$ with batch 8 and 32 heads in fp16 that is 32 GiB — for one layer.
+This is what runs you out of memory, and it does so long before the FLOPs matter.
+</Step>
+</Steps>
+
+<Warning>
+So the productive question is not "how do I reduce the quadratic FLOPs?" but "why
+am I writing this matrix to memory at all?" FlashAttention answers the second:
+tile the computation, maintain a running softmax normaliser so you never need the
+full row at once, and recompute tiles in the backward pass instead of storing
+them. It computes **exact** attention — no approximation, no changed arithmetic —
+and is much faster, because GPUs are far more starved of memory bandwidth than of
+arithmetic.
+
+That is also why the linear-attention approximations that dominated 2020-21
+research have largely not displaced exact attention in practice. They attacked
+the resource that was not binding.
+</Warning>
+
+## The other cost, at inference
+
+Generating one token at a time, you do not want to recompute the keys and values
+for every previous token. So you cache them — and that cache grows linearly with
+context and is often the reason you run out of memory when serving.
+
+<KeyIdea>
+For a 32-layer model with 32 heads of width 128, the cache at 32k context is
+about 16 GiB per sequence. Sharing key and value heads across query heads —
+grouped-query attention with 8 groups — cuts it to 4 GiB, and a single shared
+head cuts it to 0.5 GiB. That is why essentially every recent model uses grouped
+rather than full multi-head attention at inference, and it is a memory decision
+rather than a modelling one.
+</KeyIdea>
+
+## What multi-head is actually for
+
+Splitting $d$ into $h$ heads leaves the parameter count essentially unchanged, so
+it is not about capacity.
+
+A single softmax produces exactly **one** distribution over positions per query.
+So in a single-head layer, a query that needs to attend to two different things
+for two different reasons has no choice but to blend them, and the blend is a
+compromise serving neither. With $h$ heads there are $h$ independent
+distributions in $h$ learned subspaces, so several relations coexist.
+
+<Warning>
+The cost is dimension per head. Each head sees $d/h$ dimensions, and a head too
+narrow cannot represent a useful similarity at all — which is why $d_k$ is
+typically kept at 64 or more rather than $h$ being pushed arbitrarily high.
+</Warning>
+
+<WatchThis />

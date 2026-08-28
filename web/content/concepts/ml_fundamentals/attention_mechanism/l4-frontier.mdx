@@ -1,0 +1,204 @@
+---
+concept: attention_mechanism
+level: 4
+status: final
+recall:
+  prompt: "Trace the attempts to make attention cheaper. Which family won, and what does that say about how to choose an optimisation target?"
+  keyPoints:
+    - "2020-21 produced a wave of sub-quadratic approximations — low-rank, kernel-feature, sparse — attacking the FLOP count."
+    - "FlashAttention (2022) instead computed exact attention with better memory access, and largely displaced them, because the FLOPs were never the binding resource at ordinary sequence lengths."
+    - "The inference-side answer is orthogonal: multi-query and grouped-query attention shrink the KV cache, which is what binds when serving."
+    - "The lesson generalises past attention: an asymptotic improvement in the wrong resource loses to a constant-factor improvement in the right one."
+papers:
+  - key: vaswani2017transformer
+    title: "Attention Is All You Need"
+    authors: "Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Łukasz Kaiser, Illia Polosukhin"
+    venue: NeurIPS
+    year: 2017
+    arxiv: "1706.03762"
+    takeaway: "Scaled dot-product attention, multi-head projections, and the removal of recurrence — constant path length between any two positions, and a model that parallelises across the sequence."
+  - key: choromanski2021performer
+    title: "Rethinking Attention with Performers"
+    authors: "Krzysztof Choromanski, Valerii Likhosherstov, David Dohan, Xingyou Song, Andreea Gane, Tamas Sarlos, et al."
+    venue: ICLR
+    year: 2021
+    arxiv: "2009.14794"
+    takeaway: "Approximates the softmax kernel with random features so attention factorises into linear-time operations — the most principled member of the sub-quadratic family, and a good representative of what that family bought."
+  - key: dao2022flashattention
+    title: "FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness"
+    authors: "Tri Dao, Daniel Y. Fu, Stefano Ermon, Atri Rudra, Christopher Ré"
+    venue: NeurIPS
+    year: 2022
+    arxiv: "2205.14135"
+    takeaway: "Reframes attention as memory-bound rather than compute-bound, and tiles the computation with an online softmax so the $n\\times n$ matrix is never written — exact attention, substantially faster."
+  - key: dao2023flashattention2
+    title: "FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning"
+    authors: "Tri Dao"
+    year: 2023
+    arxiv: "2307.08691"
+    takeaway: "Reworks the parallelisation and work partitioning of the same algorithm, closing much of the remaining gap to peak hardware throughput — evidence that the bottleneck really was scheduling and data movement."
+  - key: shazeer2019mqa
+    title: "Fast Transformer Decoding: One Write-Head is All You Need"
+    authors: "Noam Shazeer"
+    year: 2019
+    arxiv: "1911.02150"
+    takeaway: "Multi-query attention: share one key-value head across all query heads, shrinking the decoding KV cache by the head count at a modest quality cost."
+  - key: ainslie2023gqa
+    title: "GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints"
+    authors: "Joshua Ainslie, James Lee-Thorp, Michiel de Jong, Yury Zemlyanskiy, Federico Lebrón, Sumit Sanghai"
+    venue: EMNLP
+    year: 2023
+    arxiv: "2305.13245"
+    takeaway: "Interpolates between multi-head and multi-query by grouping query heads over shared key-value heads, recovering most of the quality at most of the memory saving — and converts existing checkpoints rather than requiring retraining."
+check:
+  - id: am_l4_c1
+    prompt: "Why did the sub-quadratic attention approximations not displace exact attention in practice?"
+    options:
+      - "They were too complicated to implement"
+      - "They reduced the FLOP count, which was not the binding resource at the sequence lengths in use — memory traffic was — so an asymptotic win in the wrong resource lost to a constant-factor win in the right one"
+      - "They were mathematically incorrect"
+      - "They required special hardware"
+    answer: 1
+    explanation: "At width 4096, attention's arithmetic only matches the feed-forward block's at about 32k tokens, so at 2k or 8k the quadratic term was a small fraction of total FLOPs and halving it changed little. Meanwhile the materialised attention matrix was tens of gigabytes and dominating memory. FlashAttention attacked that and kept exactness, which also removed any quality question. The methods were sound; the target was wrong."
+  - id: am_l4_c2
+    prompt: "FlashAttention computes exact attention. What does it change?"
+    options:
+      - "The arithmetic, by reordering operations to reduce FLOPs"
+      - "The data movement: it tiles the computation, uses an online softmax so no tile needs the global normaliser, and recomputes tiles in the backward pass instead of storing the matrix — trading arithmetic, which was abundant, for memory traffic, which was scarce"
+      - "The softmax, replacing it with a numerically cheaper approximation"
+      - "The attention pattern, restricting it to a sparse subset"
+    answer: 1
+    explanation: "Exactness rules out options 3 and 4, and the FLOP count actually goes *up* because the backward pass recomputes rather than reads — which is the interesting part. It is faster despite doing more arithmetic, because GPUs are far more starved of memory bandwidth than of compute. That inversion is the transferable idea: when an operation is memory-bound, spending FLOPs to avoid a write is a good trade."
+  - id: am_l4_c3
+    prompt: "Grouped-query attention shares key-value heads across query heads. What problem does it solve, and why is it not addressed by FlashAttention?"
+    options:
+      - "The same problem; GQA is a simpler alternative"
+      - "The KV cache at inference, which grows linearly with context and per concurrent sequence. FlashAttention reduces the per-step memory of computing attention; it does nothing about state that accumulates across generated tokens"
+      - "The training-time attention matrix"
+      - "Numerical instability in long sequences"
+    answer: 1
+    explanation: "The two are orthogonal because they address different memory. FlashAttention concerns a transient intermediate within one forward pass. The KV cache is persistent state that grows with every generated token and every concurrent request — 16 GiB per sequence at 32k context for a 32-layer, 32-head model. Only reducing the number of stored key-value heads shrinks it, which is why recent models use grouped-query attention *and* FlashAttention rather than choosing."
+---
+
+## The operation, and the two costs it created
+
+<PaperCard refKey="vaswani2017transformer" />
+
+Removing recurrence bought constant path length between any two positions and
+full parallelism across the sequence. It also created two costs that the next six
+years of research went after separately: quadratic arithmetic, and quadratic
+memory.
+
+<KeyIdea>
+Almost the entire "efficient attention" literature is a bet on which of those two
+was the real constraint. The bet that lost went after arithmetic; the bet that
+won went after memory. That is worth knowing as a case study in choosing an
+optimisation target, quite apart from what it says about attention.
+</KeyIdea>
+
+## The sub-quadratic wave
+
+<PaperCard refKey="choromanski2021performer" />
+
+Between 2020 and 2021 a large family of methods reduced attention's asymptotic
+cost: low-rank projections of the key-value sequence, sparse patterns, and
+kernel-feature approximations. Performers are the most principled — approximate
+the softmax kernel with random features so the operation factorises and becomes
+linear in sequence length.
+
+The mathematics is sound and the methods work. They largely did not displace
+exact attention, and the reason is arithmetic in the other sense.
+
+<Warning>
+At width 4096, attention matches the feed-forward block's FLOPs only around
+32,000 tokens. At 2k tokens attention is about 6% of the arithmetic — so halving
+it changes total training time by 3%. Meanwhile the materialised attention matrix
+is tens of gigabytes and is what actually limits batch size.
+
+So these methods delivered an asymptotic improvement in a term that was not
+dominant, at the cost of an approximation with a quality question attached. It is
+a clean example of the general failure: **optimise the resource that binds, and
+measure which one that is before choosing.**
+</Warning>
+
+## The bet that won
+
+<PaperGrid>
+<PaperCard refKey="dao2022flashattention" />
+<PaperCard refKey="dao2023flashattention2" />
+</PaperGrid>
+
+FlashAttention's framing is in its subtitle: IO-awareness. Attention on a GPU
+spends most of its time moving the $n \times n$ matrix between high-bandwidth
+memory and on-chip SRAM, not computing. So tile the computation, use an online
+softmax so no tile needs the global normaliser, and recompute tiles in the
+backward pass rather than storing them.
+
+<Steps>
+<Step title="It is exact">
+No approximation, no quality question, and therefore no argument to have about
+whether it is safe to use. That is a substantial adoption advantage over any
+approximate method, independent of speed.
+</Step>
+
+<Step title="It uses more FLOPs, not fewer">
+Recomputation in the backward pass is extra arithmetic. It is faster anyway,
+because arithmetic was the abundant resource. This inversion is the part worth
+carrying: when an operation is memory-bound, spending FLOPs to avoid a write is a
+good trade.
+</Step>
+
+<Step title="FlashAttention-2 confirms the diagnosis">
+The follow-up gains come from better parallelisation and work partitioning —
+scheduling, not mathematics. That the remaining headroom was in *how the work was
+distributed* is evidence the original diagnosis was right.
+</Step>
+</Steps>
+
+## The orthogonal problem: serving
+
+<PaperGrid>
+<PaperCard refKey="shazeer2019mqa" />
+<PaperCard refKey="ainslie2023gqa" />
+</PaperGrid>
+
+FlashAttention addresses a transient intermediate inside one forward pass. At
+inference there is a different memory problem: the KV cache is *persistent* state
+that grows with every generated token and every concurrent sequence.
+
+Multi-query attention shares a single key-value head across all query heads,
+shrinking the cache by the head count — 16 GiB down to 0.5 GiB for a 32-layer,
+32-head model at 32k context — at a quality cost. Grouped-query attention
+interpolates: group query heads over a smaller number of shared key-value heads,
+recovering most of the quality at most of the saving, and it can be produced from
+an existing multi-head checkpoint rather than requiring a retrain.
+
+<KeyIdea>
+These are orthogonal to FlashAttention and used together. The pattern worth
+noticing is that a *serving* constraint has propagated back into the
+architecture: models are now designed with fewer key-value heads than query heads
+from the start, because the deployment memory profile is a design input rather
+than a downstream concern.
+</KeyIdea>
+
+## What this episode is actually about
+
+<Steps>
+<Step title="Asymptotics do not identify the bottleneck">
+$O(n^2)$ against $O(n)$ says which wins eventually. It says nothing about which
+dominates at $n = 2048$, and that is the question that determines where to spend
+effort.
+</Step>
+
+<Step title="Exactness is worth a lot">
+An exact method needs no quality argument, so it can be adopted by default. An
+approximate one has to be defended per application, which is a real adoption cost
+that rarely appears in a speedup table.
+</Step>
+
+<Step title="Measure the resource, then optimise it">
+The productive question about any expensive operation is which resource it is
+starved of — arithmetic, memory bandwidth, memory capacity, or latency — because
+the answer determines which improvements are even relevant.
+</Step>
+</Steps>
