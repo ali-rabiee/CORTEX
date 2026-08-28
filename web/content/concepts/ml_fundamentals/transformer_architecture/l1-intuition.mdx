@@ -1,28 +1,181 @@
 ---
 concept: transformer_architecture
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Transformer Architecture — Self-Attention and Positional
-    Encoding in plain language: what is it, and why does it matter?"
+  prompt: "Describe a transformer block as a system rather than a diagram. What is the residual stream, where does the norm go, and where do the parameters actually live?"
   keyPoints:
-    - A Transformer is like a room full of researchers, each simultaneously
-      reading the entire document and highlighting the parts most relevant to
-      their assigned position.
-    - Multi-head attention lets different heads attend to different types of
-      relationships — one head might track syntactic dependencies while another
-      captures semantic similarity.
-    - Positional encodings are the page numbers that tell each researcher where
-      they are in the document, since unlike RNNs, there is no inherent notion
-      of order.
-check: []
-papers: []
+    - "Read it as a residual stream running unobstructed from input to output, with attention and the feed-forward block reading from it and writing back — not as a stack of transformations."
+    - "Pre-norm puts the normalisation *inside* each branch, leaving an identity path from the loss to every layer. Post-norm puts it on the stream, and needs a learning-rate warmup to train at depth."
+    - "Two thirds of the parameters are in the feed-forward blocks, not attention: $8d^2$ against $4d^2$ per layer, $12d^2$ total."
+    - "Useful arithmetic: parameters $\\approx 12Ld^2$, and training compute $\\approx 6ND$ FLOPs for $N$ parameters and $D$ tokens."
+media:
+  - kind: article
+    title: "The Illustrated Transformer"
+    url: https://jalammar.github.io/illustrated-transformer/
+    source: "Jay Alammar"
+    note: "The diagram-per-concept walkthrough. Use it to get the shapes straight, then deliberately re-read the block as a residual stream — the diagram encourages the stack reading, which is the less useful one."
+  - kind: article
+    title: "On Layer Normalization in the Transformer Architecture"
+    url: https://arxiv.org/abs/2002.04745
+    source: "Xiong, Yang, He, Zheng, Zheng, Xing, Zhang, Lan, Wang, Liu"
+    note: "The paper that explains why the original formulation needed a warmup and the pre-norm variant does not. Read Section 3 — the gradient-scale argument is short and it settles a question people otherwise resolve by folklore."
+  - kind: video
+    title: "Attention is all you need (Transformer) — model explanation including math"
+    url: https://www.youtube.com/watch?v=bCz4OMemCcA
+    source: "Umar Jamil"
+    minutes: 58
+    note: "Works through every shape, the masking, and the training-versus-inference difference. The right thing to have open the first time you write one from scratch."
+check:
+  - id: ta2_l1_c1
+    prompt: "Why is 'a residual stream that layers read from and write to' a better reading than 'a stack of transformations'?"
+    options:
+      - "They are equivalent descriptions"
+      - "Because the residual path is an identity, so information and gradient flow unobstructed from input to output — each block adds a contribution rather than replacing the representation, which is what makes depth trainable and what interpretability work actually finds"
+      - "Because it is easier to draw"
+      - "Because attention is the only meaningful operation"
+    answer: 1
+    explanation: "In a plain stack, layer $k$'s output is a function of layer $k-1$'s and nothing survives untransformed. With residual connections, the stream persists and each block *adds* to it — so the gradient reaches layer 1 through an identity path regardless of depth, and information written early can be read much later without passing through every intervening transformation. This framing also matches what mechanistic interpretability finds: heads that write a feature which a later layer reads."
+  - id: ta2_l1_c2
+    prompt: "Where are most of a transformer's parameters?"
+    options:
+      - "In attention, since it is the defining operation"
+      - "In the feed-forward blocks: $8d^2$ per layer against attention's $4d^2$, so roughly two thirds of the non-embedding parameters"
+      - "In the embeddings"
+      - "Evenly split between attention and the FFN"
+    answer: 1
+    explanation: "Attention has four $d\\times d$ projections, so $4d^2$. The feed-forward block with the standard $4\\times$ expansion has $d\\times 4d$ up and $4d\\times d$ down, so $8d^2$. Two thirds of the per-layer parameters, and — since the FFN is also where most of the FLOPs go at ordinary sequence lengths — most of the compute too. The name of the architecture points at the minority component, which is worth noticing when deciding what to optimise."
+  - id: ta2_l1_c3
+    prompt: "Estimate the parameter count of a 32-layer model with $d = 4096$."
+    options:
+      - "About 700 million"
+      - "About 6.4 billion, from $12Ld^2 = 12\\times32\\times4096^2$ — plus roughly 0.13 billion per embedding matrix"
+      - "About 40 billion"
+      - "It cannot be estimated without the vocabulary size"
+    answer: 1
+    explanation: "$12 L d^2$ is the rule worth carrying: $12 \\times 32 \\times 4096^2 \\approx 6.4\\times10^9$. Embeddings add $Vd$ per matrix — about 0.13B at a 32k vocabulary — which is why a model described as '7B' typically has these dimensions. The vocabulary matters for the embedding term only, so option 4 is right about a small correction and wrong about the estimate being impossible."
 ---
 
-## Intuition
+## Read it as a stream, not a stack
 
-A Transformer is like a room full of researchers, each simultaneously reading the entire document and highlighting the parts most relevant to their assigned position. Multi-head attention lets different heads attend to different types of relationships — one head might track syntactic dependencies while another captures semantic similarity. Positional encodings are the page numbers that tell each researcher where they are in the document, since unlike RNNs, there is no inherent notion of order.
+The standard diagram encourages you to see a transformer as a pile of blocks,
+each transforming its predecessor's output. The more useful reading — and the one
+that matches how these models behave — is a **residual stream**: a vector per
+position that runs unobstructed from input to output, which each block *reads
+from* and *writes back to*.
 
-## In practice
+<Figure src="/figures/transformer-residual-stream.svg"
+        alt="Left: a pre-norm block, with the residual stream running straight down and normalisation inside each of the attention and feed-forward branches. Right: a post-norm block, with the normalisation sitting on the stream after each addition."
+        caption="The residual path is an identity. In pre-norm it stays that way, so the gradient reaches every layer directly; in post-norm every layer's gradient passes through L normalisations, which is why the original formulation needed a warmup." />
 
-A ViT-Base for robotic manipulation perception: patch size 16, $d_{\text{model}} = 768$, 12 heads, 12 layers. Input: $224 \times 224$ image → 196 patches + [CLS] token. Self-attention computes all-pairs patch relationships in $O(n^2 d)$ where $n = 197$. For a robot policy taking 3Hz camera input, the 86M parameter ViT runs in ~8ms on an RTX 3090. Key: pre-trained on ImageNet, fine-tuned on robot data with frozen early layers.
+<Intuition>
+A shared notebook passed down a line of specialists. Each one reads what is
+relevant, thinks, and writes an addition — nobody rewrites the page. So something
+written on page one is still legible at the end, and a specialist halfway down can
+respond to it directly.
+
+Replace that with each person rewriting the page in their own words, and by the
+tenth the original is gone.
+</Intuition>
+
+<KeyIdea>
+Depth is trainable because the residual path is an *identity*. The gradient
+reaches layer 1 without passing through anything that could shrink it, however
+many layers there are. That single structural fact is what separates a trainable
+100-layer network from an untrainable one, and it predates transformers.
+</KeyIdea>
+
+## Where the norm goes, and why it matters
+
+<Steps>
+<Step title="Pre-norm — normalise inside the branch">
+$x \leftarrow x + \text{Attn}(\text{norm}(x))$. The stream itself is never
+normalised, so the identity path is preserved exactly. Trains at depth from step
+one with no warmup, and is what essentially every model since 2020 uses.
+</Step>
+
+<Step title="Post-norm — normalise the stream">
+$x \leftarrow \text{norm}(x + \text{Attn}(x))$. The original formulation. Every
+layer's gradient now passes through $L$ normalisations on its way back, and the
+scale of that gradient depends on depth — which is why it needs a learning-rate
+warmup and diverges without one.
+</Step>
+</Steps>
+
+<Warning>
+This is the single most common inherited bug when someone adapts an older
+implementation. It does not error; the model simply refuses to train at depth,
+and the response is usually to add a warmup schedule and spend a day tuning it —
+solving a problem that `norm_first=True` removes.
+
+Pre-norm has its own cost, worth knowing: because the stream is never normalised,
+its variance grows with depth, so a final normalisation before the output head is
+required rather than optional.
+</Warning>
+
+## Where the parameters actually are
+
+Per layer, with the standard $4\times$ feed-forward expansion:
+
+$$
+\underbrace{4d^2}_{\text{attention: } W_Q, W_K, W_V, W_O}
+\;+\;
+\underbrace{8d^2}_{\text{FFN: } d\to4d\to d}
+\;=\; 12d^2
+$$
+
+<KeyIdea>
+Two thirds of the parameters are in the feed-forward blocks — and since the FFN
+also dominates the arithmetic at ordinary sequence lengths, most of the compute
+too. The architecture is named after its minority component. If you are deciding
+where to spend an optimisation effort, that is worth noticing.
+</KeyIdea>
+
+Two pieces of arithmetic worth carrying:
+
+$$
+N \;\approx\; 12\,L\,d^2 \quad\text{(non-embedding parameters)}
+\qquad\qquad
+C \;\approx\; 6\,N\,D \quad\text{(training FLOPs for } D \text{ tokens)}
+$$
+
+At $L = 32$, $d = 4096$: about 6.4 billion parameters, plus roughly 0.13 billion
+per embedding matrix at a 32k vocabulary — which is what a model described as
+"7B" typically is.
+
+## The parts, and what each is for
+
+<Steps>
+<Step title="Attention — moving information between positions">
+The only operation that mixes across the sequence. Everything else acts
+positionwise.
+</Step>
+
+<Step title="The feed-forward block — computing at a position">
+Two matrices with a nonlinearity between them, applied identically at every
+position. Most of the parameters, most of the FLOPs, and — on the interpretability
+evidence — plausibly where factual associations are stored.
+</Step>
+
+<Step title="Normalisation — keeping activations in scale">
+LayerNorm or RMSNorm, per position across the feature dimension. Not a
+regulariser; a conditioning device that keeps the inputs to each branch in a
+range the initialisation assumed.
+</Step>
+
+<Step title="Positional information — because attention has none">
+Attention over a set is permutation-equivariant: shuffle the inputs and the
+outputs shuffle with them. Position has to be injected, and how you inject it
+determines whether the model extrapolates beyond its training length.
+</Step>
+</Steps>
+
+<Warning>
+That last point is easy to underrate. Attention genuinely has no notion of order —
+without positional information a transformer cannot distinguish "dog bites man"
+from "man bites dog". Absolute learned embeddings work and stop at the trained
+length; rotary and bias-based schemes encode *relative* position and extrapolate
+much better, which is why they replaced learned embeddings almost universally.
+</Warning>
+
+<WatchThis />

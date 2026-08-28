@@ -1,23 +1,213 @@
 ---
 concept: transformer_architecture
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Transformer Architecture — Self-Attention
-    and Positional Encoding, including the key equations.
+  prompt: "Derive why post-norm needs a warmup and pre-norm does not. Then derive RoPE's relative-position property and the $12Ld^2$ / $6ND$ accounting."
   keyPoints:
-    - The Transformer processes sequences via stacked self-attention and
-      feed-forward layers, dispensing with recurrence entirely.
-    - "Each layer applies multi-head self-attention: $$\\text{MultiHead}(Q, K,
-      V) = \\text{Concat}(\\text{head}_1, \\ldots, \\text{head}_h) W^O$$ where
-      $\\text{head}_i = \\text{Attention}(XW_i^Q, XW_i^K, XW_i^V)$."
-    - Since attention is permutation-equivariant, positional information is
-      injected via sinusoidal encodings $PE_{(pos, 2i)} = \sin(pos /
-      10000^{2i/d_{\text{model}}})$ or learned embeddings.
-check: []
-papers: []
+    - "Pre-norm: $x_{k+1} = x_k + F(\\text{norm}(x_k))$, so $\\partial x_L/\\partial x_k = \\prod(I + J_j)$ contains an identity term — the gradient reaches every layer regardless of depth."
+    - "Post-norm: the normalisation sits on the path, so the gradient is scaled at every layer and its magnitude at initialisation depends on $L$. Warmup exists to survive the early steps when that scaling is worst."
+    - "RoPE rotates queries and keys by an angle proportional to position, so $\\langle R_m q, R_n k\\rangle$ depends only on $m-n$ — relative position emerges from an absolute operation."
+    - "$N \\approx 12Ld^2$ and $C \\approx 6ND$: two matmuls forward is $2N$ per token, and the backward pass costs twice the forward."
+check:
+  - id: ta2_l2_c1
+    prompt: "In pre-norm, why does the gradient reach early layers regardless of depth?"
+    options:
+      - "Because normalisation bounds the gradient"
+      - "Because $x_{k+1} = x_k + F(\\text{norm}(x_k))$ gives $\\partial x_{k+1}/\\partial x_k = I + J_k$, so the product across layers expands to a sum containing the identity — there is a path from the loss to every layer that passes through no multiplicative factor at all"
+      - "Because the residual connections halve the depth"
+      - "Because pre-norm uses a smaller learning rate"
+    answer: 1
+    explanation: "Expanding $\\prod_k (I + J_k)$ gives $I + \\sum_k J_k + \\sum_{j<k} J_j J_k + \\ldots$, and that leading $I$ is the whole argument: whatever the Jacobians do, the identity term survives, so no layer can be cut off from the loss. In a plain stack the product is $\\prod_k J_k$ with no such term, and it vanishes or explodes exponentially in depth. This is the residual-network argument, and pre-norm is what preserves it exactly by keeping the normalisation off the residual path."
+  - id: ta2_l2_c2
+    prompt: "Why does RoPE give *relative* position from a per-position rotation?"
+    options:
+      - "Because the rotation angles are learned"
+      - "Because rotations compose: $\\langle R_m q, R_n k\\rangle = \\langle q, R_{n-m} k\\rangle$ since $R_m^\\top R_n = R_{n-m}$ — the attention logit depends only on the offset, though each vector was rotated by its absolute position"
+      - "Because the rotation is applied only to relative offsets"
+      - "Because sinusoids are periodic"
+    answer: 1
+    explanation: "Rotation matrices are orthogonal and form a group, so $R_m^\\top R_n = R_{n-m}$ exactly. That is the whole trick: you apply an absolute-position operation to each vector, and the *inner product* — the only thing attention uses — depends solely on the difference. It needs no extra parameters, adds nothing to the residual stream, and generalises to unseen positions far better than a learned absolute embedding, which has simply never seen index 5000."
+  - id: ta2_l2_c3
+    prompt: "Why is training compute approximately $6ND$ FLOPs for $N$ parameters and $D$ tokens?"
+    options:
+      - "It is an empirical constant fitted from measurements"
+      - "A matmul against a weight of $n$ entries costs $2n$ FLOPs per token (a multiply and an add), giving $2N$ for the forward pass; the backward pass computes gradients with respect to both inputs and weights, costing about twice the forward — so $2N + 4N = 6N$ per token"
+      - "Because the backward pass is five times the forward"
+      - "Because each parameter is used six times"
+    answer: 1
+    explanation: "The three-part breakdown is what makes it memorable and adjustable. Forward is $2N$ because each weight participates in one multiply and one add. Backward is $4N$ because you need the gradient with respect to the layer input (to keep propagating) and with respect to the weight (to update it), each about the cost of the forward matmul. The estimate ignores attention's $n^2$ term, which is why it is good below the $n \\approx 8d$ crossover and increasingly optimistic above it."
 ---
 
-## Formal definition
+## The block
 
-The Transformer processes sequences via stacked self-attention and feed-forward layers, dispensing with recurrence entirely. Each layer applies multi-head self-attention: $$\text{MultiHead}(Q, K, V) = \text{Concat}(\text{head}_1, \ldots, \text{head}_h) W^O$$ where $\text{head}_i = \text{Attention}(XW_i^Q, XW_i^K, XW_i^V)$. Since attention is permutation-equivariant, positional information is injected via sinusoidal encodings $PE_{(pos, 2i)} = \sin(pos / 10000^{2i/d_{\text{model}}})$ or learned embeddings. The architecture uses residual connections and layer normalization around each sub-layer: $\text{LayerNorm}(x + \text{SubLayer}(x))$.
+$$
+\begin{aligned}
+\text{pre-norm:}\quad
+&x \leftarrow x + \text{Attn}\big(\text{norm}(x)\big) \\
+&x \leftarrow x + \text{FFN}\big(\text{norm}(x)\big)
+\end{aligned}
+\qquad
+\begin{aligned}
+\text{post-norm:}\quad
+&x \leftarrow \text{norm}\big(x + \text{Attn}(x)\big) \\
+&x \leftarrow \text{norm}\big(x + \text{FFN}(x)\big)
+\end{aligned}
+$$
+
+The difference looks cosmetic and determines whether the model trains at depth.
+
+<Derivation title="Why pre-norm trains without a warmup">
+
+**Pre-norm.** Write the update as $x_{k+1} = x_k + F_k(x_k)$ where $F_k$ includes
+the normalisation. Then
+
+$$
+\frac{\partial x_{k+1}}{\partial x_k} = I + J_k,
+\qquad J_k = \frac{\partial F_k}{\partial x_k}
+$$
+
+and across $L$ layers
+
+$$
+\frac{\partial x_L}{\partial x_k} = \prod_{j=k}^{L-1}\big(I + J_j\big)
+= I + \sum_j J_j + \sum_{j<j'} J_j J_{j'} + \cdots
+$$
+
+**The leading $I$ is the argument.** Whatever the Jacobians do, there is a path
+from the loss to every layer that passes through no multiplicative factor.
+Compare a plain stack, where the product is $\prod_j J_j$ with no identity term
+and the magnitude is exponential in depth in whichever direction $\|J\|$ points.
+
+**Post-norm.** Now the normalisation sits *on* the residual path:
+$x_{k+1} = \text{norm}(x_k + F_k(x_k))$, so
+
+$$
+\frac{\partial x_{k+1}}{\partial x_k} = J_{\text{norm}}\big(I + J_k\big)
+$$
+
+and the identity term is multiplied by the normalisation's Jacobian at every
+layer. The gradient reaching layer $k$ now carries a factor depending on $L - k$,
+so its scale at initialisation depends on depth — large near the output and
+attenuated near the input.
+
+**What warmup is for.** The imbalance is worst at initialisation, before the
+weights have adapted. A small learning rate for the first few thousand steps lets
+the network reach a configuration where the scales are more even, after which a
+normal rate is safe. So warmup is a patch for a structural problem that pre-norm
+does not have.
+
+**The cost of pre-norm.** Since the stream is never normalised, each block adds a
+roughly independent contribution and the stream's variance grows like $L$ — so
+its standard deviation grows like $\sqrt{L}$: about 5x at 24 layers. A final
+normalisation before the output head is therefore required, not optional.
+
+</Derivation>
+
+## Positional information
+
+Attention over a set is permutation-equivariant, so position must be injected.
+
+<Derivation title="RoPE: absolute rotation, relative effect">
+
+Split the head dimension into 2-D pairs and rotate the pair at index $i$ by an
+angle proportional to the position $m$:
+
+$$
+R_m^{(i)} = \begin{pmatrix}\cos m\theta_i & -\sin m\theta_i\\ \sin m\theta_i & \cos m\theta_i\end{pmatrix},
+\qquad
+\theta_i = 10000^{-2i/d}
+$$
+
+Apply $R_m$ to the query at position $m$ and $R_n$ to the key at position $n$.
+The attention logit is
+
+$$
+\big\langle R_m q,\; R_n k\big\rangle = q^\top R_m^\top R_n k = q^\top R_{n-m}\,k
+$$
+
+using $R_m^\top R_n = R_{n-m}$, which holds because rotations are orthogonal and
+compose additively in angle.
+
+**Read what happened.** Each vector was rotated by its *absolute* position, and
+the inner product — the only thing attention consumes — depends solely on the
+*offset* $n - m$. Relative position emerges from an absolute operation.
+
+**Why this beats a learned absolute embedding.** No parameters, nothing added to
+the residual stream, and position enters only where it is used. And a learned
+absolute embedding has simply never seen index 5000, so it has no basis for
+behaving sensibly there — whereas the rotation is defined for any $m$.
+
+**The limit.** Extrapolation is better, not free. The lowest-frequency components
+have periods longer than the training context, so the model has never seen a
+full cycle of them and their behaviour beyond the trained length is untested. That
+is why long-context adaptation typically involves rescaling $\theta$ rather than
+relying on extrapolation.
+
+</Derivation>
+
+The alternative, ALiBi, skips embeddings entirely and adds a distance-proportional
+penalty to the attention logits, $-\lambda_h |m - n|$ with a per-head slope — a
+learned locality prior that also extrapolates, by construction rather than by
+luck.
+
+## The accounting
+
+<Derivation title="$N \approx 12Ld^2$ and $C \approx 6ND$">
+
+**Parameters per layer.** Attention has $W_Q, W_K, W_V, W_O$, each $d\times d$:
+$4d^2$. The feed-forward block with $4\times$ expansion has $d \times 4d$ and
+$4d \times d$: $8d^2$. Total $12d^2$, so
+
+$$
+N \approx 12\,L\,d^2
+$$
+
+At $L = 32$, $d = 4096$: $6.4\times10^9$, plus $Vd \approx 0.13\times10^9$ per
+embedding matrix at $V = 32{,}000$.
+
+**Compute per token.** A matmul against a weight matrix with $n$ entries costs
+$2n$ FLOPs — one multiply and one add per entry — so the forward pass is $2N$.
+The backward pass needs two gradients per layer: with respect to the input, to
+keep propagating, and with respect to the weights, to update them. Each costs
+about a forward matmul, so backward is $\approx 4N$.
+
+$$
+C \approx (2 + 4)\,N\,D = 6\,N\,D
+$$
+
+**What it ignores.** The $n^2$ attention term, which is why the estimate is good
+below the $n \approx 8d$ crossover and increasingly optimistic above it. Also
+activation functions and normalisations, which are negligible in FLOPs and
+sometimes not in wall-clock, since they are memory-bound.
+
+</Derivation>
+
+<KeyIdea>
+These two formulas do most of the practical work. $12Ld^2$ tells you a model's
+size from its shape; $6ND$ turns a training plan into a GPU-hour estimate before
+you write any code. Being able to produce them in an interview reads as having
+planned a training run rather than launched one someone else configured.
+</KeyIdea>
+
+## The feed-forward block, and why it changed
+
+The classic block is $W_2\,\sigma(W_1 x)$ with a $4\times$ expansion. Most recent
+models use a gated variant instead:
+
+$$
+\text{SwiGLU}(x) = \big(\text{Swish}(W_1 x) \odot W_3 x\big)W_2
+$$
+
+Three matrices rather than two, so the hidden width is reduced (typically to
+$\tfrac{8}{3}d$) to keep the parameter count matched. The gating means one branch
+*modulates* the other multiplicatively rather than both being summed — a
+data-dependent scaling that a plain MLP cannot express at the same width.
+
+<Warning>
+When comparing FFN variants, check the parameter count is matched. A gated
+variant with three matrices at the same hidden width has 1.5x the parameters, so
+an unmatched comparison measures capacity rather than the gating. This is the
+same control problem that appears everywhere in this material: hold the resource
+fixed and vary only the thing you are studying.
+</Warning>

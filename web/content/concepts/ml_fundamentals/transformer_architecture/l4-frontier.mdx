@@ -1,0 +1,212 @@
+---
+concept: transformer_architecture
+level: 4
+status: final
+recall:
+  prompt: "The transformer block barely changed between 2017 and now. Which changes actually stuck, and what did each one fix?"
+  keyPoints:
+    - "Pre-norm (2020) removed the learning-rate warmup requirement by keeping the normalisation off the residual path — the change with the clearest theoretical justification."
+    - "RoPE (2021) and ALiBi (2021) replaced learned absolute positions with schemes encoding relative position, which extrapolate past the trained context."
+    - "Gated feed-forward blocks (2020) replaced the plain MLP: one branch multiplicatively modulates the other, at matched parameter count."
+    - "Everything else is unchanged since 2017. Reading the surviving list as 'fixes to specific failures' rather than 'improvements' is what makes it memorable."
+papers:
+  - key: vaswani2017transformer
+    title: "Attention Is All You Need"
+    authors: "Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Łukasz Kaiser, Illia Polosukhin"
+    venue: NeurIPS
+    year: 2017
+    arxiv: "1706.03762"
+    takeaway: "The block — multi-head attention, position-wise feed-forward, residual connections, layer normalisation — essentially unchanged in outline for eight years, with post-norm placement and sinusoidal positions being the two parts that were later replaced."
+  - key: ba2016layernorm
+    title: "Layer Normalization"
+    authors: "Jimmy Lei Ba, Jamie Ryan Kiros, Geoffrey E. Hinton"
+    year: 2016
+    arxiv: "1607.06450"
+    takeaway: "Normalises across features within a single example rather than across the batch, so it is batch-size independent and works with variable-length sequences — the property that made it the natural choice for transformers."
+  - key: xiong2020prenorm
+    title: "On Layer Normalization in the Transformer Architecture"
+    authors: "Ruibin Xiong, Yunchang Yang, Di He, Kai Zheng, Shuxin Zheng, Chen Xing, Huishuai Zhang, Yanyan Lan, Liwei Wang, Tie-Yan Liu"
+    venue: ICML
+    year: 2020
+    arxiv: "2002.04745"
+    takeaway: "Shows post-norm's gradients at initialisation scale with depth, explaining the warmup requirement, and that moving the normalisation inside the residual branch removes it — the architectural change with the clearest justification."
+  - key: shazeer2020glu
+    title: "GLU Variants Improve Transformer"
+    authors: "Noam Shazeer"
+    year: 2020
+    arxiv: "2002.05202"
+    takeaway: "Replaces the feed-forward block's single nonlinearity with a gated pair, where one branch multiplicatively modulates the other, at matched parameter count — the origin of the SwiGLU blocks now used almost universally."
+  - key: su2021rope
+    title: "RoFormer: Enhanced Transformer with Rotary Position Embedding"
+    authors: "Jianlin Su, Yu Lu, Shengfeng Pan, Ahmed Murtadha, Bo Wen, Yunfeng Liu"
+    year: 2021
+    arxiv: "2104.09864"
+    takeaway: "Rotates queries and keys by an angle proportional to absolute position, so the attention inner product depends only on the offset — relative position with no parameters and nothing added to the residual stream."
+  - key: press2022alibi
+    title: "Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation"
+    authors: "Ofir Press, Noah A. Smith, Mike Lewis"
+    venue: ICLR
+    year: 2022
+    arxiv: "2108.12409"
+    takeaway: "Adds a distance-proportional penalty to attention logits with a per-head slope and no position embeddings at all — a locality prior that extrapolates to sequences far longer than those trained on, by construction."
+check:
+  - id: ta2_l4_c1
+    prompt: "The pre-norm result explained a practice people were already following. Why does that make it a good paper rather than a redundant one?"
+    options:
+      - "It does not; explaining existing practice adds nothing"
+      - "Because it replaced a folk remedy with a mechanism: warmup was known to be necessary and not *why*, so it could not be reasoned about — and once the cause was identified as the depth-dependent gradient scale from normalising on the residual path, the fix was obvious and the warmup became unnecessary"
+      - "Because it introduced a new normalisation"
+      - "Because it improved benchmark scores"
+    answer: 1
+    explanation: "A known-necessary hyperparameter with no explanation is a place where you cannot reason — you can only tune. Identifying the mechanism turned it into a design choice with a correct answer, removed a schedule people were spending time on, and predicted where else the problem would appear. That is a common shape for a genuinely valuable contribution: not a new capability, but converting folklore into something you can compute with."
+  - id: ta2_l4_c2
+    prompt: "RoPE and ALiBi both encode relative position. What is the structural difference?"
+    options:
+      - "RoPE is learned and ALiBi is fixed"
+      - "RoPE rotates the query and key vectors so relative position emerges from the inner product; ALiBi adds a distance-proportional penalty directly to the logits and uses no position embeddings at all"
+      - "RoPE works only for self-attention"
+      - "ALiBi requires longer training"
+    answer: 1
+    explanation: "RoPE modifies the *vectors* — the geometry of the space in which similarity is measured — so what position means is entangled with the content. ALiBi modifies the *scores*, adding an explicit locality prior that is independent of content. Both extrapolate better than learned absolute embeddings, and they differ in expressiveness: ALiBi hard-codes monotonic decay with distance, which is a strong and usually correct prior, while RoPE lets the model represent non-monotonic positional relationships if the data supports them."
+  - id: ta2_l4_c3
+    prompt: "What is the honest summary of how much the transformer block has changed since 2017?"
+    options:
+      - "It has been substantially redesigned"
+      - "Remarkably little: the norm moved inside the residual branch, positions became relative, and the feed-forward block became gated. The overall structure — attention plus position-wise FFN with residual connections — is unchanged, and each surviving change fixed a specific identified failure"
+      - "Nothing has changed"
+      - "It has been replaced by state-space models"
+    answer: 1
+    explanation: "Three changes in eight years, each traceable to a diagnosed problem: warmup fragility, failure to extrapolate past the trained length, and a feed-forward block that could not express multiplicative interaction at matched width. Everything else — multi-head attention, the residual structure, the position-wise FFN, the $4\\times$ expansion — survives. That stability is itself informative, and the reading worth carrying is that the surviving modifications were fixes rather than ideas."
+---
+
+## The original, and what did not change
+
+<PaperCard refKey="vaswani2017transformer" />
+
+Multi-head attention, a position-wise feed-forward block, residual connections
+around both, and layer normalisation. Eight years later that outline is
+unmodified, which is unusual enough to be worth noting explicitly — most
+architectures of that vintage have been replaced.
+
+<PaperCard refKey="ba2016layernorm" />
+
+Layer normalisation predates it and was the right import: normalising across
+features within one example rather than across the batch makes it batch-size
+independent and compatible with variable-length sequences, neither of which batch
+normalisation offers. That property is why it was available to be used.
+
+<KeyIdea>
+Only three things about the block have actually changed since 2017. Reading them
+as *fixes to identified failures* rather than as improvements is what makes the
+list memorable — and it is also how you should evaluate the next proposed
+modification.
+</KeyIdea>
+
+## Fix one: the norm placement
+
+<PaperCard refKey="xiong2020prenorm" />
+
+Everyone knew transformers needed a learning-rate warmup and nobody could say
+why. This paper shows that in post-norm, gradients at initialisation scale with
+depth — because the normalisation sits on the residual path and every layer's
+gradient passes through all of them — and that moving the normalisation inside
+each branch removes the dependence entirely.
+
+<Warning>
+The general shape is worth recognising. A known-necessary hyperparameter with no
+explanation is a place where you cannot reason, only tune. Identifying the
+mechanism turned warmup from a mandatory schedule into an unnecessary one, and
+predicted where the problem would recur.
+
+It also created the most common inherited bug in the area: copying a pre-2020
+implementation gets you post-norm, the model refuses to train at depth, and the
+natural response is to add a warmup and spend a day on it — solving a problem
+that one boolean removes.
+</Warning>
+
+## Fix two: positions that extrapolate
+
+<PaperGrid>
+<PaperCard refKey="su2021rope" />
+<PaperCard refKey="press2022alibi" />
+</PaperGrid>
+
+Learned absolute position embeddings work within the trained length and have no
+basis for behaving sensibly beyond it — index 5000 was never seen, so its
+embedding is whatever initialisation left there.
+
+RoPE rotates queries and keys by an angle proportional to absolute position.
+Because rotations compose, $R_m^\top R_n = R_{n-m}$, so the attention inner
+product depends only on the offset — relative position emerges from an absolute
+operation, with no parameters and nothing added to the residual stream.
+
+ALiBi does it at the other end: no position embeddings at all, just a
+distance-proportional penalty added to the attention logits with a per-head
+slope.
+
+<Steps>
+<Step title="RoPE modifies the vectors">
+It changes the geometry of the space where similarity is measured, so positional
+and content information interact. More expressive — the model can represent
+non-monotonic positional relationships if the data supports them.
+</Step>
+
+<Step title="ALiBi modifies the scores">
+An explicit locality prior, independent of content: attention decays with
+distance, monotonically, by construction. Stronger prior, usually correct, and it
+extrapolates by design rather than by good behaviour.
+</Step>
+
+<Step title="Both are still limited">
+RoPE's lowest-frequency components have periods longer than the training context,
+so a full cycle was never observed and behaviour beyond it is untested. That is
+why long-context adaptation rescales $\theta$ rather than trusting extrapolation.
+</Step>
+</Steps>
+
+## Fix three: the feed-forward block
+
+<PaperCard refKey="shazeer2020glu" />
+
+Replace $W_2\,\sigma(W_1x)$ with a gated pair, where one branch multiplicatively
+modulates the other. Three matrices instead of two, so the hidden width is
+reduced to keep the parameter count matched.
+
+<KeyIdea>
+The gating provides a data-dependent multiplicative interaction that a plain MLP
+cannot express at the same width — an input can suppress or amplify a channel
+rather than only contributing additively. Note the careful part of the
+comparison: matched parameters. A gated variant at unchanged hidden width has 1.5x
+the parameters, and an unmatched comparison measures capacity rather than gating.
+</KeyIdea>
+
+## What that leaves
+
+<Warning>
+Three changes in eight years. Multi-head attention, the residual structure, the
+position-wise feed-forward block, the $4\times$ expansion, and the overall block
+outline all survive unmodified.
+
+That stability is informative in two directions. It suggests the original design
+was unusually well chosen. And it sets a bar for anything proposed next: the
+modifications that stuck each fixed a *diagnosed* failure — warmup fragility, no
+extrapolation past the trained length, no multiplicative interaction at matched
+width — rather than being ideas that seemed promising. When you meet the next
+proposed change to the block, the useful question is which identified failure it
+fixes, and whether the comparison holds parameters and compute fixed.
+</Warning>
+
+<Steps>
+<Step title="What is genuinely contested now">
+Whether attention is necessary at all, or whether state-space and linear-recurrent
+models match it at long context; whether the $4\times$ expansion ratio is right;
+and whether sparse mixture-of-experts feed-forward blocks should be the default.
+None is settled.
+</Step>
+
+<Step title="What is not contested">
+The residual structure, pre-norm placement, relative positions, and the basic
+two-sublayer block. These have survived enough scrutiny that a proposal to change
+them carries the burden of proof.
+</Step>
+</Steps>

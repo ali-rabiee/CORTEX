@@ -1,25 +1,171 @@
 ---
 concept: transformer_architecture
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Transformer Architecture — Self-Attention and Positional
-    Encoding fail in practice, and how would you present it in an interview?
+  prompt: "Give your interview answer on the transformer block. What framing do you use, and what arithmetic do you carry?"
   keyPoints:
-    - Quadratic attention complexity $O(n^2)$ becomes prohibitive for long
-      sequences.
-    - At $n = 4096$ tokens, the attention matrix is 64MB in FP32 per head per
-      layer.
-    - "Symptoms: OOM errors, training wall-time dominated by attention
-      computation."
-check: []
-papers: []
+    - "Frame it as a residual stream that blocks read from and write to, not a stack — that is what makes depth trainable and what interpretability work finds."
+    - "Explain pre-norm with the gradient argument: the identity term in $\\prod(I + J_k)$ survives, and post-norm multiplies it by a normalisation Jacobian at every layer."
+    - "Carry $N \\approx 12Ld^2$ and $C \\approx 6ND$, and know that two thirds of the parameters are in the feed-forward blocks."
+    - "Know the three changes since 2017 and what each fixed — and that everything else is unchanged."
+interview:
+  answer: >-
+    I'd describe it as a residual stream rather than a stack, because that's the
+    reading that explains why it works. There's a vector per position running
+    unobstructed from input to output, and each block reads from it, computes
+    something, and adds the result back — nobody rewrites the representation. The
+    consequence is that the gradient reaches every layer through an identity
+    path: if you write the update as x plus F of x, the Jacobian is I plus J, and
+    the product across layers expands to a sum containing the identity. Whatever
+    the Jacobians do, that identity term survives, so no layer can be cut off
+    from the loss. In a plain stack you get a product of Jacobians with no such
+    term, which vanishes or explodes exponentially in depth. That's also what
+    makes the pre-norm versus post-norm question matter rather than being
+    cosmetic. Pre-norm puts the normalisation inside each branch, so the residual
+    path stays an exact identity. Post-norm — the original formulation — puts it
+    on the stream, so every layer's gradient passes through L normalisations and
+    its scale at initialisation depends on depth. That's why the original needed
+    a learning-rate warmup, and why pre-norm doesn't. It's the most common
+    inherited bug I'd expect to see: someone copies a pre-2020 implementation,
+    the model won't train at 24 layers, and they add a warmup and tune it instead
+    of moving one norm. On where things actually are: two thirds of the
+    parameters are in the feed-forward blocks, not attention — four d-squared for
+    the four attention projections against eight d-squared for the FFN's
+    up-and-down pair, so twelve d-squared per layer. The two pieces of arithmetic
+    I'd carry are that parameters are about twelve L d-squared, so a 32-layer
+    model at width 4096 is about 6.4 billion, and training compute is about six N
+    D — forward is two N per token because each weight does a multiply and an
+    add, and backward is about four N because you need gradients with respect to
+    both the inputs and the weights. Those two turn a training plan into a
+    GPU-hour estimate before you write any code. And I'd note how little has
+    changed since 2017: the norm moved inside the branch, positions became
+    relative — RoPE rotating queries and keys so the inner product depends only
+    on the offset — and the feed-forward block became gated. That's it. Each was
+    a fix to a diagnosed failure rather than an idea that seemed promising, which
+    is a decent bar for evaluating whatever gets proposed next.
+  followUps:
+    - q: "Why does RoPE extrapolate better than a learned position embedding?"
+      a: >-
+        Because a learned absolute embedding has simply never seen index 5000 —
+        whatever vector sits there is initialisation noise, and there's no
+        mechanism by which it would be sensible. RoPE applies a rotation defined
+        for any position, and because rotations compose, the attention logit
+        ends up depending only on the difference between positions rather than
+        on their absolute values. So the quantity the model actually uses is one
+        it has seen at every offset within the training length. I'd add the
+        caveat though: better isn't free. The lowest-frequency components have
+        periods longer than the training context, so the model never observed a
+        full cycle of them, and behaviour well beyond the trained length is
+        untested. That's why long-context adaptation usually rescales the base
+        frequency rather than relying on extrapolation.
+    - q: "How would you size a model for a fixed compute budget?"
+      a: >-
+        Start from six N D. If I have a FLOP budget C and want to choose
+        parameters N and tokens D, that's one equation and the allocation
+        between them is the Chinchilla question — the finding being that models
+        of that era were badly under-trained on data, so roughly balanced
+        scaling of N and D beats making the model bigger. Then N gives me the
+        shape through twelve L d-squared, with the depth-to-width ratio being
+        more of a convention than a derived result. And I'd immediately check
+        memory: fp32 weights plus gradients plus Adam's two moments is sixteen
+        bytes per parameter, so 7 billion parameters is 112 gigabytes before a
+        single activation — which tells me straight away whether I need sharded
+        optimiser state and model parallelism, rather than discovering it after
+        the cluster is booked.
+    - q: "What limits your batch size in training, and what would you do about it?"
+      a: >-
+        Activations, not parameters. The weights and optimiser state are fixed;
+        activations scale with batch and sequence length and are what you
+        actually run out of. Two fixes, and both are the same trade. Gradient
+        checkpointing stores activations only at block boundaries and recomputes
+        the interior in the backward pass — exact, about thirty percent more
+        compute, and a large memory reduction. And a fused attention kernel,
+        which avoids materialising the n-by-n attention matrix, since that alone
+        is tens of gigabytes per layer at long sequences. Both spend arithmetic
+        to save memory, which is the right direction because transformer
+        training is memory-bound rather than compute-bound. If that's still not
+        enough, it's sharding — optimiser state first, since that's the largest
+        easily-partitioned block.
+    - q: "Is the transformer going to be replaced?"
+      a: >-
+        I'd be careful about predicting, and I'd point at what's actually
+        contested rather than giving an opinion. The residual structure,
+        pre-norm placement, relative positions, and the two-sublayer block have
+        survived enough scrutiny that changing them carries a burden of proof.
+        What's genuinely open is whether attention is necessary at long context,
+        where state-space and linear-recurrent models make a real case — and
+        that's exactly the regime where attention's quadratic term finally
+        dominates, so the argument is being had in the right place. Also open:
+        the four-times expansion ratio, and whether sparse mixture-of-experts
+        feed-forward blocks should be the default. My honest read is that the
+        block outline has been stable for eight years despite enormous effort to
+        improve it, which is evidence about how well-chosen it was.
+  traps:
+    - "Describing the block as a stack of transformations. The residual-stream reading is what explains trainable depth and what interpretability work actually finds."
+    - "Treating pre-norm versus post-norm as a style choice. It determines whether you need a warmup, and the gradient argument is two lines."
+    - "Saying the parameters are mostly in attention. Two thirds are in the feed-forward blocks, and so is most of the compute at ordinary sequence lengths."
+    - "Not knowing $12Ld^2$ and $6ND$. They convert an architecture into a hardware plan, and an interviewer asking about scale expects them."
+check:
+  - id: ta2_l5_c1
+    prompt: "A 24-layer model diverges in the first few hundred steps; the same code at 6 layers trains fine. What is the first thing to check?"
+    options:
+      - "The learning rate is too high"
+      - "Norm placement — post-norm's gradient scale at initialisation depends on depth, which is exactly why it fails at 24 layers and not at 6; moving the normalisation inside the residual branch removes the dependence"
+      - "The dataset has outliers"
+      - "The batch size is too small"
+    answer: 1
+    explanation: "The depth dependence is the diagnostic: a problem that appears when you add layers and not otherwise points at something whose severity scales with depth, and post-norm's gradient imbalance is precisely that. Lowering the learning rate or adding a warmup does work — it is what people did for three years — but it treats the symptom, and pre-norm removes the cause. Worth checking the $1/\\sqrt{2L}$ initialisation scaling too, which is the other depth-dependent failure."
+  - id: ta2_l5_c2
+    prompt: "You need to train a 13B model and have 8×80GB accelerators. What does the arithmetic say before you write any code?"
+    options:
+      - "It will fit comfortably"
+      - "Weights, gradients, and Adam's two moments in fp32 is 16 bytes per parameter — 208 GB for the optimiser state and parameters alone, before activations — so sharded optimiser state across devices is a precondition, not an optimisation"
+      - "You need a smaller batch size"
+      - "You need gradient checkpointing only"
+    answer: 1
+    explanation: "Sixteen bytes per parameter puts 13B at 208 GB against 640 GB of aggregate memory, which sounds fine until you notice that naive data parallelism replicates all of it on every device — 208 GB on an 80 GB card. So the state has to be sharded across devices before anything else is considered. Checkpointing and batch size address activation memory, which is the next problem rather than this one, and confusing the two leads to trying the wrong fix first."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Quadratic attention complexity $O(n^2)$ becomes prohibitive for long sequences. At $n = 4096$ tokens, the attention matrix is 64MB in FP32 per head per layer. Symptoms: OOM errors, training wall-time dominated by attention computation. Fixes: FlashAttention (IO-aware exact attention), linear attention approximations (Performer, Random Feature Attention), or sparse attention patterns (Longformer, BigBird). Also: without proper positional encoding, the model treats sequences as bags of tokens and fails on order-sensitive tasks.
+<Steps>
+<Step title="Diverges at depth but not shallow → norm placement">
+Post-norm's gradient scale depends on depth. Move the norm inside the branch
+rather than adding a warmup. Check the $1/\sqrt{2L}$ init scaling too.
+</Step>
 
-## Interview-ready answer
+<Step title="Residual stream std growing with layer index → missing init scaling">
+Print it per layer. Growth like $\sqrt{L}$ means the writing projections were not
+scaled down at initialisation.
+</Step>
 
-The Transformer replaces recurrence with self-attention, enabling full parallelization during training. The core computation is scaled dot-product attention $\text{softmax}(QK^T / \sqrt{d_k})V$, run in parallel across $h$ heads to capture diverse relational patterns. Positional encodings (sinusoidal or learned) inject sequence order. In robotics, I use Transformers for both perception (ViT for visual features) and policy learning (Decision Transformer, action-chunking transformers). Practical considerations: FlashAttention for memory efficiency, pre-LayerNorm for training stability, and RoPE for better length generalization.
+<Step title="Fails past the training context → absolute positions">
+Learned absolute embeddings have never seen the index. RoPE or ALiBi, and expect
+to rescale the base frequency for a large context extension rather than trusting
+extrapolation.
+</Step>
+
+<Step title="Out of memory before training starts → optimiser state">
+16 bytes per parameter in fp32. Shard it. Activation memory is a separate,
+later problem addressed by checkpointing and fused attention.
+</Step>
+
+<Step title="An architecture change looks like a clear win → check matched parameters">
+A gated FFN at unchanged hidden width has 1.5x the parameters. Match them, or
+you have measured capacity.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+Two things carry this answer. The residual-stream framing, because it explains
+trainable depth in one sentence and immediately makes the pre-norm argument
+obvious rather than a preference. And the arithmetic — $12Ld^2$, $6ND$, 16 bytes
+per parameter — because those convert an architecture into a hardware plan, and
+anyone asking about transformers at scale expects you to be able to do that
+conversion in your head. The candidate who can say "that is 6.4 billion
+parameters, so 112 gigabytes of optimiser state, so we are sharding" has planned
+a training run. The one who describes the diagram has read about one.
+</Warning>

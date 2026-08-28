@@ -1,0 +1,233 @@
+---
+concept: transformer_architecture
+level: 3
+status: final
+recall:
+  prompt: "Write a modern transformer block. Which choices are load-bearing, and what does the parameter and memory accounting look like?"
+  keyPoints:
+    - "Pre-norm, RMSNorm, RoPE, SwiGLU, no biases. Each is a specific fix, not fashion — and each is a place a copied older implementation goes wrong."
+    - "Scale the residual-writing projections by $1/\\sqrt{2L}$ at initialisation so the stream's variance does not grow with depth."
+    - "Count parameters as $12Ld^2$ and training compute as $6ND$ before launching anything. Both are one line and both prevent expensive surprises."
+    - "Activation memory, not parameters, is what limits batch size in training; checkpointing trades recomputation for it."
+check:
+  - id: ta2_l3_c1
+    prompt: "Why scale the output projections of each block by $1/\\sqrt{2L}$ at initialisation?"
+    options:
+      - "To make the gradients smaller"
+      - "Because in pre-norm each block adds a roughly independent contribution to the stream, so its variance grows like the number of contributions ($2L$ for attention and FFN across $L$ layers) — scaling by $1/\\sqrt{2L}$ keeps the stream's scale roughly constant with depth"
+      - "To compensate for the learning rate"
+      - "Because RMSNorm has no bias term"
+    answer: 1
+    explanation: "Variances of independent contributions add, so after $2L$ writes the stream's variance is about $2L$ times one block's and its standard deviation grows like $\\sqrt{2L}$ — at 32 layers that is 8x. Dividing each writing projection's initialisation by $\\sqrt{2L}$ keeps the sum at unit scale. Without it the later layers see much larger inputs than the early ones, which shows up as unstable early training that people usually respond to with a warmup instead."
+  - id: ta2_l3_c2
+    prompt: "You have parameters, gradients, and Adam state in fp32 for a 7B model. Roughly how much memory before any activations?"
+    options:
+      - "About 28 GB"
+      - "About 112 GB — 4 bytes each for parameters, gradients, and Adam's two moments, so 16 bytes per parameter"
+      - "About 7 GB"
+      - "About 56 GB"
+    answer: 1
+    explanation: "Sixteen bytes per parameter: the weight, its gradient, and Adam's first and second moment estimates, all fp32. At 7B that is 112 GB, which does not fit on any single accelerator — and this is before a single activation is stored. That arithmetic is why sharded optimiser state and mixed precision are not optimisations but preconditions, and being able to produce it is what turns 'we need model parallelism' from a guess into a calculation."
+  - id: ta2_l3_c3
+    prompt: "What does gradient checkpointing trade, and when is it worth it?"
+    options:
+      - "Accuracy for memory"
+      - "Compute for activation memory: instead of storing every intermediate for the backward pass, store a subset and recompute the rest, costing roughly one extra forward pass — worth it whenever activation memory is what caps your batch size"
+      - "Memory for numerical precision"
+      - "Training time for inference time"
+    answer: 1
+    explanation: "It is exact — no accuracy is lost, which rules out option 1. The cost is roughly 30% more compute for a large reduction in activation memory, and it is worth it precisely when memory rather than arithmetic is your binding constraint, which for transformer training it usually is. It is the same trade FlashAttention makes at the level of one operation: spend the abundant resource to save the scarce one."
+---
+
+## The block, with each choice justified
+
+<CodeWalk title="A modern pre-norm block">
+
+```python title="block.py"
+import torch, torch.nn as nn, torch.nn.functional as F
+
+class RMSNorm(nn.Module):
+    """No mean subtraction and no bias — empirically as good as LayerNorm here
+    and cheaper, since it is one reduction instead of two."""
+    def __init__(self, d, eps=1e-6):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(d))
+
+    def forward(self, x):
+        rms = x.float().pow(2).mean(-1, keepdim=True).add(self.eps).rsqrt()
+        return (x.float() * rms).type_as(x) * self.weight
+
+
+class SwiGLU(nn.Module):
+    """Gated FFN: one branch multiplicatively modulates the other, which a
+    plain MLP cannot express at the same width. Three matrices, so the hidden
+    width is reduced to keep the parameter count matched."""
+    def __init__(self, d, hidden=None):
+        super().__init__()
+        hidden = hidden or int(8 * d / 3 / 64) * 64      # ~8d/3, rounded
+        self.w1 = nn.Linear(d, hidden, bias=False)
+        self.w3 = nn.Linear(d, hidden, bias=False)
+        self.w2 = nn.Linear(hidden, d, bias=False)
+
+    def forward(self, x):
+        return self.w2(F.silu(self.w1(x)) * self.w3(x))
+
+
+class Block(nn.Module):
+    def __init__(self, d, n_heads, n_kv_heads=None):
+        super().__init__()
+        self.attn_norm = RMSNorm(d)
+        self.attn = MultiHeadAttention(d, n_heads, n_kv_heads)
+        self.ffn_norm = RMSNorm(d)
+        self.ffn = SwiGLU(d)
+
+    def forward(self, x, freqs_cis):
+        # PRE-norm: normalisation inside the branch, so the residual path stays
+        # an exact identity and the gradient reaches every layer directly.
+        x = x + self.attn(self.attn_norm(x), freqs_cis)
+        x = x + self.ffn(self.ffn_norm(x))
+        return x
+```
+
+</CodeWalk>
+
+Every choice here is a specific fix. Pre-norm removes the warmup requirement.
+RMSNorm drops a reduction. No biases, because they contribute almost nothing at
+this scale and cost a little. And the residual additions are the whole
+architecture — the two `x = x + ...` lines are what makes depth work.
+
+## Initialisation that respects the stream
+
+```python title="init.py"
+def init_weights(model, n_layers, d):
+    """In pre-norm, each block adds a roughly independent contribution, so the
+    stream's variance grows like the NUMBER of contributions: 2L of them.
+    Scale the writing projections by 1/sqrt(2L) to keep the stream at unit
+    scale — otherwise late layers see inputs several times larger than early
+    ones, which reads as unstable early training.
+    """
+    scale = (2 * n_layers) ** -0.5
+    for name, p in model.named_parameters():
+        if p.dim() < 2:
+            nn.init.zeros_(p)
+            continue
+        nn.init.normal_(p, mean=0.0, std=0.02)
+        # The projections that WRITE to the residual stream.
+        if name.endswith(("o_proj.weight", "w2.weight")):
+            p.data.mul_(scale)
+```
+
+## RoPE, applied where it is used
+
+<CodeWalk title="Rotary embeddings">
+
+```python title="rope.py"
+def precompute_freqs_cis(d_head, max_seq, theta=10000.0):
+    """Angles per 2-D pair per position. Precomputed once; RoPE has no
+    parameters and adds nothing to the residual stream."""
+    freqs = 1.0 / (theta ** (torch.arange(0, d_head, 2).float() / d_head))
+    t = torch.arange(max_seq).float()
+    return torch.polar(torch.ones_like(torch.outer(t, freqs)),
+                       torch.outer(t, freqs))          # complex, (seq, d_head/2)
+
+
+def apply_rope(x, freqs_cis):
+    """Rotate each 2-D pair by an angle proportional to ABSOLUTE position.
+    Because rotations compose, the attention inner product ends up depending
+    only on the offset — relative position from an absolute operation."""
+    shape = x.shape
+    xc = torch.view_as_complex(x.float().reshape(*shape[:-1], -1, 2))
+    out = torch.view_as_real(xc * freqs_cis[None, None, : shape[2]])
+    return out.reshape(*shape).type_as(x)
+```
+
+</CodeWalk>
+
+<Warning>
+Apply RoPE to queries and keys only, never to values. The rotation exists to make
+the *logit* depend on relative position; rotating the values would rotate the
+content being retrieved, which is not what you want and is a real and quiet bug.
+</Warning>
+
+## Count before you launch
+
+```python title="accounting.py"
+def model_size(n_layers, d, vocab, ffn_mult=8/3):
+    attn = 4 * d * d
+    ffn = 3 * d * int(ffn_mult * d)                 # gated: three matrices
+    per_layer = attn + ffn
+    non_emb = n_layers * per_layer
+    return {
+        "per_layer_M": per_layer / 1e6,
+        "non_embedding_B": non_emb / 1e9,
+        "embedding_B": 2 * vocab * d / 1e9,          # input + output, untied
+        "total_B": (non_emb + 2 * vocab * d) / 1e9,
+    }
+
+
+def training_flops(n_params, n_tokens):
+    """6ND: forward is 2N per token (one multiply and one add per weight),
+    backward is ~4N (gradients w.r.t. both inputs and weights)."""
+    return 6 * n_params * n_tokens
+
+
+def training_memory_gb(n_params, bytes_per_param=16):
+    """fp32 weight + gradient + Adam's two moments = 16 bytes per parameter.
+    At 7B that is 112 GB BEFORE any activations — which is why sharded
+    optimiser state is a precondition rather than an optimisation."""
+    return n_params * bytes_per_param / 1e9
+```
+
+<KeyIdea>
+Run these three before writing a training script. They turn "we will need model
+parallelism" from a guess into a calculation, and they catch the case where the
+model you specified does not fit on the hardware you have — which is much cheaper
+to discover now than after the cluster is booked.
+</KeyIdea>
+
+## What actually limits the batch size
+
+```python title="memory.py"
+# Parameters are fixed; activations scale with batch and sequence, and they
+# are what caps the batch size in practice.
+#
+#   per layer, roughly:  b * n * d * (several intermediates)
+#   plus attention:      handled by a fused kernel, or b * h * n^2 without one
+#
+# Gradient checkpointing: store activations at block boundaries only and
+# recompute the interior in the backward pass. Exact, ~30% more compute, and a
+# large reduction in memory — the same trade FlashAttention makes, one level up.
+
+from torch.utils.checkpoint import checkpoint
+
+def forward_with_checkpointing(blocks, x, freqs_cis, enabled=True):
+    for blk in blocks:
+        x = checkpoint(blk, x, freqs_cis, use_reentrant=False) if enabled else blk(x, freqs_cis)
+    return x
+```
+
+## Things that go wrong
+
+<Steps>
+<Step title="Diverges at depth → post-norm inherited from an old implementation">
+Set `norm_first`. The symptom is a model that trains fine at 6 layers and not at
+24, and the usual response is to add a warmup and tune it — solving a problem
+that the norm placement removes.
+</Step>
+
+<Step title="Late layers see huge activations → missing the $1/\sqrt{2L}$ init scaling">
+Print the residual stream's standard deviation per layer. Growth like $\sqrt{L}$
+means the writing projections were not scaled.
+</Step>
+
+<Step title="Good in-distribution, nonsense past the training length → absolute positions">
+A learned absolute embedding has never seen the index. RoPE or ALiBi encode
+relative position and degrade gracefully instead.
+</Step>
+
+<Step title="FFN variant comparison looks decisive → check the parameter count">
+A gated FFN at unchanged hidden width has 1.5x the parameters. Match them, or you
+are measuring capacity.
+</Step>
+</Steps>
