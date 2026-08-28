@@ -1,27 +1,167 @@
 ---
 concept: evaluation_methodology
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Evaluation Methodology for Robot Learning fail in practice, and
-    how would you present it in an interview?
+  prompt: "Give your interview answer on evaluating robot policies. What numbers do you carry, and what would you change first in a team's process?"
   keyPoints:
-    - "Cherry-picked results: only reporting best seed, testing only on easy
-      configurations, not controlling for environmental variation."
-    - "Also: sim evaluation doesn't predict real performance — policies that
-      reach 99% in sim may drop to 60% in real ($\\Delta_{\\text{sim2real}} =
-      39\\%$)."
-    - "Fix: always report real-robot results, use sufficient trial counts ($N
-      \\geq 50$), report standard deviation across seeds, test on held-out
-      configurations."
-check: []
-papers: []
+    - "Carry two numbers: 7/10 has a 95% interval of roughly [40%, 89%], and detecting a 10-point improvement at 70% takes about 300 trials per arm unpaired."
+    - "The first change is pairing — same initial conditions under both policies — because most of the variance is scene difficulty, and pairing differences it out for free."
+    - "Second is pre-registering the protocol and stratifying by the generalisation axis you intend to claim."
+    - "Say plainly that this is expensive rather than that people are careless: the measurement genuinely costs robot-hours, which is why cheap proxies validated by correlation are the practical answer."
+interview:
+  answer: >-
+    Evaluating a robot policy is a Bernoulli estimation problem, and the
+    uncomfortable part is how little a small sample tells you. Seven successes
+    out of ten looks like a 70 percent policy; the 95 percent interval is
+    roughly 40 to 89 percent, which is consistent with a policy that fails a
+    third of the time and with one that almost never does. The width shrinks
+    like one over root n, so halving it costs four times the trials — and on
+    hardware a trial is minutes, because you have to reset the scene. Comparing
+    two policies is much harder than measuring one. The standard two-proportion
+    power calculation says detecting a ten-point improvement at a seventy
+    percent base rate needs about three hundred trials per arm, unpaired, at
+    conventional power. That number is the one I carry around, because it tells
+    you how to read a table of a dozen methods a few points apart on twenty
+    trials each — that's ranking noise, and the honest response is to ask for
+    intervals rather than argue about the ordering. What I'd actually change,
+    in order. First, pair the trials: evaluate both policies from identical
+    initial conditions, same object poses, same lighting. Most of the variance
+    in a robot evaluation is that some scenes are simply harder, and pairing
+    differences that out instead of averaging over it. It costs nothing beyond
+    writing your initial conditions down and reusing them, and for binary
+    outcomes only the discordant scenes carry information, which is McNemar's
+    test. Second, fix the protocol before looking at any results — number of
+    trials, the scene list generated from a seed, the scoring rule, what counts
+    as partial success. Stopping when the numbers look good isn't a small bias
+    when intervals are this wide. Third, stratify: seen objects versus unseen,
+    seen instructions versus rephrased, trained lighting versus changed. A
+    policy at eighty percent overall might be ninety-five on familiar scenes
+    and twenty on novel ones, and that's the entire finding, invisible in the
+    aggregate. And I'd frame the whole thing as expensive rather than as people
+    being careless. The measurement really does cost robot-hours, which is why
+    the productive move is building a cheap evaluation — usually simulated —
+    and validating that it *ranks* methods the way the real one does. The
+    correlation is what you're establishing, not the simulator's realism.
+  followUps:
+    - q: "You have budget for 200 real trials. How do you spend them?"
+      a: >-
+        One well-powered paired comparison rather than several underpowered
+        ones — a hundred scenes run under both policies. Five twenty-trial
+        comparisons give you five numbers you can't defend, and the temptation
+        to report the favourable one is exactly the multiple-comparisons problem
+        that produces irreproducible improvements. If the comparison I care
+        about needs more power than 200 paired trials give, I'd rather say so
+        and use the budget to characterise one policy well — stratified, with
+        intervals — than produce a comparison the data can't support. And I'd
+        check the discordant count: if ninety of the hundred scenes came out the
+        same under both policies, I effectively had ten informative trials, and
+        I should report that rather than the hundred.
+    - q: "Why is pairing so much better, mechanically?"
+      a: >-
+        Because it changes what you're estimating. Unpaired, you estimate two
+        means over different scene draws, so all the variance in scene
+        difficulty sits inside both estimates. Paired, you estimate the mean of
+        the per-scene *differences*, and the variance of a difference includes
+        minus twice the covariance — which is large precisely when scenes vary
+        in difficulty, since an easy scene tends to succeed under both policies
+        and a hard one under neither. For binary outcomes it reduces to
+        McNemar: the concordant scenes are correctly ignored and only the ones
+        where the policies disagreed carry signal. The requirement is that the
+        pairing is genuine — the same initial conditions actually reproduced. If
+        I can't reset to the same configuration I can't claim the gain.
+    - q: "How would you evaluate a generalist policy that claims broad generalisation?"
+      a: >-
+        I'd start by admitting the problem is not solved. A VLA claims breadth
+        across tasks, objects, phrasings, and scenes, and characterising a
+        policy over that space needs far more trials than any lab has — so every
+        current claim rests on a slice sampled by the people making the claim,
+        which is the weakest link in that literature. What I'd do is make the
+        sampling explicit and adversarial to myself: define the axes in advance,
+        sample scenes within each stratum from a seed rather than by choosing
+        them, and have someone who hasn't seen the policy do the resets and the
+        scoring. Then report per-stratum with intervals and be honest that the
+        aggregate isn't the interesting number. And I'd invest in a simulated
+        suite whose ranking correlation with real trials I've measured, because
+        that's the only way to get the volume the claim actually needs.
+    - q: "Isn't this over-engineering for a research prototype?"
+      a: >-
+        For a prototype where I'm deciding whether an idea is worth pursuing,
+        yes — ten trials is a fine smoke test and I'd say so rather than
+        pretending otherwise. What I'd insist on even then is the language:
+        "seven of ten, so it's doing something" is honest, and "seventy percent
+        success" invites a conclusion the data doesn't support. The cost of the
+        rigour is mostly front-loaded and small anyway — generating a scene list
+        from a seed and reusing it is an afternoon, and it's what makes the
+        eventual comparison possible. The expensive part isn't the methodology,
+        it's the trials, and good methodology is how you get more out of the
+        trials you can afford.
+  traps:
+    - "Reporting a bare success rate with no $n$ and no interval. It invites a conclusion the sample size cannot support."
+    - "Comparing against a number measured under a different protocol. Historical baselines are confounded by everything that changed in between."
+    - "Treating simulated evaluation as valid because the simulator looks realistic. The quantity to validate is ranking correlation with real trials."
+    - "Choosing initial conditions by hand. After a hundred resets, experimenter placement drifts toward configurations the policy handles, and the bias is large and unconscious."
+check:
+  - id: em_l5_c1
+    prompt: "A paper reports method A at 72% and method B at 65%, each over 20 real trials, and concludes A is better. What is the sharpest response?"
+    options:
+      - "Agree — a 7-point gap is meaningful"
+      - "The intervals overlap heavily at $n = 20$ (roughly [50, 87] and [43, 82]), and detecting a 7-point difference at this base rate needs hundreds of trials per arm — so the comparison is not established, and the right question is whether the trials were paired"
+      - "Ask for a third method as a control"
+      - "Ask them to retrain with more seeds"
+    answer: 1
+    explanation: "The two Wilson intervals overlap across most of their range, so the data does not distinguish the methods, and the power calculation says it could not have. The follow-up about pairing is the constructive half: if the same 20 scenes were used for both, a McNemar test on the discordant scenes may still have something to say — but if the scenes differed, the comparison also carries all the scene-difficulty variance and is weaker still."
+  - id: em_l5_c2
+    prompt: "Your team's policy scores 85% on the evaluation suite but fails constantly in the demo room. What is the most likely methodological cause?"
+    options:
+      - "The policy is overfitting to the training data"
+      - "The evaluation scenes were the development scenes — configurations that were tuned against are effectively training data, so the suite measures fit rather than generalisation"
+      - "The success criterion is too lenient"
+      - "The demo room has different lighting"
+    answer: 1
+    explanation: "The gap between a clean suite number and behaviour on genuinely new configurations is the signature of an evaluation set that was iterated against. It is much easier to do accidentally in robotics than in supervised learning, because the 'dataset' is a room rather than a file — you naturally test on the scenes you have been debugging with. Lighting is a real possibility and is one of the things a properly stratified suite would have separated out, which is why it is a symptom rather than the root cause."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Cherry-picked results: only reporting best seed, testing only on easy configurations, not controlling for environmental variation. Also: sim evaluation doesn't predict real performance — policies that reach 99% in sim may drop to 60% in real ($\Delta_{\text{sim2real}} = 39\%$). Fix: always report real-robot results, use sufficient trial counts ($N \geq 50$), report standard deviation across seeds, test on held-out configurations.
+<Steps>
+<Step title="Suite says 85%, demo room fails → the eval scenes were dev scenes">
+Anything tuned against is training data. Reserve a held-out scene set and touch
+it once.
+</Step>
 
-## Interview-ready answer
+<Step title="Improvements never replicate → underpowered comparisons plus selection">
+Trying ten variants and reporting the best is a multiple-comparisons procedure
+whether or not it was intended as one. Pre-register the primary comparison, or
+reserve a final held-out set.
+</Step>
 
-Rigorous evaluation is what separates research demos from deployable systems. My evaluation protocol: (1) define success criteria precisely (binary success, not continuous metrics), (2) test across varied conditions (objects, positions, lighting), (3) report mean $\pm$ std across $\geq 3$ seeds and $\geq 50$ trials, (4) categorize every failure. In industry, I also add: edge case discovery (adversarial testing), long-horizon reliability (1000+ sequential executions), and degradation testing (what breaks first as conditions change). The most important metric is rarely the one in the paper — it's the failure mode distribution.
+<Step title="Results shift between operators or days → protocol drift">
+Log the operator and the timestamp. Score blind from video where possible. Small
+changes in reset placement and success judgement accumulate quickly.
+</Step>
+
+<Step title="Paired comparison shows nothing → check the discordant count">
+If most scenes came out the same under both policies, the effective sample is
+much smaller than the total. Report the discordant count alongside the result.
+</Step>
+
+<Step title="Simulated eval disagrees with real → the proxy was never validated">
+Measure the ranking correlation on real policies before trusting it, and
+re-measure when the policy class changes.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The two moves that make this answer land are a number and a tone. The number is
+that detecting a 10-point improvement at 70% costs roughly 300 trials per arm —
+it converts a vague worry about rigour into an engineering constraint, and it
+immediately explains how to read most published tables. The tone is that this is
+*expensive*, not sloppy: the measurement genuinely costs robot-hours, and the
+productive response is pairing, pre-registration, and validated cheap proxies
+rather than criticism. Interviewers in this field have all been on the wrong end
+of an underpowered evaluation, and they are listening for whether you understand
+the constraint or just the statistics.
+</Warning>

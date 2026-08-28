@@ -1,25 +1,164 @@
 ---
 concept: evaluation_methodology
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Evaluation Methodology for Robot Learning in plain language:
-    what is it, and why does it matter?"
+  prompt: "Explain why robot policy evaluation is hard. What does a success rate from 10 trials actually tell you?"
   keyPoints:
-    - A 90% success rate in the lab means nothing if you only tested on 10
-      trials with the same object in the same position.
-    - "Proper evaluation means: 100+ trials, varied conditions, reporting
-      confidence intervals, and categorizing failure modes."
-    - It's the difference between 'it works' and 'it works and I know when it
-      will fail.'
-check: []
-papers: []
+    - "Success rate is a Bernoulli estimate, so its uncertainty is set by the number of trials. 7/10 has a 95% interval of roughly 40% to 89% — it cannot distinguish a mediocre policy from an excellent one."
+    - "Interval width shrinks like $1/\\sqrt{n}$, so getting under ten points of width takes hundreds of trials. That collides directly with real-robot trials costing minutes each."
+    - "Comparing two policies is much harder than measuring one: detecting a 10-point difference at 70% needs roughly 300 trials per arm, unpaired."
+    - "The cheap fixes are structural, not statistical: pair the trials on identical initial conditions, stratify by generalisation axis, and fix the protocol before you look at any results."
+media:
+  - kind: article
+    title: "Deep Reinforcement Learning at the Edge of the Statistical Precipice"
+    url: https://arxiv.org/abs/2108.13264
+    source: "Agarwal, Schwarzer, Castro, Courville, Bellemare"
+    note: "The paper that changed reporting norms in RL. Read the sections on interquartile mean and stratified bootstrap intervals — the argument that point estimates over 3-5 runs are uninformative applies with more force to robots, where you get fewer."
+  - kind: article
+    title: "What Matters in Learning from Offline Human Demonstrations for Robot Manipulation"
+    url: https://arxiv.org/abs/2108.03298
+    source: "Mandlekar, Xu, Wong, Nasiriany, et al."
+    note: "A rare careful, large-scale ablation in manipulation. Worth reading for the methodology as much as the findings — it shows what it costs to make claims that actually hold up."
+  - kind: article
+    title: "Evaluating Real-World Robot Manipulation Policies in Simulation"
+    url: https://arxiv.org/abs/2405.05941
+    source: "Li, Hsu, Gu, Pertsch, et al."
+    note: "The pragmatic response to trials being expensive: build simulated evaluations that correlate with real ones. Read their correlation analysis — that correlation, not the simulator's realism, is the thing that has to be established."
+check:
+  - id: em_l1_c1
+    prompt: "Your policy succeeds on 7 of 10 real-robot trials. What can you conclude?"
+    options:
+      - "The policy's success rate is 70%"
+      - "Very little: the 95% interval runs from about 40% to 89%, so the data is consistent with a policy that fails more than half the time and with one that almost never fails"
+      - "The policy is better than a 50% baseline"
+      - "Nothing at all, since 10 trials is meaningless"
+    answer: 1
+    explanation: "Ten trials is not meaningless — it rules out extremes like 5% or 99% — but it is far too coarse for any claim people usually want to make from it. The interval is nearly fifty points wide, which is wider than the entire range separating a broken policy from a deployable one. Option 3 is the tempting error: the interval includes values below 50%, so the comparison is not established either."
+  - id: em_l1_c2
+    prompt: "You want to show policy B beats policy A, which succeeds about 70% of the time, by 10 points. Roughly how many trials per policy?"
+    options:
+      - "About 20"
+      - "About 300 per arm for an unpaired comparison at conventional power — which is why so many reported improvements in robot learning are not statistically distinguishable from noise"
+      - "About 50"
+      - "It depends only on the effect size, not the base rate"
+    answer: 1
+    explanation: "The standard two-proportion power calculation gives roughly 294 per arm to detect 0.70 versus 0.80 with 80% power at the 5% level. At ten minutes per real trial that is over a hundred hours for one comparison. This number is worth carrying around, because it explains why a table of a dozen methods separated by a few points on 20 trials each should be read as ranking noise — and it motivates pairing, which cuts the requirement substantially."
+  - id: em_l1_c3
+    prompt: "What is the single cheapest change that increases the statistical power of a real-robot comparison?"
+    options:
+      - "Running more seeds during training"
+      - "Pairing: evaluate both policies from identical initial conditions — same object poses, same lighting, same scene — so the comparison removes the variance from scene difficulty rather than averaging over it"
+      - "Reporting the mean instead of the median"
+      - "Using a larger model"
+    answer: 1
+    explanation: "Most of the variance in a robot evaluation comes from the scenes, not the policies: some initial configurations are simply harder. An unpaired comparison has to average that away with volume. A paired one differences it out, since both policies face the same scene, so you are testing the per-scene difference directly. It costs nothing beyond writing down your initial conditions and reusing them, and it is the highest-return change available."
 ---
 
-## Intuition
+## The uncomfortable arithmetic
 
-A 90% success rate in the lab means nothing if you only tested on 10 trials with the same object in the same position. Proper evaluation means: 100+ trials, varied conditions, reporting confidence intervals, and categorizing failure modes. It's the difference between 'it works' and 'it works and I know when it will fail.'
+Robot policies are evaluated by rolling them out and counting successes. That
+makes a success rate a Bernoulli estimate, and Bernoulli estimates from small
+samples are much less informative than they look.
 
-## In practice
+<Figure src="/figures/eval-confidence-intervals.svg"
+        alt="Five horizontal confidence intervals for an observed 70% success rate at 10, 20, 50, 100 and 400 trials. The n equals 10 interval spans roughly 40 to 89 percent; the n equals 400 interval spans 65 to 74."
+        caption="Every one of these is 'a 70% success rate'. At ten trials the measurement is consistent with a policy that fails a third of the time and one that almost never does." />
 
-Manipulation policy evaluation: 100 trials across 5 object categories $\times$ 4 initial positions = 2000 total trials. Report: overall success rate ($85\% \pm 3\%$), per-category breakdown, failure mode taxonomy (grasp slip: 40% of failures, perception error: 30%, planning failure: 30%). Include sim and real results separately. Compute $p$-value via McNemar's test when comparing two policies on paired trials.
+<Intuition>
+Someone tells you a coin came up heads seven times out of ten and asks whether
+it is biased. You would not commit either way — seven of ten is entirely
+ordinary for a fair coin.
+
+Now notice that this is exactly the evidence behind a great many reported robot
+results, and that the claim being made is usually much stronger than "the coin
+might be biased".
+</Intuition>
+
+## Why this is worse for robots than for benchmarks
+
+In simulation you run ten thousand episodes and the problem disappears. On
+hardware, a single trial takes minutes: reset the scene, place the objects, run,
+score, reset. Three hundred trials is a week.
+
+<KeyIdea>
+The interval narrows like $1/\sqrt{n}$, so halving the width costs four times
+the trials. That is an unpleasant exchange rate against a currency measured in
+robot-hours, and it is the fundamental reason evaluation is the weakest part of
+robot learning research — not carelessness, but a genuinely expensive
+measurement.
+</KeyIdea>
+
+Comparisons are harder still. Measuring one policy to within ten points takes
+about a hundred trials; showing that one policy beats another *by* ten points,
+at 70%, takes roughly three hundred per arm. A results table with a dozen
+methods a few points apart on twenty trials each is reporting ranking noise, and
+the authors usually know it.
+
+## What actually helps
+
+The useful responses are structural rather than statistical — they change what
+you measure, not just how you analyse it.
+
+<Steps>
+<Step title="Pair the trials">
+Evaluate both policies from *identical* initial conditions: same object poses,
+same lighting, same clutter. Most of the variance in a robot evaluation comes
+from scenes being unequally hard, and pairing differences that away instead of
+averaging over it. This is free and it is the single highest-return change
+available.
+</Step>
+
+<Step title="Fix the protocol before you look">
+Decide the number of trials, the initial conditions, the scoring rule, and what
+counts as a partial success — and write it down first. Deciding to stop when the
+numbers look good is not a small bias; with intervals this wide it is most of
+the effect.
+</Step>
+
+<Step title="Stratify by what you are claiming">
+One aggregate success rate answers no interesting question. Report seen objects
+separately from unseen ones, seen instructions from rephrased ones, trained
+lighting from changed lighting. A policy at 80% overall could be at 95% on
+familiar scenes and 20% on novel ones, and only the split tells you what you
+built.
+</Step>
+
+<Step title="Report the interval, not the point">
+"70% (95% CI 40-89%, n=10)" is honest and immediately conveys how much weight to
+put on it. A bare "70%" invites a conclusion the data does not support.
+</Step>
+</Steps>
+
+## The failure modes to recognise
+
+<Warning>
+**Cherry-picked resets.** The experimenter places objects, and after a hundred
+resets they place them in positions the policy handles. This is unconscious and
+enormous. Randomise the initial conditions from a written list, or have someone
+who has not seen the policy do the resets.
+
+**Evaluating on your development scenes.** If you tuned against these
+configurations, they are training data. Held-out scenes are as necessary as a
+held-out test set, and they are much easier to forget when the "dataset" is a
+room.
+
+**Silent protocol drift.** Fifty trials over three days across two people
+accumulates small changes in what counts as success, where objects start, and
+how long a timeout is. Write the protocol down and score from video where you
+can.
+</Warning>
+
+## The pragmatic escape
+
+Since real trials are the scarce resource, the productive move is to build an
+evaluation that is cheap and *demonstrated to correlate* with the real one —
+usually a simulated suite matched to the real setup.
+
+The correlation is the thing that has to be established, not the simulator's
+realism. A simulated evaluation that ranks methods the same way the real one
+does is useful even if its absolute numbers are wrong; one that looks
+photorealistic and ranks differently is worse than nothing, because it is
+persuasive.
+
+<WatchThis />

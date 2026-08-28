@@ -1,0 +1,222 @@
+---
+concept: evaluation_methodology
+level: 3
+status: final
+recall:
+  prompt: "Implement an honest evaluation harness. What does it record, and which statistics does it report?"
+  keyPoints:
+    - "Enumerate the initial conditions from a fixed seed *before* running anything, so both policies see the same scenes and the protocol cannot drift."
+    - "Report Wilson intervals, never a bare point estimate. Use McNemar or a paired bootstrap for comparisons, since only discordant scenes carry information."
+    - "Stratify by generalisation axis — seen/unseen object, seen/rephrased instruction, trained/changed lighting — because one aggregate number answers no question you actually have."
+    - "Log enough per trial to re-score from video later: the scene id, the seed, the outcome, the failure mode, and the operator."
+check:
+  - id: em_l3_c1
+    prompt: "Why generate the list of initial conditions from a fixed seed before evaluation rather than randomising as you go?"
+    options:
+      - "It is faster"
+      - "It makes the trials reproducible and genuinely pairable across policies, and it removes the experimenter's discretion over placement — which after a hundred resets drifts toward configurations the policy handles"
+      - "Random number generators are biased"
+      - "It reduces the number of trials needed"
+    answer: 1
+    explanation: "Two problems solved by one list. Pairing requires the *same* scenes under both policies, which needs them enumerated in advance. And unconscious experimenter bias in object placement is large and invisible — someone who has watched the policy fail from a particular pose stops choosing that pose. A written list removes the discretion, and a second person doing the resets removes what remains."
+  - id: em_l3_c2
+    prompt: "For a paired comparison of two policies on 100 identical scenes, which scenes carry statistical information?"
+    options:
+      - "All 100 equally"
+      - "Only the discordant ones — where exactly one policy succeeded. Scenes both handled or both failed tell you the scenes were easy or hard, not which policy is better"
+      - "Only the ones both policies failed"
+      - "The first 50, to avoid ordering effects"
+    answer: 1
+    explanation: "This is what McNemar's test formalises, and it explains why pairing is powerful: the concordant scenes are exactly the variance that pairing removes. It also has a practical consequence worth knowing — if 90 of 100 scenes are concordant, you have effectively 10 informative trials however impressive the total sounds, and you should report that rather than the 100."
+  - id: em_l3_c3
+    prompt: "What should the per-trial log record beyond success or failure?"
+    options:
+      - "Only the outcome; anything else is noise"
+      - "Scene id and seed, the failure mode as a category, wall-clock and step count, the operator, and a video reference — so results can be re-scored, stratified after the fact, and audited for protocol drift"
+      - "The policy's internal activations"
+      - "Only the aggregate at the end of the session"
+    answer: 1
+    explanation: "Almost every question you will want to ask later — did it fail differently on unseen objects, did results shift between operators, was the timeout doing the work — is unanswerable if you only kept the count. The failure-mode category is especially valuable: 'grasp slipped' and 'never found the object' point at different fixes, and an aggregate success rate merges them. Video references let you re-score when the definition of success turns out to have been ambiguous, which it usually was."
+---
+
+## Fix the protocol first
+
+<CodeWalk title="Enumerate the scenes before running anything">
+
+```python title="protocol.py"
+import json, hashlib
+from dataclasses import dataclass, asdict
+
+@dataclass(frozen=True)
+class Scene:
+    scene_id: int
+    object_name: str
+    object_pose: tuple      # (x, y, theta)
+    distractors: tuple
+    lighting: str
+    instruction: str
+    stratum: str            # "seen", "unseen_object", "rephrased", "new_lighting"
+
+
+def build_protocol(rng_seed, n_per_stratum=25):
+    """Enumerated up front, so both policies see identical scenes and the
+    experimenter has no discretion over placement — which after a hundred
+    resets drifts toward configurations the policy happens to handle."""
+    rng = np.random.default_rng(rng_seed)
+    scenes, sid = [], 0
+    for stratum, objects, instructions, lightings in STRATA:
+        for _ in range(n_per_stratum):
+            scenes.append(Scene(
+                scene_id=sid,
+                object_name=rng.choice(objects),
+                object_pose=tuple(rng.uniform(POSE_LO, POSE_HI).round(3)),
+                distractors=tuple(rng.choice(DISTRACTORS, size=rng.integers(0, 3))),
+                lighting=rng.choice(lightings),
+                instruction=rng.choice(instructions),
+                stratum=stratum,
+            ))
+            sid += 1
+    return scenes
+
+
+def freeze(scenes, path):
+    """Write it down, hash it, and refer to the hash in every result."""
+    blob = json.dumps([asdict(s) for s in scenes], sort_keys=True)
+    open(path, "w").write(blob)
+    return hashlib.sha256(blob.encode()).hexdigest()[:12]
+```
+
+</CodeWalk>
+
+The hash is not ceremony. Three weeks later, when two result sets disagree, the
+first question is whether they used the same protocol, and a hash answers it in
+a second where a description does not.
+
+## Intervals, not point estimates
+
+```python title="stats.py"
+import numpy as np
+from scipy import stats
+
+def wilson(successes, n, z=1.96):
+    """Never report a bare rate. Wald gives 0 +/- 0 at zero successes —
+    a claim of certainty from data consistent with a 10% true rate."""
+    if n == 0:
+        return (0.0, 1.0)
+    p = successes / n
+    denom = 1 + z**2 / n
+    centre = p + z**2 / (2 * n)
+    spread = z * np.sqrt(p * (1 - p) / n + z**2 / (4 * n**2))
+    return ((centre - spread) / denom, (centre + spread) / denom)
+
+
+def mcnemar(a_results, b_results):
+    """Paired comparison. Only DISCORDANT scenes carry information —
+    scenes both policies handled tell you the scene was easy, not which
+    policy is better."""
+    b = sum(1 for x, y in zip(a_results, b_results) if not x and y)   # B won
+    c = sum(1 for x, y in zip(a_results, b_results) if x and not y)   # A won
+    if b + c == 0:
+        return None, b, c                       # identical on every scene
+    # Exact binomial test: appropriate at the counts robotics produces.
+    p = stats.binomtest(b, b + c, 0.5).pvalue
+    return p, b, c
+
+
+def paired_bootstrap(a_results, b_results, n_boot=10_000, seed=0):
+    """Resample SCENES, not trials — the scene is the unit of pairing."""
+    rng = np.random.default_rng(seed)
+    a, b = np.asarray(a_results, float), np.asarray(b_results, float)
+    idx = rng.integers(0, len(a), size=(n_boot, len(a)))
+    diffs = (b[idx] - a[idx]).mean(axis=1)
+    return diffs.mean(), np.percentile(diffs, [2.5, 97.5])
+```
+
+<Warning>
+`paired_bootstrap` resamples scene indices, so each bootstrap replicate keeps
+both policies' outcomes on the same scene together. Resampling the two policies'
+results independently would destroy the pairing and hand back the unpaired
+interval — a silent bug that makes your comparison look correctly done and
+much weaker than it is.
+</Warning>
+
+## The harness
+
+```python title="run_eval.py"
+@dataclass
+class TrialRecord:
+    scene_id: int
+    policy: str
+    success: bool
+    failure_mode: str | None     # "no_grasp", "slipped", "wrong_object", "timeout"
+    steps: int
+    wall_clock_s: float
+    operator: str
+    video_path: str
+
+
+def evaluate(policy, policy_name, scenes, robot, operator):
+    records = []
+    for scene in scenes:                       # fixed order, fixed scenes
+        robot.reset_to(scene)                  # reset from the SPEC, not by eye
+        video = robot.start_recording()
+        outcome = robot.rollout(policy, timeout_s=TIMEOUT)
+        records.append(TrialRecord(
+            scene_id=scene.scene_id, policy=policy_name,
+            success=outcome.success, failure_mode=outcome.failure_mode,
+            steps=outcome.steps, wall_clock_s=outcome.wall_clock,
+            operator=operator, video_path=robot.stop_recording(video),
+        ))
+    return records
+```
+
+## Reporting
+
+```python title="report.py"
+def report(records, scenes):
+    by_stratum = defaultdict(list)
+    strata = {s.scene_id: s.stratum for s in scenes}
+    for r in records:
+        by_stratum[strata[r.scene_id]].append(r.success)
+
+    for stratum, results in sorted(by_stratum.items()):
+        k, n = sum(results), len(results)
+        lo, hi = wilson(k, n)
+        print(f"{stratum:16s}  {k:3d}/{n:3d} = {k/n:.2f}  "
+              f"95% CI [{lo:.2f}, {hi:.2f}]")
+
+    # Failure modes: "slipped" and "never found it" need different fixes,
+    # and an aggregate success rate merges them.
+    modes = Counter(r.failure_mode for r in records if not r.success)
+    for mode, count in modes.most_common():
+        print(f"  {mode:14s} {count}")
+```
+
+<KeyIdea>
+A stratified table with intervals is a different artefact from a single number.
+A policy at "80% overall" might be 95% on familiar scenes and 20% on novel ones
+— which is the entire finding, and it is invisible in the aggregate. The
+stratification should mirror the claim you intend to make, so decide the claim
+before you decide the strata.
+</KeyIdea>
+
+## Making trials cheaper
+
+<Steps>
+<Step title="Build a simulated evaluation and validate the correlation">
+Run both suites on a handful of policies and check that the simulated ranking
+matches the real one. The correlation is what you are establishing — not the
+simulator's realism. A pretty simulator that ranks differently is worse than
+none, because it is persuasive.
+</Step>
+
+<Step title="Score from video, asynchronously">
+Decoupling execution from scoring lets one person run trials and another score
+them blind to which policy produced each, which removes a large source of drift.
+</Step>
+
+<Step title="Spend the real trials on the comparison that matters">
+With a fixed budget, one well-powered paired comparison beats five underpowered
+ones. Five 20-trial comparisons produce five numbers you cannot defend.
+</Step>
+</Steps>

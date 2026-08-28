@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 300" role="img"
+     aria-labelledby="ect2 ecd2" font-family="system-ui, -apple-system, sans-serif">
+  <title id="ect2">95% confidence intervals for an observed 70% success rate</title>
+  <desc id="ecd2">The same observed success rate of 70 percent, measured over 10,
+    20, 50, 100 and 400 trials. At 10 trials the Wilson interval runs from about
+    40 to 89 percent, so the measurement cannot distinguish a mediocre policy
+    from an excellent one. The interval narrows roughly as one over the square
+    root of the number of trials, so 400 trials are needed before the width
+    falls under ten points.</desc>
+
+  <!-- axis -->
+  <line x1="120" y1="248" x2="600" y2="248" stroke="#484f58" stroke-width="1.2"/>
+  <g fill="#8b949e" font-size="9.5" text-anchor="middle">
+    <text x="120" y="264">0%</text>
+    <text x="240" y="264">25%</text>
+    <text x="360" y="264">50%</text>
+    <text x="480" y="264">75%</text>
+    <text x="600" y="264">100%</text>
+  </g>
+  <line x1="456" y1="46" x2="456" y2="248" stroke="#6c63ff" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <text x="456" y="38" fill="#6c63ff" font-size="10.5" text-anchor="middle">observed 70%</text>
+
+  <g font-size="10.5" fill="#8b949e" text-anchor="end">
+    <text x="108" y="72">n = 10</text>
+    <text x="108" y="106">n = 20</text>
+    <text x="108" y="140">n = 50</text>
+    <text x="108" y="174">n = 100</text>
+    <text x="108" y="208">n = 400</text>
+  </g>
+
+  <!-- intervals: x = 120 + 4.8 * pct -->
+  <g stroke-width="7" stroke-linecap="round">
+    <line x1="310" y1="68" x2="548" y2="68" stroke="#f85149" opacity="0.85"/>
+    <line x1="351" y1="102" x2="530" y2="102" stroke="#f85149" opacity="0.7"/>
+    <line x1="390" y1="136" x2="508" y2="136" stroke="#d29922" opacity="0.8"/>
+    <line x1="410" y1="170" x2="495" y2="170" stroke="#d29922" opacity="0.7"/>
+    <line x1="433" y1="204" x2="477" y2="204" stroke="#3fb950" opacity="0.85"/>
+  </g>
+  <g fill="#e6edf3">
+    <circle cx="456" cy="68" r="3"/><circle cx="456" cy="102" r="3"/>
+    <circle cx="456" cy="136" r="3"/><circle cx="456" cy="170" r="3"/>
+    <circle cx="456" cy="204" r="3"/>
+  </g>
+
+  <g font-size="9.5" fill="#8b949e">
+    <text x="556" y="72">[40, 89]</text>
+    <text x="538" y="106">[48, 86]</text>
+    <text x="516" y="140">[56, 81]</text>
+    <text x="503" y="174">[60, 78]</text>
+    <text x="485" y="208">[65, 74]</text>
+  </g>
+
+  <text x="360" y="288" fill="#e6edf3" font-size="11" text-anchor="middle">Wilson intervals. At n = 10 the measurement cannot tell a 45% policy from an 85% one.</text>
+</svg>

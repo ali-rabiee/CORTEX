@@ -1,24 +1,207 @@
 ---
 concept: evaluation_methodology
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Evaluation Methodology for Robot
-    Learning, including the key equations.
+  prompt: "Derive the confidence interval for a success rate and the sample size needed to compare two policies. Why is pairing so much more powerful?"
   keyPoints:
-    - Rigorous assessment of robot policy performance.
-    - "Primary metric: success rate $\\hat{p} =
-      \\frac{\\text{successes}}{N_{\\text{trials}}}$ with Wilson confidence
-      interval: $$\\hat{p} \\pm z_{\\alpha/2}
-      \\sqrt{\\frac{\\hat{p}(1-\\hat{p})}{N_{\\text{trials}}}}$$ Includes:
-      failure mode analysis, sim-to-real transfer gap $\\Delta = p_{\\text{sim}}
-      - p_{\\text{real}}$, generalization tests (novel objects, positions),
-      robustness tests (perturbations), and statistical significance across
-      seeds ($n \\geq 3$)."
-check: []
-papers: []
+    - "Use the Wilson score interval, not the normal approximation: at small $n$ or extreme $p$ the Wald interval is badly miscalibrated and can extend outside $[0,1]$."
+    - "Width scales as $1/\\sqrt{n}$, so halving it costs $4\\times$ the trials — the exchange rate that makes real-robot evaluation expensive."
+    - "Unpaired two-proportion comparison needs $n \\approx 2(z_{\\alpha/2}+z_\\beta)^2\\,\\bar p(1-\\bar p)/\\delta^2$ per arm — about 294 to detect 0.70 vs 0.80."
+    - "Pairing removes the scene-difficulty variance from the comparison, so the effective variance is that of the *per-scene difference*, which is much smaller when scenes vary more than policies do."
+check:
+  - id: em_l2_c1
+    prompt: "Why prefer the Wilson interval over the normal (Wald) approximation $\\hat p \\pm z\\sqrt{\\hat p(1-\\hat p)/n}$?"
+    options:
+      - "Wilson is easier to compute"
+      - "Wald is derived from a normal approximation centred on $\\hat p$, so at small $n$ or $\\hat p$ near 0 or 1 its coverage is far below nominal — and it can produce bounds outside $[0,1]$ or a zero-width interval at $\\hat p = 0$"
+      - "Wilson gives narrower intervals, so results look better"
+      - "Wald assumes the trials are paired"
+    answer: 1
+    explanation: "The pathologies are the giveaway. At 0 successes in 20 trials, Wald reports $0 \\pm 0$ — a claim of certainty from data that is entirely consistent with a 10% success rate. Wilson inverts the score test instead of approximating around the estimate, so it stays inside $[0,1]$, is asymmetric near the boundaries, and has far better coverage at the sample sizes robotics actually uses. The interval is not uniformly narrower; near the boundaries it is much wider, which is the correct behaviour."
+  - id: em_l2_c2
+    prompt: "You have budget for 200 real trials total. What is the best use of it for comparing two policies?"
+    options:
+      - "100 unpaired trials per policy"
+      - "100 paired trials — the same 100 initial conditions run under both policies — since the comparison then removes scene-difficulty variance instead of averaging over it"
+      - "200 trials of the new policy, compared against a historical number for the old one"
+      - "20 trials each on 10 different tasks"
+    answer: 1
+    explanation: "Pairing uses the same trial budget and tests a different, lower-variance quantity: the per-scene difference rather than the difference of two independently estimated means. When scenes vary more in difficulty than the policies do — which is typical — that removes most of the noise. Option 3 is the most common real-world error: a historical baseline was measured under a different scene distribution, so the comparison is confounded by everything that changed in between."
+  - id: em_l2_c3
+    prompt: "Why does reporting the mean over 3 training seeds mislead, and what is the recommended alternative?"
+    options:
+      - "Means are always biased; use the median"
+      - "With few runs the mean is dominated by outliers and its uncertainty is rarely reported — the recommended practice is an interquartile mean with stratified bootstrap confidence intervals, which is robust to a single lucky run and states its own uncertainty"
+      - "Three seeds is sufficient if the variance is low"
+      - "Seeds do not matter for supervised policies"
+    answer: 1
+    explanation: "RL performance across seeds is heavy-tailed — some runs find a good solution and others do not — so a mean over three is often reporting whether one run got lucky. The interquartile mean discards the extremes before averaging, which is robust without throwing away as much data as the median, and the stratified bootstrap gives an interval over both runs and tasks. The deeper point is that a point estimate with no interval is not a measurement, whatever statistic it uses."
 ---
 
-## Formal definition
+## The interval for a single success rate
 
-Rigorous assessment of robot policy performance. Primary metric: success rate $\hat{p} = \frac{\text{successes}}{N_{\text{trials}}}$ with Wilson confidence interval: $$\hat{p} \pm z_{\alpha/2} \sqrt{\frac{\hat{p}(1-\hat{p})}{N_{\text{trials}}}}$$ Includes: failure mode analysis, sim-to-real transfer gap $\Delta = p_{\text{sim}} - p_{\text{real}}$, generalization tests (novel objects, positions), robustness tests (perturbations), and statistical significance across seeds ($n \geq 3$).
+$k$ successes in $n$ trials, assumed independent and identically distributed.
+The Wald interval that everyone reaches for first,
+
+$$
+\hat p \pm z_{\alpha/2}\sqrt{\frac{\hat p(1-\hat p)}{n}},
+\qquad \hat p = k/n
+$$
+
+is a normal approximation centred on $\hat p$, and it misbehaves exactly where
+robotics lives.
+
+<Warning>
+At $k = 0$, $n = 20$: Wald gives $0 \pm 0$. A zero-width interval from data
+entirely consistent with a true rate of 10%. At $k/n$ near 0 or 1 its coverage
+is far below the nominal 95%, and it routinely produces bounds outside $[0,1]$.
+</Warning>
+
+<Derivation title="The Wilson score interval">
+
+Instead of approximating around the estimate, invert the score test: find the
+values of $p$ that would *not* be rejected. Solve
+
+$$
+\left|\frac{\hat p - p}{\sqrt{p(1-p)/n}}\right| \le z
+$$
+
+for $p$. Squaring and rearranging gives a quadratic in $p$, whose roots are
+
+$$
+\boxed{\;\frac{\hat p + \dfrac{z^2}{2n} \;\pm\; z\sqrt{\dfrac{\hat p(1-\hat p)}{n} + \dfrac{z^2}{4n^2}}}
+{1 + \dfrac{z^2}{n}}\;}
+$$
+
+**Read the structure.** The centre is $\hat p$ pulled toward $1/2$ by
+$z^2/2n$ — a shrinkage that vanishes as $n$ grows. The interval is asymmetric
+near the boundaries and always inside $[0,1]$. At $k=0$ it gives a genuinely
+non-degenerate upper bound.
+
+**The numbers, for an observed 70%:**
+
+| $n$ | 95% interval | width |
+| --- | --- | --- |
+| 10 | [0.40, 0.89] | 0.50 |
+| 20 | [0.48, 0.86] | 0.37 |
+| 50 | [0.56, 0.81] | 0.25 |
+| 100 | [0.60, 0.78] | 0.18 |
+| 400 | [0.65, 0.74] | 0.09 |
+
+Width falls like $1/\sqrt{n}$, so halving it costs four times the trials.
+
+</Derivation>
+
+## Comparing two policies
+
+<Derivation title="Sample size for an unpaired comparison">
+
+To detect a difference $\delta = p_2 - p_1$ with significance $\alpha$ and power
+$1-\beta$, the standard two-proportion formula gives, per arm,
+
+$$
+n \;\approx\; \frac{2\,(z_{\alpha/2} + z_\beta)^2\;\bar p\,(1-\bar p)}{\delta^2},
+\qquad \bar p = \tfrac{p_1+p_2}{2}
+$$
+
+At $\alpha = 0.05$ and power $0.8$, $(z_{\alpha/2}+z_\beta)^2 = (1.96+0.84)^2 \approx 7.85$:
+
+| comparison | $n$ per arm |
+| --- | --- |
+| 0.50 vs 0.60 | ~389 |
+| 0.70 vs 0.80 | ~294 |
+| 0.80 vs 0.90 | ~200 |
+| 0.50 vs 0.70 | ~94 |
+
+**The $\delta^2$ in the denominator is the whole story.** Halving the effect you
+want to detect quadruples the trials. A 10-point improvement — the size people
+routinely claim — costs hundreds of real rollouts per arm.
+
+</Derivation>
+
+<KeyIdea>
+Carry the number 294 around. It is the cost of establishing a 10-point
+improvement at a 70% base rate, unpaired, and it immediately tells you how to
+read a table of a dozen methods separated by a few points on twenty trials each.
+Those tables are ranking noise, and the honest response to one is to ask for
+intervals rather than to argue about the ordering.
+</KeyIdea>
+
+## Why pairing is worth so much
+
+<Derivation title="The variance that pairing removes">
+
+Model trial $i$ under policy $j$ as depending on both the scene and the policy.
+Unpaired, you estimate
+
+$$
+\hat\Delta = \hat p_2 - \hat p_1,
+\qquad
+\mathrm{Var}(\hat\Delta) = \frac{p_1(1-p_1)}{n} + \frac{p_2(1-p_2)}{n}
+$$
+
+with the two samples drawn over *different* scenes, so all the variation in
+scene difficulty is inside those terms.
+
+Paired, run both policies on the same $n$ scenes and define per-scene outcomes
+$(X_i, Y_i)$. The estimator is the mean of the differences $D_i = Y_i - X_i$:
+
+$$
+\mathrm{Var}(\bar D) = \frac{\mathrm{Var}(Y) + \mathrm{Var}(X) - 2\,\mathrm{Cov}(X, Y)}{n}
+$$
+
+The covariance term is the gain, and it is large precisely when scenes vary in
+difficulty — an easy scene tends to succeed under both policies, a hard one
+under neither.
+
+**For binary paired data this reduces to McNemar's test**: only the discordant
+scenes carry information. If $b$ is the count where policy 2 succeeded and
+policy 1 failed, and $c$ the reverse, the test statistic depends on $b$ and $c$
+alone, and the scenes both policies handled identically are correctly ignored.
+
+**The assumption doing the work** is that pairing is genuine — the same initial
+conditions, reproduced. Approximately similar scenes do not pair, and if you
+cannot reset to the same configuration, you cannot claim the gain.
+
+</Derivation>
+
+## Training-seed variance is a separate problem
+
+Everything above concerns evaluation noise for a *fixed* policy. There is a
+second source: retrain with a different seed and you get a different policy.
+
+<Steps>
+<Step title="RL seed distributions are heavy-tailed">
+Some runs find a good solution and some do not, so a mean over three or five
+runs is often reporting whether one got lucky. The distribution, not the mean, is
+the object of interest.
+</Step>
+
+<Step title="Interquartile mean over stratified bootstrap intervals">
+Discard the top and bottom quartiles of runs and average the rest — robust to a
+single lucky or catastrophic run without discarding as much as a median. Bootstrap
+over both runs and tasks to get an interval, and report the interval.
+</Step>
+
+<Step title="Performance profiles beat any single number">
+Plot the fraction of runs exceeding each performance threshold. It shows the
+whole distribution, and it makes dominance visible when one method's curve lies
+above another's everywhere — a much stronger claim than a difference of means.
+</Step>
+</Steps>
+
+## Multiple comparisons
+
+If you evaluate ten variants and report the best, you have run ten tests and
+reported the maximum. The probability that at least one exceeds a 5% threshold
+by chance is $1 - 0.95^{10} \approx 40\%$.
+
+<Warning>
+This is the mechanism behind a great deal of irreproducible improvement, and it
+does not require any intent to mislead — trying ten things and reporting the one
+that worked is a completely natural way to do research. The fixes are to correct
+the threshold, to pre-register which comparison is primary, or to reserve a
+final held-out set of scenes touched exactly once. In robotics the last of these
+is both the cheapest and the least commonly done.
+</Warning>

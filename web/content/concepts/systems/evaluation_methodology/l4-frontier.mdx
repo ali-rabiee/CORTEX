@@ -1,0 +1,194 @@
+---
+concept: evaluation_methodology
+level: 4
+status: final
+recall:
+  prompt: "Trace how evaluation practice in RL and robot learning changed after 2017. What was found, what was recommended, and what has actually been adopted?"
+  keyPoints:
+    - "Henderson et al. (2018) showed deep RL results were dominated by seeds, implementation details, and reporting choices — the same algorithm across seeds spanning a range wider than the gaps between algorithms."
+    - "Colas et al. (2018) supplied the power analysis: detecting the effect sizes people were claiming needs far more runs than anyone was using."
+    - "Agarwal et al. (2021) changed reporting norms with interquartile mean, stratified bootstrap intervals, and performance profiles instead of point estimates over a few runs."
+    - "In robotics, Mandlekar et al. (2021) is the model for a careful large-scale ablation, and SIMPLER (2024) is the pragmatic response — build simulated evaluations demonstrated to correlate with real ones."
+papers:
+  - key: henderson2018matters
+    title: "Deep Reinforcement Learning that Matters"
+    authors: "Peter Henderson, Riashat Islam, Philip Bachman, Joelle Pineau, Doina Precup, David Meger"
+    venue: AAAI
+    year: 2018
+    arxiv: "1709.06560"
+    takeaway: "Shows that hyperparameters, network architecture, reward scale, random seeds, and even the codebase move results more than the algorithmic differences being claimed — and that reporting practices at the time could not distinguish them."
+  - key: colas2018seeds
+    title: "How Many Random Seeds? Statistical Power Analysis in Deep Reinforcement Learning Experiments"
+    authors: "Cédric Colas, Olivier Sigaud, Pierre-Yves Oudeyer"
+    year: 2018
+    arxiv: "1806.08295"
+    takeaway: "Applies standard power analysis to RL comparisons and finds the run counts in common use are far too small for the effect sizes typically claimed — turning a methodological complaint into a number."
+  - key: agarwal2021precipice
+    title: "Deep Reinforcement Learning at the Edge of the Statistical Precipice"
+    authors: "Rishabh Agarwal, Max Schwarzer, Pablo Samuel Castro, Aaron Courville, Marc G. Bellemare"
+    venue: NeurIPS
+    year: 2021
+    arxiv: "2108.13264"
+    takeaway: "Argues few-run point estimates are uninformative and supplies practical replacements — interquartile mean, stratified bootstrap intervals, and performance profiles — together with tooling that made them easy to adopt."
+  - key: mandlekar2021robomimic
+    title: "What Matters in Learning from Offline Human Demonstrations for Robot Manipulation"
+    authors: "Ajay Mandlekar, Danfei Xu, Josiah Wong, Soroush Nasiriany, Chen Wang, Rohun Kulkarni, Li Fei-Fei, Silvio Savarese, Yuke Zhu, Roberto Martín-Martín"
+    venue: CoRL
+    year: 2021
+    arxiv: "2108.03298"
+    takeaway: "A large controlled study of what actually matters in manipulation learning from human data — including that operator quality and observation choices swamp several algorithmic differences."
+  - key: li2024simpler
+    title: "Evaluating Real-World Robot Manipulation Policies in Simulation"
+    authors: "Xuanlin Li, Kyle Hsu, Jiayuan Gu, Karl Pertsch, Oier Mees, Homer Rich Walke, Chuyuan Fu, et al."
+    venue: CoRL
+    year: 2024
+    arxiv: "2405.05941"
+    takeaway: "Builds simulated evaluations for real manipulation policies and measures how well simulated rankings track real ones — treating the correlation itself as the quantity to establish."
+check:
+  - id: em_l4_c1
+    prompt: "What was the most damaging finding in Henderson et al. for how results were being reported?"
+    options:
+      - "That deep RL algorithms do not work"
+      - "That the spread across random seeds for one algorithm could exceed the gap between different algorithms — so a comparison based on a few runs was measuring seed luck rather than the method"
+      - "That the benchmarks were too easy"
+      - "That the implementations contained bugs"
+    answer: 1
+    explanation: "The finding is about the ratio of effect size to noise, which is what determines whether a comparison means anything. If one algorithm's seed-to-seed spread covers the difference you are claiming against another, then selecting the best few runs — or simply being lucky — produces the claimed result. The paper also showed different implementations of the *same* algorithm differing substantially, which is why 'we used PPO' does not specify a method."
+  - id: em_l4_c2
+    prompt: "Why did the interquartile mean become a recommended statistic rather than the mean or the median?"
+    options:
+      - "It is easier to compute"
+      - "RL run distributions are heavy-tailed, so a mean over a few runs is dominated by outliers; the IQM discards the extreme quartiles for robustness while using far more of the data than a median, which matters when you have five runs"
+      - "It is unbiased and the mean is not"
+      - "It requires fewer runs to compute"
+    answer: 1
+    explanation: "It is a bias-robustness trade tuned to the regime. The mean is efficient and fragile: one catastrophic or one lucky run moves it a long way at $n = 5$. The median is robust and wasteful, effectively using one or two runs. The IQM sits between and is well matched to distributions with occasional failures. The more important half of the recommendation is the stratified bootstrap interval that goes with it — a robust point estimate with no interval is still not a measurement."
+  - id: em_l4_c3
+    prompt: "SIMPLER validates simulated evaluation by measuring its correlation with real results. Why is that the right target rather than simulator realism?"
+    options:
+      - "Realism is impossible to measure"
+      - "The purpose of a cheap evaluation is to rank methods the way the expensive one would; a simulator whose absolute numbers are wrong but whose ranking matches is useful, while a photorealistic one that ranks differently is worse than nothing because it is persuasive"
+      - "Correlation is easier to compute than realism"
+      - "Realism only matters for training, not evaluation"
+    answer: 1
+    explanation: "It reframes what the artefact is for. You are not trying to reproduce reality; you are trying to build a decision procedure that agrees with the real one, so agreement is the specification. The 'worse than nothing' point is the operationally important half — an evaluation that looks convincing and misranks will actively steer development in the wrong direction, and its realism is exactly what makes people trust it."
+---
+
+## The reckoning
+
+<PaperCard refKey="henderson2018matters" />
+
+The finding that mattered was about a ratio. Across random seeds, one algorithm's
+results could span a range as wide as the gaps being claimed between algorithms —
+and hyperparameters, reward scaling, network architecture, and even which
+implementation you used moved results comparably.
+
+<KeyIdea>
+If the noise is as large as the effect, a comparison over a few runs is
+measuring seed luck. That is not a criticism of anyone's honesty; it is a
+statement about what the measurements could possibly have established. The paper
+also found different implementations of the *same* algorithm differing
+substantially, which is why naming an algorithm does not specify a method.
+</KeyIdea>
+
+<PaperCard refKey="colas2018seeds" />
+
+The natural follow-up: how many runs would you actually need? Standard power
+analysis, applied to the effect sizes RL papers were claiming, gives numbers far
+above what was in use. This is the step that converts a methodological complaint
+into something actionable, and the same calculation carries directly to
+real-robot trials — where it gives the roughly 300-per-arm figure for a 10-point
+improvement.
+
+## New reporting norms
+
+<PaperCard refKey="agarwal2021precipice" />
+
+Rather than only diagnosing, this one supplied replacements and the tooling to
+use them: interquartile mean instead of the mean over a handful of runs,
+stratified bootstrap confidence intervals over both runs and tasks, and
+performance profiles showing the fraction of runs above each threshold.
+
+<Steps>
+<Step title="Why IQM rather than mean or median">
+Run distributions are heavy-tailed, so at five runs a mean is dominated by
+whichever run got lucky and a median effectively uses one or two. Discarding the
+extreme quartiles is robust without discarding most of the data.
+</Step>
+
+<Step title="Why the interval is the more important half">
+A robust point estimate with no uncertainty attached is still not a measurement.
+The bootstrap interval is what lets a reader tell a real improvement from a
+plausible one.
+</Step>
+
+<Step title="Why performance profiles">
+They show the whole distribution, and they make *dominance* visible — one
+method's curve lying above another's at every threshold is a far stronger claim
+than a difference of means, and it is sometimes visible when the means are not
+distinguishable.
+</Step>
+</Steps>
+
+<Warning>
+These norms were adopted in benchmark RL and only partially in robotics, for a
+structural reason rather than a cultural one: you cannot run 100 seeds of a real
+robot. The transferable parts are the ones that do not require volume — report
+intervals, stratify, pair the trials, and pre-register the protocol. The parts
+that require many runs have to be bought with a cheaper evaluation instead.
+</Warning>
+
+## Careful work in robotics
+
+<PaperCard refKey="mandlekar2021robomimic" />
+
+Worth reading for its methodology as much as its findings. A large controlled
+study across algorithms, observation spaces, and demonstration sources — and the
+result that operator quality and observation choices swamp several of the
+algorithmic differences being debated at the time.
+
+<KeyIdea>
+The pattern recurs whenever someone runs a careful ablation in this field: the
+factors that dominate are usually not the ones the papers were arguing about.
+Data quality, observation design, and normalisation move results more than the
+architectural choice under comparison — which is a strong argument for spending
+your evaluation budget on the baseline rather than on the fifth variant.
+</KeyIdea>
+
+## The pragmatic response
+
+<PaperCard refKey="li2024simpler" />
+
+Since real trials are the binding constraint, build a cheap evaluation and
+establish that it *ranks methods the way the real one does*. The correlation is
+the quantity being validated, not the simulator's appearance.
+
+<Warning>
+The failure mode is specific and worth naming: a simulated evaluation that looks
+realistic and ranks differently is worse than having none, because its realism
+is what makes people trust it. So the correlation has to be measured on real
+policies with real results, and reported — and it should be re-measured when the
+policy class changes, since a proxy validated on one family of methods need not
+hold for another.
+</Warning>
+
+## Where this leaves you
+
+<Steps>
+<Step title="Established and adopted">
+Report intervals. Stratify by generalisation axis. Do not compare against a
+number measured under a different protocol.
+</Step>
+
+<Step title="Established and under-adopted">
+Pairing trials on identical initial conditions, pre-registering the protocol,
+and reserving a held-out scene set touched once. All are free, and all are rare.
+</Step>
+
+<Step title="Still open">
+How to evaluate generalist policies at all. A VLA claims breadth across tasks,
+objects, and instructions, and the number of trials required to characterise a
+policy across that space is far beyond any lab's budget — so current claims rest
+on a sampled slice chosen by the same people making the claim.
+</Step>
+</Steps>
