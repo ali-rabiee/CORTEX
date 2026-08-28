@@ -1,24 +1,168 @@
 ---
 concept: advantage_estimation
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Generalized Advantage Estimation (GAE) fail in practice, and
-    how would you present it in an interview?
+  prompt: "Give your interview answer on advantage estimation as variance accounting. What is the decomposition, and what would you measure first?"
   keyPoints:
-    - Poor $\lambda$ choice creates either bias or variance problems.
-    - "With $\\lambda$ too low ($< 0.8$): heavy bias from an inaccurate value
-      function, policy converges to suboptimal behavior."
-    - "With $\\lambda$ too high ($> 0.99$): high variance slows learning,
-      especially in long-horizon tasks."
-check: []
-papers: []
+    - "Four sources: rewards before the action, the state's own value, everything random after the action, and the action sampling. Each has its own fix."
+    - "Causality and the baseline are free — variance down, expectation unchanged. Only bootstrapping costs bias, which is why $\\lambda$ is the only dial."
+    - "Per-batch normalisation is not on that list: it fixes step-size drift, is mildly biased, and destroys the information that a whole batch was good or bad."
+    - "Measure gradient signal-to-noise first — it says whether variance is your bottleneck at all — then explained variance, before touching $\\lambda$."
+interview:
+  answer: >-
+    I'd start by refusing the usual framing, because "policy gradients have high
+    variance" is true and not actionable. The variance has four separable
+    sources and each standard technique removes a different one. First, rewards
+    collected before the action: an action at time t can't have influenced a
+    reward at t minus five, so in expectation that term contributes exactly zero
+    and it contributes a full share to the noise. Weighting by return-to-go
+    instead of the full episode return drops it, and costs nothing. Second, the
+    state's own value. In a good state every action produces a large return, and
+    that component is about where you were rather than what you did — it swamps
+    the part you care about. Subtracting a baseline removes it, and that's also
+    free, because the expected score function times any state-dependent quantity
+    is zero. Third, the randomness of everything after the action — transitions
+    and rewards accumulating over the horizon. That's what bootstrapping
+    truncates, and it's the only one of the three that buys its reduction with
+    bias, which is exactly why lambda is the only one of these choices that has
+    a dial. Fourth, the action sampling itself, which is irreducible for a
+    stochastic policy. The thing I'd add, because it usually gets lumped in with
+    the others, is that per-batch advantage normalisation isn't a variance
+    reduction at all. It doesn't shrink any of those four terms — it rescales
+    the whole distribution so the effective step size stays stable as the reward
+    scale drifts. That's valuable and it's a different problem. It's also mildly
+    biased, because you're subtracting a batch mean computed from the same
+    samples, so it's correlated with them and the baseline proof doesn't apply.
+    And it has a cost people rarely state: an all-good batch and an all-bad
+    batch produce identical weights after centring and rescaling, so the
+    information that the whole batch went well is destroyed. In sparse-reward or
+    early-termination environments whole batches are routinely one-signed, and
+    that's your main signal. So practically, the first thing I'd measure isn't
+    lambda — it's a gradient signal-to-noise ratio, the norm of the mean
+    gradient over minibatches against the mean of the norms, because that says
+    whether variance is the bottleneck at all. Then explained variance, because
+    a critic near zero isn't removing the state-value term, it's adding noise,
+    and lowering lambda then leans harder on exactly the thing that's failing.
+  followUps:
+    - q: "How would you actually attribute the variance rather than guess?"
+      a: >-
+        Recompute the same stored batch's gradient under each weighting — full
+        return, return-to-go, baselined, GAE — and compare the signal-to-noise
+        across minibatches. Two training runs differ in every subsequent step,
+        so that comparison confounds the estimator with the whole divergent
+        trajectory and needs many seeds to say anything; recomputing on a fixed
+        batch changes exactly one thing and costs a forward-backward pass. It's
+        the same pairing logic as evaluating two policies on identical scenes.
+        The pattern I'd expect is a big jump from full return to return-to-go,
+        a bigger one to baselined, and a smaller one to GAE — and if the
+        baseline row doesn't improve things, that's diagnostic on its own: the
+        critic isn't subtracting the state value, it's subtracting noise.
+    - q: "Why is the optimal baseline not exactly the value function?"
+      a: >-
+        If you differentiate the variance of the score function times the
+        centred return with respect to the baseline and set it to zero, you get
+        the return weighted by the squared norm of the score function, over the
+        expected squared norm — so states where the gradient is more sensitive
+        count more. The value function drops that weighting. It's a small loss
+        in optimality and an enormous simplification, because V is a quantity
+        you can fit with a network from data you already have, and the optimal
+        baseline requires estimating a score-weighted expectation. It's worth
+        knowing because it explains why the baseline is a choice rather than a
+        derivation — and why alternatives keep getting proposed, including
+        action-dependent ones, which turned out not to survive controlled
+        comparison.
+    - q: "What happened with action-dependent baselines?"
+      a: >-
+        It's a natural idea — if a state-dependent baseline helps, a state-and-
+        action-dependent one should help more — and it's unbiased provided you
+        add a correction term restoring what the action dependence broke.
+        Several methods reported gains and a careful reanalysis attributed them
+        to implementation differences and bugs rather than to the mechanism. The
+        specific failure worth carrying is that the correction has to be
+        *estimated*, and estimating it introduces variance of its own,
+        potentially more than the baseline removed. So a variance-reduction
+        scheme that needs an extra estimated quantity can be net negative. The
+        general lesson is about attribution: when something reports an
+        improvement, the question is whether it came from the claimed mechanism,
+        and the only way to find out is to hold everything else constant.
+    - q: "When would you not normalise advantages?"
+      a: >-
+        When whole batches are routinely one-signed, which happens with sparse
+        rewards or aggressive early termination — there, per-batch centring is
+        discarding the main signal, and the symptom is a policy that simply
+        won't improve while every other diagnostic looks fine. I'd catch it by
+        logging the raw advantage mean and the fraction positive before
+        normalisation, since after normalisation that information is gone by
+        construction. The fix isn't to drop normalisation entirely, because the
+        step-size drift it fixes is real — it's to use a running normaliser with
+        statistics accumulated across batches, which stabilises the scale
+        without destroying the across-batch level. Slower to adapt, and it keeps
+        the signal.
+  traps:
+    - "Saying 'policy gradients are high variance' without decomposing it. The sources have different fixes and only one of them costs bias."
+    - "Listing advantage normalisation among the variance reductions. It addresses step-size drift, is mildly biased, and destroys across-batch level information."
+    - "Lowering $\\lambda$ when the critic is bad. That leans harder on the component that is failing; raise it, or fix the critic."
+    - "Claiming a baseline must be the value function. The variance-minimising baseline is a score-norm-weighted return; $V$ is the estimable approximation."
+check:
+  - id: ae_l5_c1
+    prompt: "A run is noisy and directionless. Explained variance is 0.05. A colleague proposes lowering $\\lambda$ from 0.95 to 0.8. What do you say?"
+    options:
+      - "Agree — lower $\\lambda$ reduces variance"
+      - "Push back: $\\lambda$ is a trust setting for the critic, and at 0.05 explained variance the critic is barely better than predicting the mean. Lowering $\\lambda$ feeds more of the failing component into every advantage — fix the critic, or raise $\\lambda$ to depend on it less"
+      - "Suggest a larger batch size instead"
+      - "Suggest reducing the learning rate"
+    answer: 1
+    explanation: "The proposal has the direction backwards, and the reason is worth stating: bootstrapping buys variance reduction by substituting the critic's estimate for observed rewards, so its value depends entirely on the critic being right. At near-zero explained variance the substitution replaces real signal with noise. The correct move is either to fix the critic — capacity, target normalisation, learning rate — or to raise $\\lambda$ toward Monte Carlo, where a wrong critic costs only variance and no bias."
+  - id: ae_l5_c2
+    prompt: "Your sparse-reward task produces batches that are almost entirely one-signed, and learning has stalled. What is the likely mechanism?"
+    options:
+      - "The learning rate is too low"
+      - "Per-batch advantage normalisation is centring each batch on its own mean, so an all-good and an all-bad batch produce identical weights — the level information that carries your signal is being destroyed before the update"
+      - "The discount factor is too small"
+      - "The entropy bonus is too high"
+    answer: 1
+    explanation: "This is the specific case where per-batch normalisation is actively harmful, and it is invisible after normalisation by construction — which is why logging the raw advantage mean and fraction positive matters. The remedy is not to abandon normalisation, since the step-size drift it fixes is real, but to accumulate statistics across batches with a running normaliser: the scale stays stable and the across-batch level survives."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Poor $\lambda$ choice creates either bias or variance problems. With $\lambda$ too low ($< 0.8$): heavy bias from an inaccurate value function, policy converges to suboptimal behavior. With $\lambda$ too high ($> 0.99$): high variance slows learning, especially in long-horizon tasks. Also: GAE assumes $V_\phi$ is reasonably accurate — if the critic is poorly trained (too few updates, bad architecture), all advantage estimates are corrupted. Fix: train value function for more epochs than policy (e.g., 5 vs 1), use $\lambda = 0.95$ as robust default.
+<Steps>
+<Step title="Noisy and directionless → measure gradient SNR first">
+The norm of the mean minibatch gradient over the mean of the norms. Near
+$1/\sqrt{k}$ means the minibatch gradients are cancelling and variance really is
+your problem; near 1 means look elsewhere.
+</Step>
 
-## Interview-ready answer
+<Step title="SNR low and explained variance low → fix the critic, do not touch $\lambda$">
+The baseline is not removing the state-value term. Lowering $\lambda$ leans
+harder on the failing component.
+</Step>
 
-GAE is the standard advantage estimator in modern policy gradient methods. It computes $\hat{A}_t = \sum_l (\gamma\lambda)^l \delta_{t+l}$, which is an exponentially-weighted average of $n$-step returns. The $\lambda$ parameter controls the bias-variance trade-off: $\lambda = 0$ gives the one-step TD residual $\delta_t = r + \gamma V(s') - V(s)$ (high bias, low variance), $\lambda = 1$ gives Monte Carlo (low bias, high variance). In practice, $\lambda = 0.95$ with $\gamma = 0.99$ is nearly universal. Implementation is efficient via backward recursion: $\hat{A}_t = \delta_t + \gamma\lambda \hat{A}_{t+1}$. The quality of GAE estimates depends critically on the value function approximation — always normalize advantages per minibatch and ensure the critic is well-trained.
+<Step title="Learning stalled, batches one-signed → normalisation is eating the signal">
+Log the raw advantage mean and fraction positive before normalisation. Switch to
+a running normaliser.
+</Step>
+
+<Step title="Effective step size drifting over training → that is normalisation's job">
+Not variance. Different symptom, different fix, and it is why normalisation is
+worth having despite its costs.
+</Step>
+
+<Step title="Weight includes rewards before the action → free win available">
+Return-to-go instead of the full return. No bias, immediate variance reduction,
+and it still appears in reimplementations.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The move that distinguishes this answer is refusing the aggregate. Everyone says
+policy gradients are high-variance; almost nobody separates the sources, and the
+separation is what makes the answer actionable — it tells you which fixes are
+free, which one costs bias, and which "fix" is not addressing variance at all.
+Adding the point that per-batch normalisation is mildly biased and destroys
+across-batch level information is the detail that reads as having debugged one of
+these rather than configured one.
+</Warning>

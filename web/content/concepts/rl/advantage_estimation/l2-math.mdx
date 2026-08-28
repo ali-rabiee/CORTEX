@@ -1,25 +1,228 @@
 ---
 concept: advantage_estimation
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Generalized Advantage Estimation (GAE),
-    including the key equations.
+  prompt: "Decompose the variance of the policy-gradient estimator. Prove the baseline is a control variate, and show why per-batch normalisation is biased."
   keyPoints:
-    - "GAE provides a family of advantage estimators parameterized by $\\lambda
-      \\in [0,1]$ that interpolate between high-bias/low-variance (TD residual,
-      $\\lambda=0$) and low-bias/high-variance (Monte Carlo, $\\lambda=1$):
-      $$\\hat{A}_t^{\\text{GAE}(\\gamma,\\lambda)} = \\sum_{l=0}^{\\infty}
-      (\\gamma\\lambda)^l \\delta_{t+l}, \\quad \\text{where} \\quad \\delta_t =
-      r_t + \\gamma V_\\phi(s_{t+1}) - V_\\phi(s_t)$$ This is the
-      exponentially-weighted average of $n$-step advantage estimators
-      $\\hat{A}_t^{(n)}$."
-    - The bias comes from the value function approximation error $V_\phi \neq
-      V^\pi$; the variance from summing stochastic rewards over long horizons.
-check: []
-papers: []
+    - "The estimator is $\\hat g = \\sum_t \\nabla\\log\\pi_\\theta(a_t\\mid s_t)\\,\\Psi_t$; the choice of $\\Psi_t$ is the entire design space and every option is unbiased except the bootstrapped ones."
+    - "A baseline is a control variate: $\\operatorname{Var}[\\hat g] $ is minimised by $b^*(s) \\approx \\mathbb{E}[\\|\\nabla\\log\\pi\\|^2 G]/\\mathbb{E}[\\|\\nabla\\log\\pi\\|^2]$, a norm-weighted value — $V(s)$ is the practical approximation."
+    - "Per-batch normalisation subtracts a *random* quantity computed from the same samples, so it correlates with them and the estimator is biased; the bias is $O(1/n)$ in batch size and it destroys across-batch level information."
+    - "Off-policy advantage estimation needs importance corrections, and the whole design of V-trace and Retrace is about bounding the variance those corrections introduce."
+check:
+  - id: ae_l2_c1
+    prompt: "Why is the variance-minimising baseline not exactly $V^\\pi(s)$?"
+    options:
+      - "Because $V^\\pi$ is unknown"
+      - "Because minimising the variance of $\\nabla\\log\\pi\\,(G - b)$ weights states by $\\|\\nabla\\log\\pi\\|^2$, giving a score-norm-weighted expected return rather than the plain expectation — $V^\\pi$ is the approximation you use because it is estimable"
+      - "Because the baseline must be smaller than $V^\\pi$ for stability"
+      - "It is exactly $V^\\pi$; the claim is false"
+    answer: 1
+    explanation: "Differentiating the variance with respect to $b$ and setting to zero gives $b^* = \\mathbb{E}[\\|\\nabla\\log\\pi\\|^2 G]/\\mathbb{E}[\\|\\nabla\\log\\pi\\|^2]$ — the return weighted by how strongly each sample influences the gradient. $V^\\pi$ drops the weighting, which is a small loss and an enormous simplification, since $V^\\pi$ is a quantity you can fit with a network and the optimal one is not. Worth knowing because it explains why the baseline is a *choice* rather than a derivation, and why alternatives keep getting proposed."
+  - id: ae_l2_c2
+    prompt: "Per-batch advantage normalisation subtracts the batch mean. Why does that bias the estimator when subtracting $V(s_t)$ does not?"
+    options:
+      - "It does not; both are unbiased"
+      - "$V(s_t)$ is a function of the state alone and independent of the sampled action, so $\\mathbb{E}[\\nabla\\log\\pi \\cdot V(s)] = 0$. The batch mean is computed from the same samples, so it is correlated with them and the expectation no longer vanishes"
+      - "Because the batch mean is not a function of the state"
+      - "Because division by the standard deviation is nonlinear"
+    answer: 1
+    explanation: "The baseline proof requires the subtracted quantity to be independent of the action being scored — that is what lets it factor out of $\\sum_a \\pi(a\\mid s)$ and multiply $\\nabla 1 = 0$. A statistic computed from the batch includes the very sample it is being subtracted from, breaking the independence. The bias is $O(1/n)$ so it is small at realistic batch sizes, and the division by the standard deviation (option 4) adds a second, separate source — both are real and the correlation is the primary one."
+  - id: ae_l2_c3
+    prompt: "V-trace clips importance ratios with two separate thresholds, $\\bar\\rho$ and $\\bar c$. Why two?"
+    options:
+      - "One for the numerator and one for the denominator"
+      - "They control different things: $\\bar\\rho$ bounds *which* policy's value function the estimator converges to, and $\\bar c$ bounds the variance of the multiplied ratios along the trace"
+      - "One is for the policy and one for the critic"
+      - "For numerical stability at different magnitudes"
+    answer: 1
+    explanation: "The separation is the design insight. The trace involves a product of ratios over multiple steps, and products of unbounded ratios have exploding variance — $\\bar c$ caps that. Separately, the leading ratio determines the fixed point: with $\\bar\\rho = \\infty$ you converge to the target policy's value, and clipping it moves the fixed point toward the behaviour policy's. Two knobs because they trade different things, and collapsing them would force you to accept a variance bound and a fixed-point shift together."
 ---
 
-## Formal definition
+## The estimator and its one free choice
 
-GAE provides a family of advantage estimators parameterized by $\lambda \in [0,1]$ that interpolate between high-bias/low-variance (TD residual, $\lambda=0$) and low-bias/high-variance (Monte Carlo, $\lambda=1$): $$\hat{A}_t^{\text{GAE}(\gamma,\lambda)} = \sum_{l=0}^{\infty} (\gamma\lambda)^l \delta_{t+l}, \quad \text{where} \quad \delta_t = r_t + \gamma V_\phi(s_{t+1}) - V_\phi(s_t)$$ This is the exponentially-weighted average of $n$-step advantage estimators $\hat{A}_t^{(n)}$. The bias comes from the value function approximation error $V_\phi \neq V^\pi$; the variance from summing stochastic rewards over long horizons.
+Every policy-gradient method computes
+
+$$
+\hat g = \frac{1}{N}\sum_{i=1}^{N}\sum_{t}
+\nabla_\theta \log \pi_\theta(a_t^i \mid s_t^i)\; \Psi_t^i
+$$
+
+and differs only in $\Psi_t$. The menu, all unbiased for the same gradient except
+where noted:
+
+| $\Psi_t$ | what it is | bias |
+| --- | --- | --- |
+| $G(\tau)$ | full trajectory return | none |
+| $G_t$ | return-to-go | none |
+| $G_t - b(s_t)$ | baselined return | none, for any $b$ not depending on $a_t$ |
+| $\hat A^{(n)}_t$ | $n$-step advantage | yes, via the bootstrap |
+| $\hat A^{\text{GAE}}_t$ | exponentially averaged | yes, for $\lambda < 1$ |
+
+<KeyIdea>
+Three of the five are free. Only the bootstrapped rows trade bias for variance,
+which is why $\lambda$ is the only one of these choices that has a dial — the
+others are strictly-better substitutions you should always make.
+</KeyIdea>
+
+## Causality, and why it costs nothing
+
+<Derivation title="Past rewards contribute zero in expectation">
+
+Expand $G(\tau) = \sum_{t'} \gamma^{t'} r_{t'}$ and take a cross term with
+$t' < t$:
+
+$$
+\mathbb{E}\big[\nabla_\theta\log\pi_\theta(a_t\mid s_t)\; r_{t'}\big]
+$$
+
+Condition on the history up to time $t$. Then $r_{t'}$ is already determined and
+comes out of the inner expectation as a constant:
+
+$$
+= \mathbb{E}\Big[r_{t'}\;\underbrace{\mathbb{E}_{a_t\sim\pi_\theta}\big[\nabla_\theta\log\pi_\theta(a_t\mid s_t)\big]}_{=\;\nabla_\theta\sum_a \pi_\theta(a\mid s_t)\;=\;\nabla_\theta 1\;=\;0}\Big] = 0
+$$
+
+So each past reward contributes nothing to the gradient and a full share to the
+variance. Dropping them is free.
+
+</Derivation>
+
+## The baseline as a control variate
+
+<Derivation title="The variance-minimising baseline, and why we use $V^\pi$ instead">
+
+Write $u = \nabla_\theta\log\pi_\theta(a\mid s)$ and consider the single-term
+estimator $u(G - b)$. Its expectation does not depend on $b$ (previous
+derivation), so minimising variance is minimising the second moment:
+
+$$
+\mathcal{V}(b) = \mathbb{E}\big[\|u\|^2 (G-b)^2\big]
+$$
+
+Differentiate and set to zero:
+
+$$
+\frac{\mathrm{d}\mathcal{V}}{\mathrm{d}b} = -2\,\mathbb{E}\big[\|u\|^2 (G - b)\big] = 0
+\quad\Longrightarrow\quad
+\boxed{\;b^* = \frac{\mathbb{E}\big[\|u\|^2\,G\big]}{\mathbb{E}\big[\|u\|^2\big]}\;}
+$$
+
+**Read it.** The optimal baseline is the return weighted by *how strongly each
+sample moves the gradient* — states where the score function is large count more.
+
+**Why $V^\pi(s)$ instead.** Dropping the $\|u\|^2$ weighting gives
+$b = \mathbb{E}[G\mid s] = V^\pi(s)$: not optimal, and estimable with a network
+from data you already have. The optimal one requires estimating a score-weighted
+expectation, which is a harder problem for a small gain.
+
+**The variance reduction achieved.** Writing $A = G - V$, the second moment falls
+from $\mathbb{E}[\|u\|^2 G^2]$ to $\mathbb{E}[\|u\|^2 A^2]$. When the state value
+dominates the advantage — a good state where every action returns a lot — that
+ratio is enormous, which is why the baseline is the single largest free win.
+
+</Derivation>
+
+<Warning>
+The proof requires $b$ to be **independent of the action being scored**. That is
+what lets it factor out of $\sum_a \pi_\theta(a\mid s)$ and multiply
+$\nabla_\theta 1 = 0$. An action-dependent baseline breaks this and leaves a
+residual term that must be corrected explicitly — and when the correction is
+included and the comparison is run carefully, the reported gains from
+action-dependent baselines have been traced to implementation differences rather
+than to the baseline itself.
+</Warning>
+
+## Per-batch normalisation: a different animal
+
+The standard implementation computes, over a batch of size $n$,
+
+$$
+\tilde A_i = \frac{\hat A_i - \hat\mu}{\hat\sigma + \epsilon},
+\qquad
+\hat\mu = \frac1n\sum_j \hat A_j,
+\qquad
+\hat\sigma^2 = \frac1n\sum_j (\hat A_j - \hat\mu)^2
+$$
+
+<Derivation title="Why this is biased, and what it actually does">
+
+**The bias.** The baseline proof needs the subtracted quantity to be independent
+of the sample it is subtracted from. Here $\hat\mu$ is computed *from* the batch
+and includes $\hat A_i$ itself, so
+
+$$
+\mathbb{E}\big[u_i(\hat A_i - \hat\mu)\big] \ne \mathbb{E}\big[u_i \hat A_i\big]
+$$
+
+because $u_i$ and $\hat\mu$ are correlated through $\hat A_i$. The contribution of
+sample $i$ to $\hat\mu$ is $\hat A_i/n$, so the bias is $O(1/n)$ — small at
+realistic batch sizes, and not zero. Dividing by $\hat\sigma$ adds a second,
+separate source of the same kind.
+
+**What it accomplishes.** The advantage scale drifts over training as the policy
+improves and returns grow. With a fixed learning rate, the effective step size
+drifts with it. Normalisation pins the weight distribution to zero mean and unit
+variance, so the effective step size is stable — which is a *step-size* fix, not
+a variance reduction.
+
+**What it destroys.** Consider two batches, one where every advantage is about
+$+2$ and one where every advantage is about $-2$. After centring, both have mean
+zero; after scaling by their own standard deviations, both have the same spread.
+The two batches produce **identical** weight distributions.
+
+The information that one batch was uniformly good and the other uniformly bad is
+gone. Within a batch, relative ordering survives — which is why it works at all —
+but you are now optimising *relative advantage within batches* rather than the
+policy gradient.
+
+</Derivation>
+
+<KeyIdea>
+Usually a good trade, and the reason to know you made it is diagnostic: if your
+environment has episodes that are wholly good or wholly bad — sparse success,
+early termination — then per-batch normalisation is discarding your main signal.
+That failure looks like a policy that will not improve, and no amount of tuning
+$\lambda$ addresses it.
+</KeyIdea>
+
+## Off-policy: the correction's own variance
+
+When the data comes from a behaviour policy $\mu \neq \pi$, unbiasedness needs
+importance weights, and the naive product over a trajectory has variance
+exponential in the horizon.
+
+V-trace repairs this with **two separate clipping thresholds**:
+
+$$
+\rho_t = \min\!\Big(\bar\rho,\ \tfrac{\pi(a_t\mid s_t)}{\mu(a_t\mid s_t)}\Big),
+\qquad
+c_t = \min\!\Big(\bar c,\ \tfrac{\pi(a_t\mid s_t)}{\mu(a_t\mid s_t)}\Big)
+$$
+
+$$
+v_t = V(s_t) + \sum_{k \ge t}\gamma^{k-t}
+\Big(\textstyle\prod_{i=t}^{k-1} c_i\Big)\,\rho_k\,\delta_k
+$$
+
+<Steps>
+<Step title="$\bar c$ bounds the variance">
+The $c_i$ appear in a *product* along the trace, and unbounded products explode.
+Clipping them caps how much a single unlikely action can dominate the estimate.
+</Step>
+
+<Step title="$\bar\rho$ bounds the fixed point">
+The leading $\rho_k$ determines which policy's value function the estimator
+converges to. With $\bar\rho = \infty$ it is the target policy's; clipping moves
+the fixed point toward the behaviour policy's.
+</Step>
+</Steps>
+
+<Warning>
+Two thresholds because they trade different things. Collapsing them into one
+forces you to accept a variance bound and a fixed-point shift together, when you
+may want a tight variance bound and a fixed point close to the target policy. It
+is the same shape of design as GAE's $\lambda$ — a knob whose two ends are
+different failure modes — and recognising that shape is more useful than
+memorising either formula.
+</Warning>

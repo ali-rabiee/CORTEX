@@ -1,0 +1,226 @@
+---
+concept: advantage_estimation
+level: 3
+status: final
+recall:
+  prompt: "Instrument a policy-gradient run to attribute its variance. What do you measure, and what does each measurement tell you to change?"
+  keyPoints:
+    - "Measure the gradient's signal-to-noise directly: the norm of the mean gradient over minibatches against the mean of the norms. It is the number that says whether variance is your problem at all."
+    - "Attribute by ablation on the *estimator*, not the algorithm: recompute the same batch's gradient under full return, return-to-go, baselined, and GAE, and compare their variances."
+    - "Log explained variance before touching $\\lambda$ — a critic near zero is adding noise rather than removing the state-value term."
+    - "Track the advantage distribution's raw mean and scale before normalisation. All-positive or all-negative batches are the case normalisation silently destroys."
+check:
+  - id: ae_l3_c1
+    prompt: "How do you tell whether gradient variance is actually your bottleneck?"
+    options:
+      - "Look at the loss curve"
+      - "Compute a gradient signal-to-noise ratio: split the batch into minibatches, compare the norm of the mean gradient against the mean of the per-minibatch norms — near zero means the minibatch gradients are cancelling and you are averaging noise"
+      - "Check the entropy"
+      - "Compare against a random policy"
+    answer: 1
+    explanation: "The ratio $\\|\\bar g\\| / \\overline{\\|g\\|}$ is close to 1 when the minibatch gradients agree and close to $1/\\sqrt{k}$ when they are pure noise, so it directly measures whether you have a consistent direction. The policy-gradient loss value is meaningless — it is a surrogate whose magnitude carries no information — so the loss curve cannot answer this. This one number tells you whether to spend effort on variance reduction or on something else entirely."
+  - id: ae_l3_c2
+    prompt: "You want to know how much your baseline is buying. What is the cheapest measurement?"
+    options:
+      - "Train two runs, with and without"
+      - "Recompute the gradient on the *same* stored batch under both weightings and compare the variance across minibatches — no retraining, no confounding, and it isolates the estimator from everything else"
+      - "Compare final success rates"
+      - "Measure the critic's loss"
+    answer: 1
+    explanation: "Two training runs differ in every subsequent step, so the comparison confounds the estimator choice with the entire divergent trajectory — and needs many seeds to say anything. Recomputing on a fixed batch changes exactly one thing and costs a forward-backward pass. This is the same pairing logic as evaluating two policies on identical scenes: hold everything constant except the variable you are studying."
+  - id: ae_l3_c3
+    prompt: "Why log the raw advantage mean and scale *before* normalisation?"
+    options:
+      - "To verify the normalisation code is correct"
+      - "Because a batch that is uniformly positive or uniformly negative is exactly the case per-batch normalisation destroys — after normalisation both look identical, and the raw statistics are the only place that information survives"
+      - "To set the learning rate"
+      - "Because normalised advantages are always zero-mean and therefore uninformative"
+    answer: 1
+    explanation: "Normalisation centres each batch on its own mean, so an all-good batch and an all-bad batch produce identical weight distributions and the level information is gone. In environments with sparse success or early termination, whole batches routinely come out one-signed — and that is your main signal. Logging the raw mean is how you notice; if it is frequently far from zero, per-batch normalisation is the wrong choice and a running normaliser is the fix."
+---
+
+## Is variance actually your problem?
+
+<CodeWalk title="Gradient signal-to-noise, in one function">
+
+```python title="diagnose.py"
+import torch
+
+def gradient_snr(policy, batch, loss_fn, n_splits=8):
+    """||mean gradient|| / mean(||gradient||) over minibatches.
+
+    Near 1: the minibatch gradients agree and you have a consistent direction.
+    Near 1/sqrt(n_splits): they are cancelling and you are averaging noise.
+
+    The policy-gradient LOSS value cannot tell you this — it is a surrogate
+    whose magnitude carries no information. This can.
+    """
+    grads = []
+    for chunk in batch.split(n_splits):
+        policy.zero_grad()
+        loss_fn(policy, chunk).backward()
+        grads.append(torch.cat([
+            p.grad.flatten().clone() for p in policy.parameters() if p.grad is not None
+        ]))
+
+    G = torch.stack(grads)
+    return (G.mean(0).norm() / G.norm(dim=1).mean()).item()
+```
+
+</CodeWalk>
+
+Run this before optimising anything. A ratio near 1 means variance is not your
+bottleneck and you should be looking at exploration, reward, or the state
+representation instead.
+
+## Attribute the variance to a source
+
+<CodeWalk title="Ablate the estimator on a fixed batch">
+
+```python title="attribute.py"
+def estimator_variance_table(policy, rollout, critic, gamma=0.99, lam=0.95):
+    """Recompute the SAME batch's gradient under four weightings.
+
+    Two training runs differ in every subsequent step, so that comparison
+    confounds the estimator with the whole divergent trajectory. This changes
+    exactly one thing.
+    """
+    r, v, done = rollout.rewards, critic(rollout.obs), rollout.dones
+
+    weights = {
+        "full_return":   full_return(r, gamma).expand_as(r),   # includes past rewards
+        "return_to_go":  returns_to_go(r, gamma, done),        # causality: free
+        "baselined":     returns_to_go(r, gamma, done) - v,    # baseline: free
+        "gae":           gae(r, v, done, gamma, lam),          # bootstrap: costs bias
+    }
+
+    out = {}
+    for name, psi in weights.items():
+        out[name] = {
+            "snr": gradient_snr(policy, rollout.with_weights(psi.detach()), pg_loss),
+            "weight_std": float(psi.std()),
+            "weight_mean": float(psi.mean()),
+        }
+    return out
+```
+
+</CodeWalk>
+
+<KeyIdea>
+The expected pattern is a large jump from `full_return` to `return_to_go`, a
+larger one to `baselined`, and a smaller one to `gae`. If the baseline row does
+*not* improve things, your critic is not removing the state-value term — it is
+adding noise of its own, and $\lambda$ is the wrong knob to reach for.
+</KeyIdea>
+
+## Check the critic before the dial
+
+```python title="critic_health.py"
+@torch.no_grad()
+def explained_variance(values, returns):
+    """1.0 perfect, 0.0 no better than predicting the mean, <0 actively worse.
+
+    A critic near zero is not subtracting the state value — it is subtracting
+    noise. Lowering lambda then leans harder on exactly the failing component.
+    """
+    var_r = returns.var()
+    return float("nan") if var_r == 0 else (1 - (returns - values).var() / var_r).item()
+```
+
+<Warning>
+The ordering matters. Explained variance below about 0.3 means the baseline is
+not doing its job, and the correct response is to fix the critic — capacity,
+target normalisation, learning rate — or to *raise* $\lambda$ so you depend on it
+less. Lowering $\lambda$ is the intuitive move and the wrong one, because it
+feeds more of the failing component into every advantage.
+</Warning>
+
+## Normalisation: log what it destroys
+
+<CodeWalk title="Raw statistics before, and a running alternative">
+
+```python title="normalize.py"
+class AdvantageNormalizer:
+    """Per-batch normalisation centres each batch on its OWN mean, so an
+    all-good batch and an all-bad batch produce identical weights. In sparse-
+    reward or early-termination environments whole batches are routinely
+    one-signed — and that is the signal being discarded.
+    """
+
+    def __init__(self, mode="batch", decay=0.99):
+        self.mode, self.decay = mode, decay
+        self.run_mean, self.run_var, self.inited = 0.0, 1.0, False
+
+    def __call__(self, adv, metrics):
+        # Log the RAW statistics: this is the only place the level survives.
+        metrics["adv_raw_mean"] = float(adv.mean())
+        metrics["adv_raw_std"] = float(adv.std())
+        metrics["adv_frac_positive"] = float((adv > 0).float().mean())
+
+        if self.mode == "batch":
+            return (adv - adv.mean()) / (adv.std() + 1e-8)
+
+        # Running normalisation: fixes the scale drift without destroying the
+        # across-batch level, at the cost of a slower-adapting scale.
+        m, v = float(adv.mean()), float(adv.var())
+        if not self.inited:
+            self.run_mean, self.run_var, self.inited = m, v, True
+        else:
+            self.run_mean = self.decay * self.run_mean + (1 - self.decay) * m
+            self.run_var = self.decay * self.run_var + (1 - self.decay) * v
+        return (adv - self.run_mean) / (self.run_var ** 0.5 + 1e-8)
+```
+
+</CodeWalk>
+
+`adv_frac_positive` is the metric that catches this. Values near 0 or 1 mean the
+batch was one-signed, and if that happens often, per-batch normalisation is
+throwing away your main signal — switch to the running mode and watch whether
+learning starts.
+
+## Off-policy, when actors lag
+
+```python title="vtrace.py"
+def vtrace(rewards, values, bootstrap_value, log_rho, gamma,
+           clip_rho=1.0, clip_c=1.0, dones=None):
+    """Two thresholds because they bound different things:
+      clip_c  -- caps the PRODUCT along the trace, whose variance explodes
+      clip_rho-- caps the leading ratio, which sets the FIXED POINT
+    """
+    rho = torch.exp(log_rho).clamp(max=clip_rho)
+    c = torch.exp(log_rho).clamp(max=clip_c)
+
+    v_next = torch.cat([values[1:], bootstrap_value[None]])
+    nonterminal = 1.0 - dones if dones is not None else 1.0
+    delta = rho * (rewards + gamma * v_next * nonterminal - values)
+
+    acc, out = torch.zeros_like(bootstrap_value), torch.zeros_like(values)
+    for t in reversed(range(len(rewards))):
+        acc = delta[t] + gamma * c[t] * nonterminal[t] * acc
+        out[t] = acc
+    return values + out
+```
+
+## The instrumentation worth keeping permanently
+
+<Steps>
+<Step title="Gradient SNR">
+Says whether variance is the bottleneck at all. Cheap enough to log every N
+updates.
+</Step>
+
+<Step title="Explained variance">
+Says whether the baseline is functioning. Everything downstream depends on it,
+and it is the first thing to check when a run is directionless.
+</Step>
+
+<Step title="Raw advantage mean and fraction positive">
+Says whether normalisation is destroying your signal. Invisible after
+normalisation by construction.
+</Step>
+
+<Step title="Clip fraction and empirical KL, if using PPO">
+Says whether the step size is the problem rather than the estimator. Different
+symptom, different fix, and easy to confuse with a variance problem.
+</Step>
+</Steps>

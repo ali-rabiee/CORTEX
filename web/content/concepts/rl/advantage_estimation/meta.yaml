@@ -1,12 +1,15 @@
 id: advantage_estimation
-title: Generalized Advantage Estimation (GAE)
+title: Advantage Estimation — Variance Accounting
 domain: rl
-summary: Imagine estimating how good a chess move was.
+summary: Policy-gradient variance comes from four separable sources, and each
+  standard technique removes a different one. Knowing which is which is what
+  turns a list of tricks into a diagnosis.
 tags:
   - rl
 difficulty: 3
 importance: 5
 related_concept_ids:
+  - gae
   - value_functions
   - policy_gradients
   - ppo_clipping

@@ -1,24 +1,161 @@
 ---
 concept: advantage_estimation
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Generalized Advantage Estimation (GAE) in plain language: what
-    is it, and why does it matter?"
+  prompt: "Where does policy-gradient variance actually come from, and which standard technique removes which source?"
   keyPoints:
-    - Imagine estimating how good a chess move was.
-    - You could look one step ahead (low variance but biased by your imperfect
-      position evaluator — that's $\lambda = 0$, the TD residual $\delta_t$).
-    - Or you could play out the entire game and use the actual outcome (unbiased
-      but high variance — that's $\lambda = 1$, Monte Carlo).
-check: []
-papers: []
+    - "Four separable sources: rewards collected *before* the action, the state's own value, the noise of everything after the action, and the action sampling itself."
+    - "Causality removes the first, a baseline removes the second, bootstrapping truncates the third. The fourth is irreducible for a stochastic policy."
+    - "Only the third fix costs bias. The first two are free — they change the estimator's variance and leave its expectation alone."
+    - "Per-batch advantage normalisation shrinks none of these; it rescales the whole thing, which is a different problem with a different and rarely-stated cost."
+media:
+  - kind: article
+    title: "Variance Reduction Techniques for Gradient Estimates in Reinforcement Learning"
+    url: https://www.jmlr.org/papers/v5/greensmith04a.html
+    source: "Greensmith, Bartlett, Baxter · JMLR"
+    note: "The treatment that puts all of this on one footing — baselines as control variates, with actual bounds. Predates deep RL entirely, which is why the accounting is cleaner than anything written since."
+  - kind: article
+    title: "The Mirage of Action-Dependent Baselines in Reinforcement Learning"
+    url: https://arxiv.org/abs/1802.10031
+    source: "Tucker, Bhupatiraju, Gu, Turner, Ghahramani, Levine"
+    note: "A careful demolition of a plausible-sounding idea, and a model of how to attribute a reported improvement to the right cause. Read it for the methodology as much as the conclusion."
+  - kind: article
+    title: "What Matters In On-Policy Reinforcement Learning? A Large-Scale Empirical Study"
+    url: https://arxiv.org/abs/2006.05990
+    source: "Andrychowicz et al., Google Brain"
+    note: "Thousands of runs over the choices that actually move on-policy RL. The advantage-normalisation findings are the empirical counterpart to the analysis here."
+check:
+  - id: ae_l1_c1
+    prompt: "Weighting an action by the full episode return includes rewards collected *before* that action. What is the effect?"
+    options:
+      - "It biases the gradient toward early actions"
+      - "It adds pure variance and no signal — those rewards cannot have been influenced by the action, so in expectation their contribution is zero, and all they do is make the weight noisier"
+      - "It correctly credits the action for setting up earlier rewards"
+      - "It has no effect because rewards are discounted"
+    answer: 1
+    explanation: "The expected contribution of a past reward times the score function is exactly zero, because conditioning on everything up to time $t$ makes the reward a constant and the expected score function vanishes. So it contributes nothing to the gradient in expectation and everything to its variance. Dropping it — weighting by the return-to-go instead — is the cheapest variance reduction available and costs no bias at all. Option 3 has the causality backwards."
+  - id: ae_l1_c2
+    prompt: "Which variance source does a baseline remove, and which does it leave alone?"
+    options:
+      - "It removes action-sampling noise and leaves reward noise"
+      - "It removes the state's own value — the component of the return that is about *where you were* rather than *what you did* — and leaves the noise of everything that happened after the action untouched"
+      - "It removes all sources equally"
+      - "It removes transition noise and leaves the state value"
+    answer: 1
+    explanation: "Subtracting $V(s_t)$ centres the weight on zero at each state, which strips out the part of the return that is common to every action from that state. In a good state, every action looks good under an un-baselined return; the baseline removes exactly that offset. What it cannot touch is the variance introduced by the random transitions and rewards *after* the action, since those genuinely differ between rollouts of the same action — that is what bootstrapping targets."
+  - id: ae_l1_c3
+    prompt: "Two batches, one where every advantage is around +2 and one where every advantage is around −2. After per-batch normalisation, how do their weights compare?"
+    options:
+      - "The first batch's weights are larger, preserving the difference"
+      - "They are essentially identical — normalisation centres and rescales each batch independently, so the information that one batch was uniformly good and the other uniformly bad is destroyed"
+      - "The second batch's weights are negated"
+      - "Normalisation does not change the relative weights within a batch"
+    answer: 1
+    explanation: "This is the cost of per-batch normalisation, and it is rarely stated. Centring each batch on its own mean means an all-good batch and an all-bad batch produce the same distribution of weights, so the update looks the same in both cases. Within a batch the *relative* ordering is preserved, which is why it works at all — but the estimator has stopped being an unbiased estimate of the policy gradient, and it is now optimising relative advantage within batches. Usually a good trade, and worth knowing you made it."
 ---
 
-## Intuition
+## Four sources, not one
 
-Imagine estimating how good a chess move was. You could look one step ahead (low variance but biased by your imperfect position evaluator — that's $\lambda = 0$, the TD residual $\delta_t$). Or you could play out the entire game and use the actual outcome (unbiased but high variance — that's $\lambda = 1$, Monte Carlo). GAE with $\lambda = 0.95$ is like mostly trusting the game outcome but slightly anchoring to your position evaluator at each step. The $(\gamma\lambda)^l$ weighting means distant TD residuals contribute exponentially less.
+"The policy gradient has high variance" is true and useless. The variance has
+identifiable components, each with its own fix, and knowing which is which turns
+a list of tricks into a diagnosis.
 
-## In practice
+<Figure src="/figures/advantage-variance-sources.svg"
+        alt="Four stacked bars showing the variance of the gradient weight shrinking as each technique is applied: full return, return-to-go, baseline-subtracted, and GAE. Each bar removes a differently-coloured segment."
+        caption="Each technique targets a different term, which is why stacking them is not redundant. Only the last one costs bias — and per-batch normalisation is not on this chart at all, because it rescales rather than shrinks." />
 
-In a PPO implementation for quadruped locomotion: collect rollouts of length $T=2048$, compute TD residuals $\delta_t = r_t + \gamma V_\phi(s_{t+1}) - V_\phi(s_t)$, then compute GAE advantages backwards: $\hat{A}_T = 0$, $\hat{A}_t = \delta_t + \gamma\lambda \hat{A}_{t+1}$. With $\gamma = 0.99$, $\lambda = 0.95$: the effective lookahead is $\frac{1}{1-\gamma\lambda} \approx 20$ steps. Normalize: $\hat{A} \leftarrow (\hat{A} - \mu)/\sigma$ per batch. Value targets: $V_{\text{target},t} = \hat{A}_t + V_\phi(s_t)$.
+<Steps>
+<Step title="Rewards collected before the action">
+An action at time $t$ cannot have influenced reward at time $t-5$. Including it
+in the weight contributes nothing in expectation and everything to the noise.
+</Step>
+
+<Step title="The state's own value">
+In a good state, every action produces a large return. That component is about
+*where you were*, not *what you did*, and it swamps the part you care about.
+</Step>
+
+<Step title="Everything random after the action">
+Transitions and rewards from $t$ onward are stochastic, and their noise
+accumulates over the horizon. This is the term that grows with episode length.
+</Step>
+
+<Step title="The action sampling itself">
+A stochastic policy samples the very actions it is trying to score. Irreducible
+— you can only average it down with more samples.
+</Step>
+</Steps>
+
+## The fixes, matched to their targets
+
+<KeyIdea>
+**Causality** drops the first: weight by the return *from* $t$ onward.
+**A baseline** removes the second: subtract $V(s_t)$ so the weight is centred.
+**Bootstrapping** truncates the third: replace the long random tail with a value
+estimate. Nothing touches the fourth.
+
+The first two are free — they change variance and leave the expectation exactly
+alone. Only the third buys its reduction with bias, which is why it is the one
+with a dial on it.
+</KeyIdea>
+
+<Intuition>
+You are judging chess moves by the eventual result of the game. Including moves
+played before this one is obviously noise. The strength of the position you
+inherited is a large effect that has nothing to do with your move. The randomness
+of everything your opponent does afterwards is real but distant. And your own
+tendency to play differently on different days is irreducible.
+
+An engine's positional evaluation is the baseline: it tells you how good the
+position already was, so what remains is your contribution.
+</Intuition>
+
+## The one that is not a variance reduction
+
+Almost every implementation normalises advantages per batch — subtract the batch
+mean, divide by the batch standard deviation. It is usually described alongside
+the others, and it is a different kind of thing.
+
+<Warning>
+Normalisation does not shrink any of the four terms. It rescales the whole
+weight distribution to zero mean and unit variance, which stabilises the
+*effective step size* as the reward scale drifts over training. That is a real
+and valuable effect, and it is not variance reduction.
+
+It also has a cost that is rarely stated. Centring each batch on its own mean
+means a batch where everything went well and a batch where everything went badly
+produce **identical** weight distributions — the information that the whole batch
+was good is destroyed. Within a batch the relative ordering survives, which is
+why it works; but the estimator is no longer an unbiased estimate of the policy
+gradient. It is optimising relative advantage within batches, which is usually a
+good trade and always worth knowing you made.
+</Warning>
+
+## Why this framing pays off
+
+When a run is noisy and directionless, "reduce the variance" is not actionable.
+The decomposition is.
+
+<Steps>
+<Step title="Is the weight the full return?">
+Then most of your variance is the first two terms, and both fixes are free. This
+is the largest available win and it costs nothing.
+</Step>
+
+<Step title="Is there a baseline, and is it any good?">
+A critic with near-zero explained variance is not removing the second term — it
+is adding noise of its own. Fix the critic before touching $\lambda$.
+</Step>
+
+<Step title="Are episodes long?">
+Then the third term dominates and $\lambda$ is your dial. But lowering it leans
+harder on the critic, so it is only the right move if the critic has earned it.
+</Step>
+
+<Step title="Is the run scale-drifting rather than noisy?">
+That is normalisation, not variance. Different symptom, different fix.
+</Step>
+</Steps>
+
+<WatchThis />

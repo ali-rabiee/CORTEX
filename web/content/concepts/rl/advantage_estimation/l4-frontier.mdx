@@ -1,0 +1,197 @@
+---
+concept: advantage_estimation
+level: 4
+status: final
+recall:
+  prompt: "How did the variance-reduction literature develop, and what does the action-dependent-baseline episode teach about evaluating a proposed improvement?"
+  keyPoints:
+    - "Greensmith et al. (2004) put baselines on a formal footing as control variates, with bounds, well before deep RL — the cleanest version of the accounting."
+    - "GAE (2015) unified the n-step family under one $\\lambda$ and made the bias-variance trade a single tunable dial."
+    - "V-trace (2018) and Retrace (2016) handle the off-policy case, and their design is entirely about bounding the variance the importance correction introduces."
+    - "The action-dependent baseline episode (2018) is the cautionary tale: a plausible idea, reported gains, and a careful reanalysis attributing them to implementation differences rather than the mechanism."
+papers:
+  - key: greensmith2004variance
+    title: "Variance Reduction Techniques for Gradient Estimates in Reinforcement Learning"
+    authors: "Evan Greensmith, Peter L. Bartlett, Jonathan Baxter"
+    venue: JMLR
+    year: 2004
+    url: https://www.jmlr.org/papers/v5/greensmith04a.html
+    takeaway: "Treats baselines and actor-critic corrections as additive control variates and derives bounds on the resulting variance — the formal account that everything since is an instance of."
+  - key: schulman2015gae
+    title: "High-Dimensional Continuous Control Using Generalized Advantage Estimation"
+    authors: "John Schulman, Philipp Moritz, Sergey Levine, Michael Jordan, Pieter Abbeel"
+    venue: ICLR
+    year: 2016
+    arxiv: "1506.02438"
+    takeaway: "Collapses the whole family of n-step advantage estimators into an exponentially weighted average computable in one backward pass, turning the bias-variance trade into a single dial."
+  - key: munos2016retrace
+    title: "Safe and Efficient Off-Policy Reinforcement Learning"
+    authors: "Rémi Munos, Tom Stepleton, Anna Harutyunyan, Marc G. Bellemare"
+    venue: NeurIPS
+    year: 2016
+    arxiv: "1606.02647"
+    takeaway: "Retrace: truncated importance weights that give a return estimator which is safe for arbitrary behaviour policies and efficient when the policies are close — the template for bounding correction variance."
+  - key: espeholt2018impala
+    title: "IMPALA: Scalable Distributed Deep-RL with Importance Weighted Actor-Learner Architectures"
+    authors: "Lasse Espeholt, Hubert Soyer, Rémi Munos, Karen Simonyan, Volodymyr Mnih, Tom Ward, et al."
+    venue: ICML
+    year: 2018
+    arxiv: "1802.01561"
+    takeaway: "V-trace, with two separate clipping thresholds — one bounding the fixed point the estimator converges to, the other bounding the variance of the product along the trace."
+  - key: tucker2018mirage
+    title: "The Mirage of Action-Dependent Baselines in Reinforcement Learning"
+    authors: "George Tucker, Surya Bhupatiraju, Shixiang Gu, Richard E. Turner, Zoubin Ghahramani, Sergey Levine"
+    venue: ICML
+    year: 2018
+    arxiv: "1802.10031"
+    takeaway: "Reanalyses several action-dependent baseline methods and attributes their reported gains to implementation details and bugs rather than to the mechanism — a model of how to check whether an improvement came from the claimed cause."
+  - key: andrychowicz2021matters
+    title: "What Matters In On-Policy Reinforcement Learning? A Large-Scale Empirical Study"
+    authors: "Marcin Andrychowicz, Anton Raichuk, Piotr Stańczyk, Manu Orsini, Sertan Girgin, Raphael Marinier, et al."
+    venue: ICLR
+    year: 2021
+    arxiv: "2006.05990"
+    takeaway: "Thousands of controlled runs over the choices that actually move on-policy RL, including advantage normalisation and $\\lambda$ — the empirical counterpart to the analytical accounting."
+check:
+  - id: ae_l4_c1
+    prompt: "Action-dependent baselines are unbiased *if* a correction term is included. What did the reanalysis find had actually produced the reported gains?"
+    options:
+      - "The correction term itself"
+      - "Implementation differences and bugs — including cases where the correction was estimated so noisily that it added variance, and where the compared baselines differed in unrelated ways"
+      - "A larger network in the proposed method"
+      - "The use of a different environment suite"
+    answer: 1
+    explanation: "The mechanism was sound in principle and did not survive controlled comparison. The specific failure worth remembering is that the correction term needed to restore unbiasedness has to be *estimated*, and estimating it introduces variance of its own — potentially more than the baseline removed. That is a general hazard: a variance-reduction scheme that requires estimating an extra quantity may be net negative, and only a controlled comparison at matched implementations reveals it."
+  - id: ae_l4_c2
+    prompt: "What do Retrace and V-trace have in common, structurally?"
+    options:
+      - "Both replace the value function with a Q function"
+      - "Both are backward recursions over TD residuals with truncated importance weights, designed so the product along the trace cannot explode — the same shape as GAE with corrections folded in"
+      - "Both require the behaviour policy to be known exactly"
+      - "Both are on-policy methods"
+    answer: 1
+    explanation: "Seeing them as GAE's off-policy siblings is the useful framing: same backward accumulation of discounted TD residuals, with per-step importance ratios inserted and clipped. The clipping exists because the trace multiplies ratios, and an unbounded product has variance exponential in its length. Recognising the shared shape means a new off-policy estimator is placeable immediately — you ask what it clips and what that clipping costs."
+  - id: ae_l4_c3
+    prompt: "Andrychowicz et al. ran thousands of controlled runs. Why is that necessary for questions like advantage normalisation?"
+    options:
+      - "Because the effects are large and easy to measure"
+      - "Because the effects are comparable in size to seed-to-seed variation, so a handful of runs cannot distinguish them — and the choices interact, so studying one at a time in an uncontrolled codebase produces contradictory folklore"
+      - "Because normalisation only matters at scale"
+      - "Because the theory gives no guidance at all"
+    answer: 1
+    explanation: "This is the same signal-to-noise problem that motivates careful evaluation generally, applied to implementation choices. The individual effects are real and modest, seed variance is large, and the choices interact — advantage normalisation behaves differently depending on $\\lambda$, the learning rate, and whether observations are normalised. Only a large controlled sweep separates them, which is why folklore about these settings was contradictory before someone paid for the compute."
+---
+
+## The accounting, done properly, before deep RL
+
+<PaperCard refKey="greensmith2004variance" />
+
+The formal treatment of baselines as **additive control variates** — a standard
+Monte Carlo variance-reduction technique — with actual bounds on the resulting
+variance. It predates deep RL entirely, which is why the accounting is cleaner
+than most of what came after: there was no implementation noise to hide in.
+
+<KeyIdea>
+The control-variate framing is worth internalising because it generalises.
+Subtract from your estimator anything with known expectation and correlated with
+it, and you reduce variance without changing the expectation. The baseline is
+that construction with $\mathbb{E}[\nabla\log\pi\cdot b(s)] = 0$ supplying the
+"known expectation" — and once you see it that way, the constraint that $b$ must
+not depend on the action stops being a technicality and becomes the entire
+reason it works.
+</KeyIdea>
+
+## One dial for the whole family
+
+<PaperCard refKey="schulman2015gae" />
+
+The $n$-step advantage estimators form a family from high-bias to high-variance,
+and GAE's contribution is that the exponentially weighted average over all of
+them collapses into a single backward recursion — cheaper than computing any
+individual member naively.
+
+Its place in this page's accounting is specific: it is the only one of the
+standard techniques that trades **bias** for its variance reduction, which is why
+it is the only one with a knob. Causality and baselines are free substitutions
+you should always make; $\lambda$ is a decision.
+
+## Off-policy: bounding the correction's own variance
+
+<PaperGrid>
+<PaperCard refKey="munos2016retrace" />
+<PaperCard refKey="espeholt2018impala" />
+</PaperGrid>
+
+Once data comes from a different policy, unbiasedness requires importance
+weights, and a product of unbounded ratios over a trajectory has variance
+exponential in its length. Both papers are, structurally, GAE with corrections
+folded in and clipped.
+
+<Steps>
+<Step title="Retrace: safe for arbitrary behaviour policies">
+Truncated per-step ratios give a return estimator that is valid however far the
+behaviour policy is from the target, and efficient when they are close — the
+"safe and efficient" of the title is exactly that pair of properties.
+</Step>
+
+<Step title="V-trace: two thresholds for two different things">
+$\bar c$ bounds the variance of the product along the trace; $\bar\rho$ bounds
+which policy's value function the estimator converges to. Separate knobs because
+they trade separate things, and collapsing them would force a variance bound and
+a fixed-point shift to move together.
+</Step>
+</Steps>
+
+<KeyIdea>
+Recognising the shared shape — backward recursion over discounted TD residuals,
+with something clipped — means you can place a new off-policy estimator on
+sight. The two questions are what it clips and what that clipping costs, and
+they have always been the same two questions.
+</KeyIdea>
+
+## The cautionary tale
+
+<PaperCard refKey="tucker2018mirage" />
+
+Action-dependent baselines are a natural idea: if a state-dependent baseline
+helps, surely a state-*and*-action-dependent one helps more. It is unbiased
+provided you add a correction term restoring what the dependence broke, several
+methods reported gains, and a careful reanalysis attributed those gains to
+implementation differences and bugs rather than to the mechanism.
+
+<Warning>
+The specific failure is worth carrying. The correction term has to be
+**estimated**, and estimating it introduces variance of its own — potentially
+more than the baseline removed. So a variance-reduction scheme requiring an extra
+estimated quantity can be net negative, and only a controlled comparison at
+matched implementations reveals which.
+
+The generalisable lesson is about attribution rather than about baselines. When a
+method reports an improvement, the question is whether the improvement came from
+the claimed mechanism — and the way to find out is to hold everything else
+constant, which is exactly what the original papers had not done.
+</Warning>
+
+## Settling it empirically
+
+<PaperCard refKey="andrychowicz2021matters" />
+
+Thousands of controlled runs over the choices that actually move on-policy RL,
+including advantage normalisation and $\lambda$. Necessary because these effects
+are comparable in size to seed-to-seed variation, so a handful of runs cannot
+distinguish them — and because the choices *interact*, so studying one at a time
+in an uncontrolled codebase produces the contradictory folklore that preceded it.
+
+<Steps>
+<Step title="What the theory gives you">
+Which techniques are free and which cost bias; what each one is targeting; why
+the constraint on baselines is what it is. That is enough to diagnose a problem
+and to reject a proposal that cannot work.
+</Step>
+
+<Step title="What only measurement gives you">
+Where $\lambda$ should sit for your task, whether normalisation helps in your
+reward regime, and how the choices interact. The analysis narrows the search; it
+does not replace it.
+</Step>
+</Steps>
