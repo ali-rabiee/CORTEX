@@ -1,0 +1,217 @@
+---
+concept: rt2_robotic_fm
+level: 4
+status: final
+recall:
+  prompt: "Read the robotic-foundation-model literature as a sequence of answers to the data cost problem. What did each one buy, and at what price?"
+  keyPoints:
+    - "Language scaling laws (2020-2022) set the template and the expectation: a one-dimensional relationship precise enough to allocate a compute budget in advance. Robotics inherited the vocabulary without the corpus."
+    - "RT-1 (2022) paid the collection cost directly — 130k demonstrations — and established that joint training beats per-task at that scale."
+    - "RT-2 (2023) borrowed instead, and produced the attribution evidence: behaviour the robot data cannot explain."
+    - "Open X-Embodiment (2023) and DROID (2024) distribute the cost across institutions; the data scaling work (2024) is the first careful attempt to say what another order of magnitude actually buys, and finds the axes are not interchangeable."
+papers:
+  - key: kaplan2020scaling
+    title: "Scaling Laws for Neural Language Models"
+    authors: "Jared Kaplan, Sam McCandlish, Tom Henighan, Tom B. Brown, Benjamin Chess, Rewon Child, Scott Gray, Alec Radford, Jeffrey Wu, Dario Amodei"
+    year: 2020
+    arxiv: "2001.08361"
+    takeaway: "Establishes smooth power-law relationships between loss, parameters, data, and compute — the result that made 'scale it' a plan rather than a hope, and the template robotics has been measured against ever since."
+  - key: hoffmann2022chinchilla
+    title: "Training Compute-Optimal Large Language Models"
+    authors: "Jordan Hoffmann, Sebastian Borgeaud, Arthur Mensch, Elena Buchatskaya, Trevor Cai, Eliza Rutherford, Diego de Las Casas, et al."
+    venue: NeurIPS
+    year: 2022
+    arxiv: "2203.15556"
+    takeaway: "Refines the allocation between parameters and tokens, showing prior models were badly under-trained on data — the level of precision that a one-dimensional data axis makes possible and that robotics cannot currently reach."
+  - key: brohan2022rt1
+    title: "RT-1: Robotics Transformer for Real-World Control at Scale"
+    authors: "Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen Chebotar, Joseph Dabis, Chelsea Finn, Karol Hausman, et al."
+    venue: RSS
+    year: 2023
+    arxiv: "2212.06817"
+    takeaway: "Pays the collection cost directly — 130k demonstrations over 700+ instructions — and shows joint training across tasks beating per-task policies once the data is large enough."
+  - key: brohan2023rt2
+    title: "RT-2: Vision-Language-Action Models Transfer Web Knowledge to Robotic Control"
+    authors: "Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen Chebotar, Xi Chen, Krzysztof Choromanski, et al."
+    venue: CoRL
+    year: 2023
+    arxiv: "2307.15818"
+    takeaway: "Borrows rather than collects: co-fine-tunes a web-pretrained VLM on robot data and produces behaviour the robot dataset cannot account for — the attribution argument that reoriented the field."
+  - key: oneill2023openx
+    title: "Open X-Embodiment: Robotic Learning Datasets and RT-X Models"
+    authors: "Open X-Embodiment Collaboration (Abby O'Neill et al.)"
+    year: 2023
+    arxiv: "2310.08864"
+    takeaway: "22 robots, 21 institutions, 527 skills — distributing the collection cost, and showing that heterogeneous pooling across embodiments gives positive transfer rather than interference."
+  - key: khazatsky2024droid
+    title: "DROID: A Large-Scale In-The-Wild Robot Manipulation Dataset"
+    authors: "Alexander Khazatsky, Karl Pertsch, Suraj Nair, Ashwin Balakrishna, Sudeep Dasari, Siddharth Karamcheti, Soroush Nasiriany, et al."
+    venue: RSS
+    year: 2024
+    arxiv: "2403.12945"
+    takeaway: "76k trajectories over 564 scenes and 84 tasks, from 50 collectors across three continents in 12 months — a standardised protocol designed so that diversity, the expensive axis, actually accumulates."
+  - key: grauman2022ego4d
+    title: "Ego4D: Around the World in 3,000 Hours of Egocentric Video"
+    authors: "Kristen Grauman, Andrew Westbury, Eugene Byrne, Zachary Chavis, Antonino Furnari, et al."
+    venue: CVPR
+    year: 2022
+    arxiv: "2110.07058"
+    takeaway: "3,000 hours of first-person human activity — an enormous corpus of physical interaction with no action labels, and the largest untapped tier of the data pyramid."
+  - key: lin2024scalinglaws
+    title: "Data Scaling Laws in Imitation Learning for Robotic Manipulation"
+    authors: "Fanqi Lin, Yingdong Hu, Pingyue Sheng, Chuan Wen, Jiacheng You, Yang Gao"
+    year: 2024
+    arxiv: "2410.18647"
+    takeaway: "Separates environments, objects, and demonstrations per pair as distinct scaling axes and finds diversity along the first two outweighs volume along the third — the first careful attempt to give robotics a scaling law rather than a slogan."
+check:
+  - id: rt2_l4_c1
+    prompt: "Why is the Chinchilla result a useful *contrast* case for robotics rather than a model to follow?"
+    options:
+      - "Because robotics uses smaller models"
+      - "Because it depends on data being a single scalar quantity you can trade against parameters. Robot data has multiple non-interchangeable axes, so there is no equivalent budget to allocate and no equivalent precision to reach"
+      - "Because it was trained on text"
+      - "Because compute is cheaper in robotics"
+    answer: 1
+    explanation: "The precision of the Chinchilla allocation rests on tokens being fungible: another billion tokens is another billion tokens. In robotics, a thousand demonstrations in a covered cell and a thousand in a new environment differ enormously in value, so 'data' is not a scalar and there is nothing to put on the axis. Reading Chinchilla as an aspiration for robotics is a category error — the useful reading is that it shows exactly which property robotics lacks."
+  - id: rt2_l4_c2
+    prompt: "RT-1 and RT-2 represent two different answers to the same problem. What is the problem and what are the answers?"
+    options:
+      - "Different architectures for the same dataset"
+      - "The problem is that robot data is expensive and scarce. RT-1's answer is to pay for it — 130k demonstrations — and RT-2's is to borrow from a corpus someone else already paid for, which is why its evidence is about behaviour the robot data cannot explain"
+      - "RT-1 is offline and RT-2 is online"
+      - "RT-1 handles manipulation and RT-2 handles navigation"
+    answer: 1
+    explanation: "Reading the pair as a strategic choice rather than an incremental improvement is what makes the arc legible. RT-1 establishes what you get for a large direct investment in collection, which is real but bounded by what the dataset contains. RT-2 tests whether the expensive part can be obtained elsewhere, and its evidential burden is correspondingly different — it has to show a capability the demonstrations could not have supplied, which is why the emergent-capability rollouts carry the argument."
+  - id: rt2_l4_c3
+    prompt: "Ego4D is 3,000 hours of egocentric video. Why has it not simply solved the robot data problem?"
+    options:
+      - "The video quality is too low"
+      - "It has no action labels: you see the interaction but not the commands that produced it, and the embodiment is a human hand rather than a gripper — so extracting a usable control signal is an open research problem rather than a preprocessing step"
+      - "It is not publicly available"
+      - "The tasks are not relevant to manipulation"
+    answer: 1
+    explanation: "The tier is enormous and cheap and lacks precisely the thing that makes robot data expensive, which is why it is the largest untapped resource and also why it stays untapped. Recovering actions requires inferring them from video, and the morphology gap means even a perfect inference gives you a human hand's trajectory rather than a gripper's. Methods that extract affordances or representations from it work; methods that turn it into demonstrations do not yet."
+---
+
+## The template robotics inherited
+
+<PaperGrid>
+<PaperCard refKey="kaplan2020scaling" />
+<PaperCard refKey="hoffmann2022chinchilla" />
+</PaperGrid>
+
+These matter here as the *contrast* case. Language modelling has smooth power
+laws relating loss to parameters, data, and compute — accurate enough that
+Chinchilla could reallocate a fixed compute budget between parameters and tokens
+and show that prior models had been badly under-trained on data.
+
+<KeyIdea>
+That precision rests on one property: tokens are fungible. Another billion tokens
+is another billion tokens, so data is a scalar and the exponent means something.
+Robotics inherited the vocabulary — "foundation model", "scaling" — without that
+property, and reading Chinchilla as an aspiration is a category error. The useful
+reading is that it shows exactly what robotics lacks.
+</KeyIdea>
+
+## Answer one: pay for the data
+
+<PaperCard refKey="brohan2022rt1" />
+
+130,000 demonstrations over 700+ instructions, collected directly. The finding —
+joint training across tasks beats per-task policies once the data is large enough
+— is real and it is bounded by what the dataset contains. Generalisation stays
+inside the distribution that was paid for.
+
+At the cost model from Level 2, that is roughly nine months of a single robot
+operating continuously, which understates it: multiple robots, operators,
+supervision, and resets over a much longer calendar period. This is what direct
+investment in collection buys, and it establishes the price.
+
+## Answer two: borrow it
+
+<PaperCard refKey="brohan2023rt2" />
+
+The strategic alternative. Start from a model that already knows what objects
+are, and let the demonstrations teach only motor skill.
+
+<Warning>
+The evidential burden is different from RT-1's, and this is the part worth being
+precise about. A higher success rate on trained tasks would be consistent with
+many explanations. The claim being made is *attribution* — that a capability came
+from the web pretraining — so the evidence has to be behaviour the robot dataset
+cannot account for. That is why the emergent-capability rollouts carry the
+argument, and why a from-scratch control is the comparison that makes it stick.
+</Warning>
+
+The mechanism that makes borrowed knowledge persist is co-fine-tuning, and it is
+the least glamorous part of the paper. Robot data is narrow enough that training
+on it alone drags the backbone off the pretrained solution — and the loss of
+capability is invisible in held-out demonstration loss.
+
+## Answer three: distribute the cost
+
+<PaperGrid>
+<PaperCard refKey="oneill2023openx" />
+<PaperCard refKey="khazatsky2024droid" />
+</PaperGrid>
+
+If no single institution can afford the corpus, share the bill. Open X-Embodiment
+assembled 22 robots across 21 institutions covering 527 skills; DROID collected
+76,000 trajectories across 564 scenes and 84 tasks, from 50 collectors on three
+continents over twelve months.
+
+<Steps>
+<Step title="Why pooling had to be shown to work, not assumed">
+Different embodiments have different kinematics and action spaces, so this is the
+negative-transfer regime from multi-task learning with *bodies* as the tasks.
+That it helps says shared structure outweighs the kinematic differences at this
+scale — an empirical, scale-dependent claim.
+</Step>
+
+<Step title="Why DROID's protocol is the contribution">
+Volume is the cheap axis and diversity is the expensive one, because diversity
+requires physically going somewhere else. A standardised rig is what makes many
+labs' data combine, and collecting in real kitchens and offices is what makes the
+scene variation real. Read against the scaling finding — environments and objects
+matter more than depth — the protocol *is* the result.
+</Step>
+</Steps>
+
+## The tier nobody has cracked
+
+<PaperCard refKey="grauman2022ego4d" />
+
+3,000 hours of first-person human activity: an enormous, cheap corpus full of
+physical interaction. It lacks exactly the thing that makes robot data expensive
+— action labels — and it has a morphology gap, since a human hand is not a
+gripper.
+
+<KeyIdea>
+This is the largest untapped tier of the pyramid and the reason it stays untapped
+is precise. Methods that extract *representations* or *affordances* from human
+video work and are in use. Methods that turn it into *demonstrations* do not, and
+the obstacle is not data volume but the inference from pixels to actions across a
+morphology change. Anyone claiming to have solved robot data scarcity via human
+video should be asked how they recovered the actions.
+</KeyIdea>
+
+## Asking the scaling question properly
+
+<PaperCard refKey="lin2024scalinglaws" />
+
+The first careful attempt to give robotics something like a scaling law, and its
+main contribution is refusing to treat "more data" as one dial. Separating
+environments, objects, and demonstrations per pair, it finds diversity along the
+first two outweighs volume along the third.
+
+<Warning>
+What this establishes is that the axes are not interchangeable, which is enough
+to change collection decisions. What it does not establish is an exponent you can
+plan a budget against, or that the relationship holds outside the tasks studied.
+
+So the honest summary of the field: borrowing works for semantics, pooling works
+even across bodies, and nobody can currently tell you what another order of
+magnitude of robot data buys. That last uncertainty is the centre of the field,
+and a candidate who states it plainly is more credible than one who extrapolates
+from a language scaling curve.
+</Warning>

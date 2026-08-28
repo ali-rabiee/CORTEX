@@ -1,27 +1,166 @@
 ---
 concept: rt2_robotic_fm
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain RT-2 and Robotic Foundation Models in plain language: what is
-    it, and why does it matter?"
+  prompt: "What would it take for robotics to have a foundation model? Why is the data situation different from language, and what does RT-2 actually demonstrate?"
   keyPoints:
-    - "RT-2 tests the hypothesis: can a model that has 'read' the entire
-      internet and 'seen' billions of images transfer that knowledge to
-      controlling a physical robot?"
-    - The answer is yes — by fine-tuning a VLM on robot data, the model retains
-      its broad understanding of objects, concepts, and language while learning
-      to translate that understanding into physical actions.
-    - It's like teaching a polymath to use their hands — they already know what
-      a cup is, what 'fragile' means, and how stacking works.
-check: []
-papers: []
+    - "A foundation model is an economic arrangement: pay once for broad pretraining, then adapt cheaply to many downstream tasks. Robotics lacks the ingredient that makes that work — a large, cheap, already-collected corpus."
+    - "The data pyramid is about four orders of magnitude tall: hundreds of millions of web image-text pairs, thousands of hours of human video, tens of thousands of robot demonstrations."
+    - "Two strategies follow. *Borrow*: start from a web-pretrained model so demonstrations only teach motor skill. *Pool*: combine robot data across labs and embodiments so no one lab pays for all of it."
+    - "RT-2's demonstration is that borrowing works — it responds correctly to objects and concepts absent from its robot data, which no amount of scaling that data could have produced."
+media:
+  - kind: article
+    title: "RT-2: Vision-Language-Action Models Transfer Web Knowledge to Robotic Control"
+    url: https://robotics-transformer2.github.io/
+    source: "Brohan et al., Google DeepMind"
+    note: "Watch the emergent-capability rollouts and ask each time whether the robot dataset could account for the behaviour. That question is the whole evidential structure of the paper."
+  - kind: article
+    title: "Open X-Embodiment: Robotic Learning Datasets and RT-X Models"
+    url: https://robotics-transformer-x.github.io/
+    source: "Open X-Embodiment Collaboration"
+    note: "The pooling strategy made concrete: 22 robots, 21 institutions, 527 skills. Read it as an argument about who pays for robot data rather than as a modelling result."
+  - kind: article
+    title: "Training Compute-Optimal Large Language Models"
+    url: https://arxiv.org/abs/2203.15556
+    source: "Hoffmann et al., DeepMind"
+    note: "The contrast case. Language has scaling laws precise enough to allocate a compute budget between parameters and tokens; read it to see exactly what robotics does not have, and why the analogy is looser than the vocabulary suggests."
+check:
+  - id: rt2_l1_c1
+    prompt: "Why can robotics not simply follow the language-model recipe of scaling data?"
+    options:
+      - "Robot policies need different architectures"
+      - "Because the corpus does not exist and cannot be crawled: every robot trajectory costs a robot, an operator, and wall-clock time, so robot data sits about four orders of magnitude below web image-text data and will stay there"
+      - "Because robot data is too high-dimensional"
+      - "Because reinforcement learning does not scale"
+    answer: 1
+    explanation: "Language modelling's core economic fact is that the corpus was already produced by other people for other reasons — the marginal cost of a token is a crawl. A robot trajectory has to be *generated*, in real time, with hardware and a human. That difference is structural rather than a matter of current effort, and it is why the interesting question in robotics is not 'how do we collect more?' but 'what can be borrowed from data someone else already paid for?'"
+  - id: rt2_l1_c2
+    prompt: "What makes RT-2's emergent capabilities evidence for the borrowing strategy, rather than just a good result?"
+    options:
+      - "The success rates are higher than RT-1's"
+      - "The behaviours cannot be explained by the robot dataset — responding correctly to 'pick up the extinct animal' requires a concept that appears nowhere in the demonstrations, so the capability must have come from the web pretraining"
+      - "The model is larger"
+      - "It was evaluated on more tasks"
+    answer: 1
+    explanation: "The evidential structure is an attribution argument, and that is what makes it convincing rather than merely impressive. A higher success rate on trained tasks is consistent with many explanations. A correct response to a concept absent from the robot data has only one available explanation, since no amount of scaling demonstrations of the same instructions would produce it. That is why the emergent-capability rollouts, and not the headline numbers, are the part of the paper that mattered."
+  - id: rt2_l1_c3
+    prompt: "Open X-Embodiment pools data across 21 institutions. What is the economic argument, independent of the modelling result?"
+    options:
+      - "Larger datasets are always better"
+      - "No single lab can afford a robot corpus at the scale the recipe needs, so pooling is the only route to it — and the modelling result that heterogeneous pooling gives positive transfer is what makes contributing rational rather than charitable"
+      - "It reduces the cost of hardware"
+      - "It standardises evaluation across labs"
+    answer: 1
+    explanation: "The two halves matter together. The economic argument is that the cost of robot data is distributed across institutions rather than concentrated, which is the only way the numbers work for anyone but the largest labs. The modelling argument is that pooling *helps* — which was not obvious, since different embodiments have different action spaces and interference was entirely plausible. Without the second, the first would just be data sharing with no payoff for the contributor."
 ---
 
-## Intuition
+## What "foundation model" actually claims
 
-RT-2 tests the hypothesis: can a model that has 'read' the entire internet and 'seen' billions of images transfer that knowledge to controlling a physical robot? The answer is yes — by fine-tuning a VLM on robot data, the model retains its broad understanding of objects, concepts, and language while learning to translate that understanding into physical actions. It's like teaching a polymath to use their hands — they already know what a cup is, what 'fragile' means, and how stacking works. They just need to learn the motor commands.
+The phrase describes an economic arrangement more than an architecture: pay once
+for broad pretraining on a large corpus, then adapt cheaply to many downstream
+tasks. It works in language because the corpus already existed — produced by
+other people, for other reasons, at a marginal cost of a crawl.
 
-## In practice
+Robotics does not have that. Every trajectory has to be *generated*: a robot, an
+operator, and wall-clock time, per sample.
 
-RT-2 emergent capabilities: (1) novel object generalization — trained on picking up common objects, can pick up a toy dinosaur it has never seen by leveraging VLM's visual knowledge. (2) Chain-of-thought reasoning — prompted with 'pick up the object that could be used to hammer a nail,' RT-2 reasons through objects and selects a rock. (3) Semantic understanding — 'move the Coke can to Taylor Swift' (person on a printed image) works despite never being trained on this combination. Octo deployment: 93M parameter model, processes 2 image streams + language + proprioception, diffusion action head generates 4-step action chunks at 5Hz, runs on a single GPU.
+<Figure src="/figures/robot-data-pyramid.svg"
+        alt="Three stacked tiers. Web image-text pairs at 400 million, egocentric human video at 3,000 hours, robot demonstrations at 76 to 130 thousand. A bracket marks roughly four orders of magnitude between top and bottom."
+        caption="The gap is structural, not a matter of current effort. So the productive question is not how to collect more robot data, but what can be borrowed from data someone else already paid for." />
+
+<Intuition>
+Language modelling inherited a library. Robotics has to write every book it
+wants to read, by hand, in real time, and a page takes as long to produce as it
+takes to happen.
+
+You do not close that gap by hiring more scribes. You close it by finding out how
+much of what you need is already in the library.
+</Intuition>
+
+## Two strategies, and they are complementary
+
+<Steps>
+<Step title="Borrow — start from a web-pretrained model">
+Take a vision-language model that already knows what objects are, and let your
+demonstrations teach only the motor skill. The bet is that concepts and motor
+skill are separable, and that the expensive half was already paid for by someone
+else. This is the RT-2 line.
+</Step>
+
+<Step title="Pool — combine robot data across labs and bodies">
+No single institution can afford a corpus at the scale the recipe needs, so
+distribute the cost. Open X-Embodiment assembled 22 robots across 21
+institutions, 527 skills. This is the RT-X line.
+</Step>
+
+<Step title="And the third, less discussed — mine human video">
+Thousands of hours of egocentric footage exist, containing enormous amounts of
+physical interaction. What they lack is action labels, which is exactly the
+thing that would make them usable, and extracting a usable signal from them is
+still an open problem rather than a settled technique.
+</Step>
+</Steps>
+
+## What RT-2 actually demonstrates
+
+The result people quote is that RT-2 handles instructions and objects the robot
+data never contained. The reason that is *evidence* rather than a good number is
+an attribution argument.
+
+<KeyIdea>
+A higher success rate on trained tasks is consistent with many explanations —
+more parameters, better optimisation, more data. A correct response to "pick up
+the extinct animal" has one available explanation, because no amount of scaling
+demonstrations of the same seven hundred instructions produces a concept that
+was never in them. That is what makes the emergent-capability rollouts, rather
+than the headline numbers, the part of the paper that changed the field's
+direction.
+</KeyIdea>
+
+The mechanism that makes borrowing stick is less glamorous and equally
+important: **co-fine-tuning**. Training on robot data alone drags the shared
+backbone away from its pretrained solution, and the semantic knowledge lives in
+that backbone. Keeping web vision-language data in the training mixture is what
+preserves it — and it is easy to skip when reimplementing, because held-out
+demonstration loss looks fine either way.
+
+## How good is the analogy to language?
+
+<Warning>
+Looser than the shared vocabulary suggests, and the difference is worth being
+precise about. Language modelling has scaling laws accurate enough to allocate a
+compute budget between parameters and tokens before training starts. Robotics
+does not have anything comparable — the recent work is a first careful attempt
+at even asking the question properly, and it finds that the axes are not
+interchangeable: environments and objects matter more than demonstrations per
+environment-object pair.
+
+So "more data" is not one dial in robotics, and a scaling curve fitted on one
+axis does not tell you what to do on another. Anyone quoting a robotics scaling
+law should be asked which axis it is along.
+</Warning>
+
+## What is actually established
+
+<Steps>
+<Step title="Borrowing works, for semantics">
+Web pretraining contributes generalisation to objects, categories, and phrasings
+that robot data cannot explain. This is solid.
+</Step>
+
+<Step title="Pooling works, even across bodies">
+Heterogeneous data from different robots gives positive transfer rather than
+interference. Not obvious in advance, and it is what makes contributing to a
+shared corpus rational rather than charitable.
+</Step>
+
+<Step title="Whether it keeps scaling is open">
+There is no established curve saying what another order of magnitude of robot
+data buys, and the collection cost is what makes finding out expensive. That
+uncertainty is the honest centre of the field right now, and a candidate who
+states it is more credible than one who extrapolates.
+</Step>
+</Steps>
+
+<WatchThis />

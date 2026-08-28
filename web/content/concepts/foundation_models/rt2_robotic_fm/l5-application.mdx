@@ -1,25 +1,172 @@
 ---
 concept: rt2_robotic_fm
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does RT-2 and Robotic Foundation Models fail in practice, and how
-    would you present it in an interview?
+  prompt: "Give your interview answer on robotic foundation models. What is the economic argument, and what would you not claim?"
   keyPoints:
-    - "Inference latency: RT-2 at 55B parameters requires ~1-2 seconds per
-      action on high-end GPUs — too slow for reactive control."
-    - The model 'thinks' like a language model, generating tokens one at a time.
-    - "Embodiment gap: fine-tuned on one robot (e.g., Google's Everyday Robot),
-      performance degrades on different kinematic structures without additional
-      fine-tuning."
-check: []
-papers: []
+    - "Lead with the cost model: one robot produces roughly 180k trajectories a year, so $10^7$ is about 56 robot-years. That converts an abstract scale claim into a capital-planning problem."
+    - "Two strategies follow from it — borrow from a corpus someone else paid for, and pool across institutions so no one lab pays for all of it."
+    - "RT-2's evidence is an attribution argument, not a success rate: behaviour the robot dataset cannot explain. Say why that distinction matters."
+    - "Refuse to extrapolate a scaling law. Robotics has no fungible data axis, so 'we doubled the data' is underspecified until you say which axis."
+interview:
+  answer: >-
+    I'd start with why this is a data-economics question rather than a modelling
+    one. A foundation model is really an economic arrangement — pay once for
+    broad pretraining, adapt cheaply to many downstream tasks — and it works in
+    language because the corpus already existed, produced by other people for
+    other reasons, at a marginal cost of a crawl. Robotics has to generate every
+    sample: a robot, an operator, and wall-clock time. If you put numbers on it,
+    at thirty seconds a trajectory including reset and a six-hour operator day,
+    one robot produces about 180,000 trajectories a year — so ten million is
+    roughly fifty-six robot-years. That's not a matter of trying harder, it's a
+    fleet operating for years, and it puts robot data about three orders of
+    magnitude below CLIP's four hundred million image-text pairs. Two strategies
+    follow. Borrow: start from a web-pretrained vision-language model so your
+    demonstrations only have to teach motor skill, since the expensive half —
+    knowing what a mug is — was already paid for. That's RT-2. Or pool:
+    distribute the collection cost across institutions, which is Open
+    X-Embodiment — twenty-two robots, twenty-one institutions, five hundred and
+    twenty-seven skills. The thing I'd want to be precise about is what RT-2
+    actually demonstrates, because it's an attribution argument rather than a
+    success rate. A higher number on trained tasks is consistent with lots of
+    explanations. Responding correctly to "pick up the extinct animal" isn't,
+    because that concept appears nowhere in the demonstrations and no amount of
+    scaling them produces it. That's why the emergent-capability rollouts carry
+    the paper and the headline numbers don't. And the mechanism that makes
+    borrowing stick is co-fine-tuning — keeping web data in the training mixture
+    — which acts as a constraint anchoring the backbone to the pretrained
+    solution rather than as ordinary regularisation. Drop it and you fit the
+    demonstrations perfectly and lose the generalisation you adopted the model
+    for, and that's invisible in held-out demonstration loss. What I wouldn't
+    claim is a scaling law. Language has one because tokens are fungible —
+    another billion tokens is another billion tokens — so data is a scalar you
+    can trade against parameters, which is what makes something like Chinchilla
+    possible. Robot data has at least three non-interchangeable axes:
+    environments, objects, and demonstrations per pair. The evidence is that
+    diversity along the first two beats depth along the third, so "we doubled
+    the data" is underspecified until you say which axis.
+  followUps:
+    - q: "Is robot data going to reach web scale eventually?"
+      a: >-
+        Not by collection, on the arithmetic. The marginal cost per sample
+        differs by orders of magnitude and always will, because one side is a
+        crawl and the other is physical time on hardware. What could change the
+        picture is a different source. Human video is the obvious candidate —
+        Ego4D is three thousand hours of first-person physical interaction — and
+        it's cheap and enormous and lacks exactly the thing that makes robot
+        data expensive, which is action labels. Methods that extract
+        representations or affordances from it work and are in use; methods that
+        turn it into demonstrations don't, because you'd have to infer the
+        actions from pixels across a morphology change from a human hand to a
+        gripper. So I'd say the honest position is that the gap closes by
+        borrowing and pooling, not by collecting, and that anyone claiming to
+        have solved scarcity with human video should be asked how they recovered
+        the actions.
+    - q: "What would convince you a robotic foundation model is genuinely scaling?"
+      a: >-
+        A curve, with the axis named. Concretely: hold environments and objects
+        fixed and vary demonstrations per pair, then hold demonstrations fixed
+        and vary environments, and show what each buys separately — because the
+        current evidence is that those are different exponents. And I'd want it
+        measured with intervals, since real-robot evaluation is small-sample and
+        the differences being claimed are often inside the noise. The other
+        thing I'd want is an attribution control: a from-scratch model at the
+        same scale, so I can tell whether an improvement came from the
+        pretraining or from the capacity. Without that comparison, "the big
+        model is better" is consistent with the pretraining contributing
+        nothing.
+    - q: "If you were starting a robot learning effort today, borrow or pool?"
+      a: >-
+        Both, and I'd sequence them. Borrow first, because it's free — start
+        from an open VLA rather than training from scratch, adapt with LoRA on
+        a few hundred demonstrations, and evaluate specifically on out-of-set
+        objects and phrasings to confirm the transferred capability survived the
+        fine-tuning. That gets you the semantic generalisation without paying
+        for it. Then contribute to and draw from a pooled corpus, because the
+        cross-embodiment transfer result means your own setup isn't necessarily
+        the right unit of work and other people's data measurably helps yours.
+        What I wouldn't do is start by collecting a hundred thousand
+        demonstrations of my own tasks — that's the most expensive path to the
+        least transferable asset, and the marginal value of depth in a covered
+        cell is the lowest-value data you can collect.
+    - q: "Does the foundation-model framing actually fit robotics, or is it borrowed vocabulary?"
+      a: >-
+        Partly borrowed, and it's worth separating which parts fit. The
+        pretrain-once-adapt-cheaply structure genuinely fits — LoRA on an open
+        VLA with a few hundred demonstrations is exactly that arrangement, and
+        it works. What doesn't transfer is the thing that made the language
+        version compelling: the predictability. In language you can decide a
+        compute budget in advance and know roughly what you'll get, and in
+        robotics nobody can tell you what the next order of magnitude of data
+        buys. So I'd say it's a foundation model in the architectural and
+        economic sense and not yet in the scaling sense, and conflating those is
+        how the field ends up promising things it can't deliver. That distinction
+        is also the thing I'd most want a candidate to volunteer.
+  traps:
+    - "Citing language scaling laws as evidence robotics will scale similarly. They depend on data being a fungible scalar, which robot data is not."
+    - "Presenting RT-2's result as a higher success rate. The load-bearing evidence is behaviour the robot dataset cannot explain — an attribution argument with a different evidential structure."
+    - "Skipping co-fine-tuning. It is what keeps the borrowed knowledge, and its absence is invisible in held-out demonstration loss."
+    - "Saying 'we doubled the data' without naming the axis. Environments, objects, and demonstrations per pair are not interchangeable."
+check:
+  - id: rt2_l5_c1
+    prompt: "A candidate argues robotics will follow language because 'the scaling laws are the same'. What is the precise correction?"
+    options:
+      - "Robotics models are too small for scaling laws to apply"
+      - "Language scaling laws depend on tokens being fungible, so data is a scalar that can be traded against parameters. Robot data has at least three non-interchangeable axes and the evidence is that diversity beats depth — so there is no single quantity to put on the x-axis"
+      - "Scaling laws only apply to autoregressive models"
+      - "Robotics has too little compute"
+    answer: 1
+    explanation: "The correction has to name the property that transfers and the one that does not. Power laws in general are not the issue; the issue is that Chinchilla-style budget allocation requires a scalar data axis, and 'a thousand more demonstrations in a covered cell' and 'a thousand in a new environment' are not the same quantity. Being able to say which property is missing — rather than just doubting the analogy — is what distinguishes the answer."
+  - id: rt2_l5_c2
+    prompt: "Your team fine-tunes an open VLA on 400 demonstrations. Held-out demonstration loss is excellent. What single evaluation would you insist on before shipping?"
+    options:
+      - "A larger held-out demonstration set"
+      - "Out-of-set evaluation on objects and phrasings absent from the fine-tuning data — held-out demonstration loss is measured on the same narrow distribution, so it looks fine while the transferred semantic capability has been fine-tuned away"
+      - "Training loss curves for convergence"
+      - "Inference latency benchmarking"
+    answer: 1
+    explanation: "Catastrophic forgetting during fine-tuning is exactly the failure that in-distribution metrics cannot see: the model is doing better than ever on the distribution it has been optimising, and the capability you adopted it for lives outside that distribution. At 400 demonstrations against a multi-billion-parameter backbone the risk is high, which is why LoRA or co-fine-tuning is standard — but the evaluation is what tells you whether either worked."
 ---
 
-## Failure modes
+## Reading the situation
 
-Inference latency: RT-2 at 55B parameters requires ~1-2 seconds per action on high-end GPUs — too slow for reactive control. The model 'thinks' like a language model, generating tokens one at a time. Embodiment gap: fine-tuned on one robot (e.g., Google's Everyday Robot), performance degrades on different kinematic structures without additional fine-tuning. Data imbalance: internet pre-training data vastly outweighs robot data, so the model may 'forget' robot-specific skills during continued web pre-training or exhibit text-mode behaviors (e.g., describing the action instead of executing it). Symptoms: slow control loop, failure on new robot hardware, occasional text output instead of action tokens. Fix: model distillation (RT-2-X to smaller models), cross-embodiment datasets (Open X-Embodiment), action head specialization (diffusion/flow heads instead of autoregressive token generation).
+<Steps>
+<Step title="Someone quotes a robotics scaling result → ask which axis">
+Environments, objects, and demonstrations per pair have different exponents.
+A curve without a named axis is not interpretable.
+</Step>
 
-## Interview-ready answer
+<Step title="A generalisation claim with no from-scratch control → attribution unestablished">
+"The big pretrained model is better" is consistent with the pretraining
+contributing nothing. The control is what makes it evidence.
+</Step>
 
-RT-2 demonstrated that internet-scale pre-training transfers to robotics in a meaningful way — enabling novel object manipulation, semantic reasoning, and language-conditioned control from a single model. The key insight: VLMs already understand the visual and semantic world; fine-tuning on robot data teaches them to act in it. The practical challenges: (1) latency — 55B parameter models are too slow for real-time control, motivating smaller models like Octo (93M) and OpenVLA (7B), (2) embodiment generalization — Open X-Embodiment dataset addresses this with data from 22 robots, (3) action representation — tokenized actions (RT-2) vs. continuous action heads (Octo's diffusion, $\pi_0$'s flow matching) is an active design choice. My view: the field is converging on moderate-sized VLAs (1-10B) with continuous action heads, pre-trained on cross-embodiment data and fine-tuned per robot. This balances generalization, speed, and precision.
+<Step title="Fine-tuned model excellent in-distribution, brittle outside → forgetting">
+Expected at a few hundred demonstrations without LoRA or a web term. Not visible
+in held-out demonstration loss by construction.
+</Step>
+
+<Step title="Plan to collect 100k demonstrations of your own tasks → check the marginal value">
+Depth in a covered cell is the lowest-value data available and the most
+expensive to produce. Borrow, pool, and spend collection on the axes that are
+thin.
+</Step>
+
+<Step title="Human video proposed as the solution → ask how actions are recovered">
+The tier is real and cheap and lacks action labels. Representations transfer;
+demonstrations do not, yet.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The move that makes this answer land is arithmetic. Almost everyone can say
+robot data is scarce; producing the number — 180k trajectories per robot-year,
+so $10^7$ is 56 robot-years — turns a complaint into a constraint, and the two
+strategies then follow as consequences rather than as a list. Pair it with the
+attribution point about RT-2 and an explicit refusal to extrapolate a scaling
+law, and you have said something a senior interviewer in this field will
+recognise as their own working position.
+</Warning>

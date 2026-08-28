@@ -1,0 +1,229 @@
+---
+concept: rt2_robotic_fm
+level: 3
+status: final
+recall:
+  prompt: "Implement the data side of a robotic foundation model: cross-embodiment mixing, co-fine-tuning, and the evaluation that catches forgetting."
+  keyPoints:
+    - "Mixture weights over heterogeneous datasets are a design decision. Pooling and shuffling weights by dataset size, which is an artefact of who could afford to collect."
+    - "Normalisation statistics are per embodiment. Sharing them across robots silently rescales one body's actions into another's units."
+    - "Co-fine-tuning interleaves web batches with robot batches. The ratio is a hyperparameter, and dropping the web term is invisible in held-out demonstration loss."
+    - "The evaluation that catches forgetting is out-of-set: novel objects and rephrased instructions. In-distribution metrics look fine while the transferred capability is gone."
+check:
+  - id: rt2_l3_c1
+    prompt: "You pool 22 robot datasets ranging from 500 to 100,000 episodes and shuffle uniformly over examples. What have you chosen?"
+    options:
+      - "Equal representation for each embodiment"
+      - "Weighting proportional to dataset size — so the model is optimised mostly for whichever labs could afford the most collection, which is an artefact of budgets rather than a statement about what matters"
+      - "Nothing; the sampler does not affect the objective"
+      - "Weighting inversely proportional to task difficulty"
+    answer: 1
+    explanation: "The sampler *is* the weighting and there is no neutral option. Proportional-to-size is defensible if you believe dataset sizes reflect importance, and in a pooled cross-lab corpus they mostly reflect which institution had more robots and more funding. The common compromise is a temperature-scaled weighting — proportional to size raised to a power below one — which keeps large datasets dominant without letting a 500-episode embodiment disappear entirely."
+  - id: rt2_l3_c2
+    prompt: "Why must action normalisation statistics be computed per embodiment rather than over the pooled corpus?"
+    options:
+      - "To reduce memory usage"
+      - "Because workspace size and control rate differ between robots, so pooled statistics rescale each body's actions into a blend of everyone's units — a 5 cm delta means something different on a tabletop arm and a mobile manipulator"
+      - "Because the datasets were collected at different times"
+      - "Because each robot has a different number of joints"
+    answer: 1
+    explanation: "Normalisation maps physical quantities into a common numerical range, and the mapping has to reflect the physics of the specific robot. A pooled mean and standard deviation produce a compromise scaling under which no robot's actions are correctly normalised — the large-workspace robot's actions are compressed and the small one's are inflated. The joint count is handled separately by mapping into a shared end-effector action space; that is a different problem from scaling."
+  - id: rt2_l3_c3
+    prompt: "What evaluation catches a missing co-fine-tuning term, and why does the obvious one not?"
+    options:
+      - "Held-out demonstration loss, which will rise"
+      - "Out-of-set evaluation on novel objects and rephrased instructions — held-out demonstration loss is measured on the same narrow robot distribution, so it looks fine while the transferred semantic capability is gone"
+      - "Training loss, which will diverge"
+      - "Action-token entropy"
+    answer: 1
+    explanation: "This is why the failure ships. Forgetting means drifting away from the pretrained solution along directions the *web* task depended on, and held-out demonstration loss only probes the robot distribution — where the model is doing better than ever, since that is what it has been optimising. The capability you lost is only visible where you test it, which means the evaluation has to include objects and phrasings that never appeared in the robot data."
+---
+
+## Mixing heterogeneous datasets
+
+<CodeWalk title="Cross-embodiment sampling with an explicit weighting">
+
+```python title="mixture.py"
+import numpy as np
+
+def temperature_weights(dataset_sizes, temperature=0.7):
+    """Pooling and shuffling weights by dataset size, which in a cross-lab
+    corpus mostly reflects which institution had more robots and more funding.
+    Temperature < 1 keeps large datasets dominant without letting a
+    500-episode embodiment vanish entirely.
+    """
+    sizes = np.asarray(dataset_sizes, dtype=float)
+    w = sizes ** temperature
+    return w / w.sum()
+
+
+class MixtureSampler:
+    def __init__(self, datasets, weights, seed=0):
+        self.datasets = datasets
+        self.weights = np.asarray(weights) / np.sum(weights)
+        self.rng = np.random.default_rng(seed)
+
+    def __iter__(self):
+        while True:
+            i = self.rng.choice(len(self.datasets), p=self.weights)
+            ds = self.datasets[i]
+            yield ds[self.rng.integers(len(ds))], i     # keep the embodiment id
+```
+
+</CodeWalk>
+
+The returned embodiment index is not bookkeeping. It selects the normalisation
+statistics and becomes the conditioning token, and losing it is how a pooled
+corpus quietly becomes an averaged one.
+
+## Per-embodiment normalisation
+
+```python title="normalize.py"
+class EmbodimentStats:
+    """Workspace size and control rate differ between robots, so a 5 cm delta
+    means something different on a tabletop arm and a mobile manipulator.
+    Pooled statistics normalise nobody correctly."""
+
+    def __init__(self, datasets):
+        self.stats = []
+        for ds in datasets:
+            acts = np.concatenate([ep.actions for ep in ds])
+            lo = np.percentile(acts, 1, axis=0)      # quantiles, not min-max:
+            hi = np.percentile(acts, 99, axis=0)     # teleop glitches have tails
+            self.stats.append((lo, hi))
+
+    def encode(self, action, embodiment_id):
+        lo, hi = self.stats[embodiment_id]
+        a = np.clip(action, lo, hi)
+        return 2 * (a - lo) / (hi - lo + 1e-8) - 1   # -> [-1, 1]
+
+    def decode(self, normed, embodiment_id):
+        lo, hi = self.stats[embodiment_id]
+        return (normed + 1) / 2 * (hi - lo) + lo
+```
+
+<Warning>
+Save these alongside the weights and treat them as part of the deployed policy.
+A checkpoint restored with normalisation statistics recomputed on a newer corpus
+revision produces actions scaled by the wrong constants, which presents as a
+subtly worse policy rather than as a bug — the single most expensive quiet
+failure in this pipeline.
+</Warning>
+
+## Co-fine-tuning
+
+<CodeWalk title="Interleaving web and robot batches">
+
+```python title="cofinetune.py"
+def train_step(model, robot_iter, web_iter, opt, web_weight=0.5):
+    """The web term anchors the shared backbone to the pretrained solution
+    along the directions that solution depends on. It is not weight decay —
+    it references a SPECIFIC prior solution, which is the one containing the
+    semantics you adopted the model for.
+    """
+    (obs, instr, action), emb_id = next(robot_iter)
+    action_tokens = tokenizer.encode(action, emb_id)
+
+    loss_robot = model.lm_loss(
+        prompt=model.build_prompt(obs, instr, embodiment=emb_id),
+        target=action_tokens,
+    )
+
+    web_images, web_text = next(web_iter)
+    loss_web = model.lm_loss(
+        prompt=model.build_prompt(web_images, web_text.prompt),
+        target=web_text.target,
+    )
+
+    (loss_robot + web_weight * loss_web).backward()
+    opt.step(); opt.zero_grad()
+    return {"robot": loss_robot.item(), "web": loss_web.item()}
+```
+
+</CodeWalk>
+
+```python title="ablate.py"
+# Run this before trusting any co-fine-tuning ratio. The two configurations
+# differ by essentially nothing on held-out demonstrations and by a great deal
+# on out-of-set objects — which is why the failure ships.
+for w in [0.0, 0.25, 0.5, 1.0]:
+    model = train(web_weight=w)
+    print(w,
+          eval_held_out_demos(model),      # nearly flat across w
+          eval_novel_objects(model),       # this is where w shows up
+          eval_rephrased_instructions(model))
+```
+
+## The evaluation that catches forgetting
+
+<CodeWalk title="Stratify by what the pretraining was supposed to buy">
+
+```python title="eval_strata.py"
+STRATA = {
+    # In the robot data. Looks fine even when the model has forgotten
+    # everything it was adopted for.
+    "seen_object_seen_instruction":  (SEEN_OBJECTS,  SEEN_INSTRUCTIONS),
+
+    # Objects the robot data never contained. Isolates the transferred
+    # semantic capability — this is the column that moves.
+    "novel_object_seen_instruction": (NOVEL_OBJECTS, SEEN_INSTRUCTIONS),
+
+    # Same objects, different words. Isolates language generalisation from
+    # visual generalisation.
+    "seen_object_new_phrasing":      (SEEN_OBJECTS,  REPHRASED),
+
+    # Both. The claim people actually make about VLAs.
+    "novel_object_new_phrasing":     (NOVEL_OBJECTS, REPHRASED),
+}
+
+
+def evaluate(policy, robot, n_per_stratum=25):
+    out = {}
+    for name, (objects, instructions) in STRATA.items():
+        scenes = build_scenes(objects, instructions, n=n_per_stratum, seed=0)
+        results = [robot.rollout(policy, s).success for s in scenes]
+        k, n = sum(results), len(results)
+        out[name] = {"rate": k / n, "ci": wilson(k, n), "n": n}
+    return out
+```
+
+</CodeWalk>
+
+<KeyIdea>
+A single aggregate success rate cannot distinguish a model that borrowed
+successfully from one that has forgotten and is compensating with demonstration
+fit. The four-way split can, and it maps directly onto the claim being made — so
+the stratification should be decided from the claim, before any numbers exist.
+</KeyIdea>
+
+## Attribution: was it the pretraining?
+
+```python title="attribution.py"
+# The comparison that makes an emergent-capability claim evidential rather
+# than anecdotal. If the from-scratch model matches on novel objects, the
+# pretraining is not what produced the behaviour.
+CONFIGS = {
+    "web_pretrained_cofinetuned": dict(init="vlm", web_weight=0.5),
+    "web_pretrained_robot_only":  dict(init="vlm", web_weight=0.0),
+    "from_scratch":               dict(init="random", web_weight=0.0),
+}
+
+# Report the novel-object stratum for each. The gap between rows 1 and 3 is
+# the transferred capability; the gap between rows 1 and 2 is what
+# co-fine-tuning preserved.
+```
+
+<Steps>
+<Step title="Why the from-scratch control matters">
+Without it, "the model handles novel objects" could be explained by scale,
+architecture, or the action head. With it, the difference is attributable to the
+pretraining specifically.
+</Step>
+
+<Step title="Why the robot-only control matters">
+It separates *having* the pretrained initialisation from *keeping* it. A model
+initialised from a VLM and fine-tuned without a web term often looks like the
+from-scratch model on out-of-set evaluation, which is the whole argument for the
+mixture.
+</Step>
+</Steps>

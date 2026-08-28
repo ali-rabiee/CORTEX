@@ -1,22 +1,182 @@
 ---
 concept: rt2_robotic_fm
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of RT-2 and Robotic Foundation Models,
-    including the key equations.
+  prompt: "Put numbers on the robot-data cost model, and state what a robotics scaling law would have to look like. Formalise co-fine-tuning."
   keyPoints:
-    - RT-2 (Robotics Transformer 2) is a vision-language-action (VLA) model that
-      fine-tunes a large VLM (PaLM-E 12B or PaLI-X 55B) on robot demonstration
-      data to directly output robot actions.
-    - "Training: co-fine-tune on a mixture of web-scale vision-language data and
-      130K real robot episodes from the RT-1 dataset."
-    - Actions are tokenized into the language model vocabulary (256 bins per
-      dimension).
-check: []
-papers: []
+    - "Robot data has a hard cost floor: at 30 s per trajectory and a 6-hour operator day, one robot produces about 180k trajectories a year, so $10^7$ is roughly 56 robot-years."
+    - "Language scaling laws are one-dimensional in tokens; a robotics law needs at least three axes — environments, objects, and demonstrations per pair — and the evidence is that they are not interchangeable."
+    - "Co-fine-tuning is a mixture objective $\\mathcal{L}_{\\text{robot}} + \\lambda\\mathcal{L}_{\\text{web}}$, and it functions as a constraint keeping the backbone near its pretrained solution rather than as ordinary regularisation."
+    - "Cross-embodiment pooling requires a shared action interface; heterogeneous actions are reconciled by mapping each robot into a common space and letting an embodiment token absorb the rest."
+check:
+  - id: rt2_l2_c1
+    prompt: "At 30 seconds per trajectory including reset, and a 6-hour operator day for 250 days, roughly how many robot-years does $10^7$ trajectories cost?"
+    options:
+      - "About 5"
+      - "About 56 — one robot produces roughly 180,000 trajectories a year at that rate, so ten million is nearly six decades of single-robot operation, or a fleet running for years"
+      - "About 500"
+      - "It cannot be estimated without knowing the task"
+    answer: 1
+    explanation: "$6 \\times 250 \\times 3600 / 30 = 180{,}000$ per robot-year, so $10^7/1.8\\times10^5 \\approx 56$. The number is worth computing because it converts an abstract claim about scale into a capital-planning problem: reaching web-scale robot data is not a matter of trying harder, it is a fleet operating for years with the associated maintenance, resets, and failures. That arithmetic is why borrowing and pooling are the strategies rather than collection."
+  - id: rt2_l2_c2
+    prompt: "Why can a language scaling law not be transplanted to robotics?"
+    options:
+      - "Because robot data is noisier"
+      - "Because it is a one-dimensional relationship in tokens, whereas robot data has at least three non-interchangeable axes — environments, objects, and demonstrations per environment-object pair — so a curve fitted along one says nothing about another"
+      - "Because robotics uses different architectures"
+      - "Because compute is not the bottleneck in robotics"
+    answer: 1
+    explanation: "A token is a token, so 'more data' in language is a single dial and a single exponent describes it. In robotics, a thousand extra demonstrations in an already-covered cell and a thousand demonstrations in a new environment have very different value — the evidence is that diversity along environments and objects matters more than depth per pair. So there is no single quantity to put on the x-axis, and anyone quoting a robotics scaling law should be asked which axis it is along."
+  - id: rt2_l2_c3
+    prompt: "In the co-fine-tuning objective $\\mathcal{L}_{\\text{robot}} + \\lambda\\mathcal{L}_{\\text{web}}$, what role does the second term play?"
+    options:
+      - "Ordinary regularisation to prevent overfitting"
+      - "A constraint keeping the shared backbone near its pretrained solution — the semantic knowledge lives there, and robot data is narrow enough that training on it alone drifts the weights away from the capability you adopted the model for"
+      - "It provides additional gradient signal for the action head"
+      - "It balances the batch sizes between the two datasets"
+    answer: 1
+    explanation: "Weight decay or dropout would be regularisation in the usual sense — a generic preference for simpler solutions. This term is specific: it anchors the model to a particular prior solution that contains the transferred knowledge. Drop it and the model fits the demonstrations perfectly while losing generalisation to novel objects, which is invisible in held-out demonstration loss and only shows up on out-of-set evaluation — which is exactly the evaluation people skip."
 ---
 
-## Formal definition
+## The cost model
 
-RT-2 (Robotics Transformer 2) is a vision-language-action (VLA) model that fine-tunes a large VLM (PaLM-E 12B or PaLI-X 55B) on robot demonstration data to directly output robot actions. Training: co-fine-tune on a mixture of web-scale vision-language data and 130K real robot episodes from the RT-1 dataset. Actions are tokenized into the language model vocabulary (256 bins per dimension). At inference: $a_t = \text{RT-2}(I_t, l) = \text{VLM}(\text{token}(a_t) | I_t, l)$. Key result: internet-scale pre-training enables emergent capabilities — RT-2 can follow instructions involving novel objects, perform chain-of-thought reasoning about physical tasks, and generalize to unseen object categories. Successors: Octo (open-source, smaller, diffusion action head trained on Open X-Embodiment), OpenVLA (7B open-source VLA), $\pi_0$ (flow matching action head, multi-task).
+The economic claim underneath everything here is quantifiable, so quantify it.
+Take a demonstration to cost 30 seconds including reset — optimistic — and an
+operator day to be 6 productive hours over 250 days a year:
+
+$$
+\text{trajectories per robot-year} = \frac{6 \times 250 \times 3600}{30} = 180{,}000
+$$
+
+<Derivation title="What each order of magnitude actually costs">
+
+| target | robot-hours | operator-days | robot-years |
+| --- | --- | --- | --- |
+| $10^5$ | 833 | 139 | 0.6 |
+| $10^6$ | 8,333 | 1,389 | 5.6 |
+| $10^7$ | 83,333 | 13,889 | 55.6 |
+
+**Read the last row.** Ten million trajectories is roughly 56 robot-years —
+a fleet of twenty running for nearly three years, with the maintenance, resets,
+hardware failures, and operator turnover that implies.
+
+**Compare against the borrowed tier.** CLIP's pretraining used 400 million
+image-text pairs. Against RT-1's 130k demonstrations that is a ratio of about
+3,000; against a pooled million-trajectory corpus, about 400. And the numerator
+cost a crawl.
+
+**The conclusion is structural rather than motivational.** The gap does not close
+by trying harder, because the marginal cost per sample differs by orders of
+magnitude and always will. That arithmetic is the entire argument for borrowing
+and pooling, and it is worth being able to produce rather than assert.
+
+</Derivation>
+
+## What a robotics scaling law would have to be
+
+Language scaling laws have a convenient property: the x-axis is one number.
+Performance is a power law in tokens $D$ and parameters $N$, and a compute budget
+can be allocated between them before training starts.
+
+$$
+L(N, D) \;\approx\; E + \frac{A}{N^{\alpha}} + \frac{B}{D^{\beta}}
+$$
+
+Robot data has no equivalent scalar. A demonstration is characterised by at least
+three quantities:
+
+$$
+D \;\longrightarrow\; \big(\underbrace{E}_{\text{environments}},\ \underbrace{O}_{\text{objects}},\ \underbrace{M}_{\text{demos per } (E,O) \text{ pair}}\big)
+$$
+
+<KeyIdea>
+And the evidence is that these are **not interchangeable**: diversity along $E$
+and $O$ buys more than depth along $M$, once $M$ is above a floor. So a curve
+fitted along one axis says nothing about another, and "we doubled the data" is
+an underspecified claim. The right question about any robotics scaling result is
+which axis it was measured along.
+</KeyIdea>
+
+This also reframes the marginal-value argument from data curation. In a
+well-covered $(E, O)$ cell the estimator error falls like $M^{-1/2}$, so the
+marginal demonstration is worth $O(M^{-3/2})$; in an uncovered cell, the first
+demonstration converts an unbounded extrapolation error into a bounded one. That
+asymmetry is why the axes are not exchangeable.
+
+## Co-fine-tuning as a constraint
+
+Training only on robot data moves the shared backbone away from the solution
+that contains the transferred semantics. The mixture objective is what prevents
+it:
+
+$$
+\mathcal{L}(\theta) = \mathbb{E}_{(o,\ell,a)\sim\mathcal{D}_{\text{robot}}}
+\big[-\log p_\theta\big(z(a) \mid o, \ell\big)\big]
+\;+\; \lambda\,\mathbb{E}_{(x,y)\sim\mathcal{D}_{\text{web}}}
+\big[-\log p_\theta(y \mid x)\big]
+$$
+
+<Derivation title="Why this is a constraint and not regularisation">
+
+Write $\theta_0$ for the pretrained weights. Near $\theta_0$, the web term is
+approximately quadratic in the displacement:
+
+$$
+\mathcal{L}_{\text{web}}(\theta) \approx \mathcal{L}_{\text{web}}(\theta_0)
++ \tfrac{1}{2}(\theta - \theta_0)^\top H_{\text{web}} (\theta - \theta_0)
+$$
+
+with $H_{\text{web}}$ the web loss's Hessian. So the second term is a quadratic
+penalty on displacement from $\theta_0$, **weighted by the curvature of the web
+objective** — it is expensive to move in directions the web task cares about and
+free to move in directions it does not.
+
+**That is what distinguishes it from weight decay.** Weight decay penalises
+$\|\theta\|^2$, an isotropic preference for small weights with no reference to
+any solution. This anchors to a *specific* prior solution along the directions
+that solution depends on.
+
+**The consequence for evaluation.** Dropping the term produces a model that fits
+the demonstrations perfectly and has lost generality — which does not show up in
+held-out demonstration loss, because that is measured on the same narrow
+distribution. It shows up only on out-of-set objects and phrasings.
+
+</Derivation>
+
+## Reconciling heterogeneous embodiments
+
+Pooling across robots requires a shared action interface, and the robots do not
+have one — different kinematics, different degrees of freedom, different control
+modes.
+
+<Steps>
+<Step title="Map into a common space">
+End-effector deltas in a canonical frame plus a gripper command is the usual
+choice: it is defined for most manipulators and hides the joint-space
+differences. The cost is that anything requiring joint-level control — redundancy
+resolution, whole-arm contact — is not expressible.
+</Step>
+
+<Step title="Normalise per embodiment">
+Each robot's action statistics differ by workspace size and control rate, so
+normalisation constants are per-embodiment. Sharing them across robots silently
+rescales one body's actions into another's units.
+</Step>
+
+<Step title="Let an embodiment token absorb the remainder">
+What the common space cannot express becomes a conditioning variable, exactly as
+in a multi-task policy. The model can then represent per-body behaviour while
+sharing everything the bodies have in common.
+</Step>
+</Steps>
+
+<Warning>
+Positive transfer across embodiments was not obvious in advance, and the reason
+it is interesting is the same reason it might have failed: this is the
+negative-transfer regime from multi-task learning, with the tasks being *bodies*.
+That it helps says the shared structure — visual scenes, object semantics,
+manipulation strategy — outweighs the kinematic differences **at this scale**.
+It is a scale-dependent empirical claim, not a principle, and it is exactly the
+kind of claim that should be re-checked when the scale changes.
+</Warning>
