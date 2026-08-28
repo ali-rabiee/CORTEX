@@ -1,23 +1,202 @@
 ---
 concept: deployment_thinking
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Deployment Thinking for Robot Systems,
-    including the key equations.
+  prompt: "Derive the phase-lag cost of loop delay and the deadline-miss probability from a latency distribution. What does action chunking trade?"
   keyPoints:
-    - "Designing robot learning systems with deployment constraints in mind from
-      day one: inference latency $t_{\\text{infer}} < t_{\\text{budget}}$,
-      compute budget (FLOPS, memory), failure recovery, monitoring, and graceful
-      degradation."
-    - The gap between a research demo and a production robot is mostly systems
-      engineering.
-    - "Key metrics: latency $p_{99}$, throughput, mean time between failures
-      (MTBF), mean time to recovery (MTTR)."
-check: []
-papers: []
+    - "A pure delay $\\tau$ has frequency response $e^{-j\\omega\\tau}$: unit magnitude, phase $-\\omega\\tau$. In degrees that is $360 f \\tau$, so the cost grows linearly with the bandwidth the task needs."
+    - "The stability condition is that total phase lag stays below 180° at the crossover frequency, so delay directly consumes phase margin and $\\tau_{\\max} = \\phi_m /(360 f_c)$ in seconds."
+    - "Deadline misses are governed by the tail of the latency distribution, not its mean: $P(\\text{miss}) = P(L > T)$, and per-hour miss counts follow from that at the control rate."
+    - "Action chunking hides latency by amortising one inference over $T_a$ executed steps, at the cost of $T_a$ steps of open-loop blindness — trading average latency for reactivity."
+check:
+  - id: dt_l2_c1
+    prompt: "Why does a pure time delay cost phase but not gain?"
+    options:
+      - "Because delays attenuate high frequencies"
+      - "Its transfer function is $e^{-j\\omega\\tau}$, which has magnitude exactly 1 at every frequency and phase $-\\omega\\tau$ — it shifts a sinusoid in time without changing its amplitude"
+      - "Because it is a linear operator"
+      - "It costs both; the gain loss is just usually ignored"
+    answer: 1
+    explanation: "Delaying a sinusoid produces the same sinusoid, later — that is what unit magnitude means. The consequence is that delay is invisible to any analysis that looks only at gain, and it destroys stability margin silently. It is also why the cost is frequency-dependent: the same shift in seconds is a larger fraction of a cycle at higher frequency, so $\\phi = \\omega\\tau$ grows linearly with bandwidth."
+  - id: dt_l2_c2
+    prompt: "Your loop needs 45° of phase margin and the task's crossover frequency is 3 Hz. What is the delay budget?"
+    options:
+      - "About 150 ms"
+      - "About 42 ms — from $\\tau_{\\max} = \\phi_m/(360 f_c) = 45/(360 \\times 3)$ seconds — and that is the *total* sense-to-act delay, not just inference"
+      - "About 330 ms"
+      - "It cannot be computed without the plant model"
+    answer: 1
+    explanation: "$45/(360 \\times 3) = 0.0417$ s. The number that makes this useful is that it is the whole loop: exposure and readout, transport, preprocessing, inference, command transmission, and actuator response. Inference is usually the largest single term and rarely more than half of the total, so a team that optimises only the model often finds the loop barely improved. The caveat in option 4 is fair in general — the crossover frequency comes from the plant — but once you have $f_c$, the delay budget follows without further modelling."
+  - id: dt_l2_c3
+    prompt: "Latency is 40 ms at the median and 250 ms at p99, with a 100 ms control period. How often is the deadline missed at 10 Hz?"
+    options:
+      - "Never, since the median fits"
+      - "At least 1% of cycles by definition of p99, which at 10 Hz is at least 36 misses per hour — each one holding a stale action and doubling that cycle's effective delay"
+      - "Once per hour"
+      - "It depends on the mean, which is not given"
+    answer: 1
+    explanation: "The arithmetic is worth doing because it converts a percentile into an operational rate. p99 above the period means at least 1% of cycles overrun; 10 Hz is 36,000 cycles per hour, so at least 360 misses per hour — and the true figure depends on the whole tail above 100 ms, not only the p99 point. The median is irrelevant to this calculation, which is exactly why reporting mean inference time tells you nothing about whether a loop will hold."
 ---
 
-## Formal definition
+## Delay, in the frequency domain
 
-Designing robot learning systems with deployment constraints in mind from day one: inference latency $t_{\text{infer}} < t_{\text{budget}}$, compute budget (FLOPS, memory), failure recovery, monitoring, and graceful degradation. The gap between a research demo and a production robot is mostly systems engineering. Key metrics: latency $p_{99}$, throughput, mean time between failures (MTBF), mean time to recovery (MTTR).
+A pure transport delay of $\tau$ has the transfer function
+
+$$
+G_\tau(j\omega) = e^{-j\omega\tau},
+\qquad
+|G_\tau| = 1,
+\qquad
+\angle G_\tau = -\omega\tau
+$$
+
+<Derivation title="Why delay is uniquely dangerous, and how to budget for it">
+
+**Step 1 — magnitude one, phase everything.** $|e^{-j\omega\tau}| = 1$ at every
+frequency. A delay does not attenuate anything; it shifts a sinusoid in time. So
+any analysis looking only at gain sees nothing, and the margin disappears
+silently.
+
+**Step 2 — the phase cost grows with frequency.** In degrees,
+
+$$
+\phi(f) = \omega\tau \cdot \frac{180}{\pi} = 360\, f\, \tau
+$$
+
+The same delay in seconds is a larger fraction of a cycle at higher frequency.
+This is why 50 ms is irrelevant for a slow reach and destabilising for a
+contact-rich task — the bandwidths differ.
+
+**Step 3 — the stability condition.** A negative-feedback loop is unstable if
+the total phase lag reaches 180° while the loop gain is still above unity. If
+the rest of the loop already consumes some phase, leaving a margin $\phi_m$ at
+the crossover frequency $f_c$, the delay may consume at most $\phi_m$:
+
+$$
+\boxed{\;\tau_{\max} = \frac{\phi_m}{360\, f_c}\ \text{seconds}\;}
+$$
+
+**Numbers.** With a 45° margin: at $f_c = 1$ Hz, 125 ms. At 3 Hz, 42 ms. At
+10 Hz, 12.5 ms.
+
+**The assumption doing the work** is that $\tau$ is a *pure* delay and constant.
+A varying delay is worse than its mean — the loop is being analysed at an
+operating point it keeps leaving — which is the formal reason jitter deserves
+more attention than average latency.
+
+</Derivation>
+
+<Warning>
+$\tau$ is the **whole loop**: sensor exposure and readout, transport,
+preprocessing, inference, command transmission, and actuator response.
+Inference is usually the largest single term and rarely more than half the
+total. A team that halves its model's inference time and finds the loop barely
+improved has usually never measured the other terms.
+</Warning>
+
+## Deadline misses come from the tail
+
+Let $L$ be the loop latency, a random variable, and $T$ the control period. Then
+
+$$
+P(\text{miss}) = P(L > T)
+$$
+
+and at control rate $f = 1/T$ the expected misses per hour are
+$3600 f\, P(L > T)$.
+
+<KeyIdea>
+The mean of $L$ appears nowhere in that expression. A distribution with a 40 ms
+median and a 250 ms p99, against a 100 ms period, misses at least 1% of cycles —
+360 per hour at 10 Hz. Reporting mean inference time tells you nothing about
+whether the loop will hold, which is why deployment reports percentiles and
+often *caps* inference deliberately, giving up speed it could sometimes have in
+exchange for a bound.
+</KeyIdea>
+
+The cost of a miss compounds. Holding the previous action for one extra period
+means that cycle's effective delay is $2T$ rather than $T$, so the phase lag for
+that cycle doubles — at exactly the moment the controller was tuned for the
+nominal value.
+
+## What action chunking actually trades
+
+Predict $H$ actions and execute $T_a$ of them before re-planning. The amortised
+inference cost per executed action is
+
+$$
+\bar c = \frac{c_{\text{infer}}}{T_a}
+$$
+
+which is how a policy that cannot run at control rate is made to run at control
+rate.
+
+<Derivation title="The reactivity cost, quantified">
+
+Between re-plans, the policy is open loop for $T_a$ steps, so the age of the
+observation the current action was computed from ranges over
+$[\,\tau_0,\ \tau_0 + (T_a-1)T\,]$, with mean
+
+$$
+\bar\tau_{\text{eff}} = \tau_0 + \frac{(T_a - 1)\,T}{2}
+$$
+
+**Read it as a trade.** Chunking divides the *compute* per action by $T_a$ and
+adds $(T_a-1)T/2$ to the *average staleness*. At 10 Hz with $T_a = 8$, that is
+350 ms of added mean delay — which by the phase formula is 105° of lag at 1 Hz.
+
+**So chunking does not remove the latency problem; it moves it.** You buy
+throughput and pay in reactivity, and the exchange rate is set by $T_a$. That is
+why the right response to "the policy lags a moving target" is to reduce $T_a$,
+not to make the model faster: the model was never the binding term.
+
+</Derivation>
+
+## Jitter as a queueing problem
+
+If inference is served asynchronously and the control loop reads the most recent
+available action, the system is a queue. Two regimes matter.
+
+<Steps>
+<Step title="Utilisation below one, bounded queue">
+Mean inference time under the period. Waiting time still grows sharply as
+utilisation $\rho = \bar c / T$ approaches 1 — the standard queueing result — so
+running at 90% utilisation is not "10% of headroom", it is a regime where small
+perturbations produce large waits.
+</Step>
+
+<Step title="Utilisation above one, unbounded growth">
+Mean inference time above the period. The queue grows without bound and the
+action being executed becomes arbitrarily stale. The fix is to *drop* stale
+requests rather than queue them: a control system wants the newest answer, not
+the oldest pending one.
+</Step>
+</Steps>
+
+<Warning>
+The default behaviour of a naive async wrapper is to queue, which is exactly
+backwards for control. Under load, a queue delivers increasingly old actions
+while reporting healthy throughput. Dropping instead — keep only the most recent
+request, discard the rest — degrades gracefully and makes the staleness bounded
+by construction.
+</Warning>
+
+## The tuple that is actually your policy
+
+$$
+\text{policy} = \big(\theta,\ \text{preprocessing},\ \text{normalisation stats},\ \text{calibration},\ \text{action decode},\ \text{control params}\big)
+$$
+
+Every one of these can change independently, and a mismatch in any of them
+produces behaviour that looks like a model regression. Normalisation statistics
+computed on a different dataset revision, a camera recalibrated last week, a
+gripper firmware update that changed the command scaling — all present as "the
+new policy is worse".
+
+<KeyIdea>
+Version the tuple, not the weights, and record its hash with every rollout. This
+is the deployment analogue of freezing an evaluation protocol: the point is that
+when two results disagree, you can establish in one second whether they were
+produced by the same system.
+</KeyIdea>

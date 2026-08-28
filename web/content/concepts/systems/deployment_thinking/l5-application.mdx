@@ -1,24 +1,176 @@
 ---
 concept: deployment_thinking
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Deployment Thinking for Robot Systems fail in practice, and how
-    would you present it in an interview?
+  prompt: "Give your interview answer on deploying a robot policy. What is the shift in objective, and what would you build first?"
   keyPoints:
-    - "Silent failure: the system continues operating but performance degrades
-      without alerting anyone."
-    - "Example: camera calibration drifts over weeks, success rate slowly drops
-      from 95% to 70%."
-    - Nobody notices until production quality complaints.
-check: []
-papers: []
+    - "The shift is from peak to tail: research maximises mean success, deployment optimises the worst case, the recovery, and the predictability."
+    - "Quote latency as a budget with a percentile: $\\tau_{\\max} = \\phi_m/(360 f_c)$, and the p99 rather than the mean, since misses come from the tail."
+    - "Name what has an undefined behaviour: stale observation, missed deadline, OOD input, dead component. Each needs a decided response, and blocking is never one."
+    - "Version the whole tuple — weights, preprocessing, normalisation stats, calibration, decode and control parameters — because 'the new policy is worse' is usually not the weights."
+interview:
+  answer: >-
+    The shift I'd lead with is that research optimises the peak and deployment
+    optimises the tail. A research result is a mean success rate on a chosen
+    task suite. A deployed system is judged on what it does on its worst day,
+    whether it fails predictably, and whether anyone can tell why — so a policy
+    at eighty-five percent with a graceful detectable failure mode is
+    deployable, and one at ninety-two that occasionally drives the arm into the
+    table is not, however much you improve the mean. Concretely, three things.
+    First, latency is a budget rather than a number, and the percentile matters
+    more than the mean. A pure delay has unit magnitude and pure phase, so it
+    adds 360 times f times tau degrees of lag at frequency f — which means at
+    5 Hz, 50 milliseconds costs 90 degrees and 100 milliseconds costs 180, where
+    a corrective action arrives in antiphase and becomes positive feedback. If I
+    know the crossover frequency and the phase margin I need, the delay budget
+    is margin over 360 f, and that's the *whole* loop: exposure, transport,
+    preprocessing, inference, command, actuator. Inference is usually the
+    largest single term and rarely more than half, so teams that only optimise
+    the model often find the loop barely improved. And the tail is what breaks
+    you — a forty millisecond median with a 250 millisecond p99 against a 100
+    millisecond period misses at least one percent of cycles, which is hundreds
+    per hour, and each miss holds a stale action and doubles that cycle's delay.
+    Production systems often cap inference deliberately, giving up speed they
+    could sometimes have in exchange for a bound. Second, everything at the
+    seams needs a defined behaviour. Stale observation, missed deadline,
+    out-of-distribution input, dead component. Research code assumes each step
+    returns; deployed code lives where a camera drops frames and a GC pauses.
+    The one answer that's never acceptable is blocking, because that turns a
+    latency problem into unbounded loss of control. Third, version the whole
+    tuple, not the checkpoint — weights, preprocessing, normalisation
+    statistics, calibration, decode parameters, control parameters. The most
+    expensive bug I've seen described is "the new policy is worse" where the
+    weights never changed and the normalisation stats were recomputed on a newer
+    dataset revision.
+  followUps:
+    - q: "Your policy can't run at the control rate. What are the options, in order?"
+      a: >-
+        First I'd measure where the time actually goes, because inference is
+        usually the largest term and rarely the majority — exposure, transport,
+        and preprocessing are often half the loop and nobody has looked. Then
+        action chunking, which amortises one inference over several executed
+        steps and is the standard answer. But it's worth being precise that
+        chunking doesn't remove the latency problem, it moves it: executing
+        T_a actions open-loop adds roughly T_a minus one over two, times the
+        period, to the average observation staleness, so at 10 Hz with a chunk
+        of eight that's 350 milliseconds of added mean delay. You've bought
+        throughput and paid in reactivity. That's also why the right response to
+        "the policy lags a moving target" is to reduce T_a rather than speed up
+        the model — the model was never the binding term. After that it's the
+        ordinary levers: quantisation, a smaller vision encoder, fewer camera
+        views, and for a token-decoding policy, parallel decoding or chunk
+        compression.
+    - q: "How would you run inference asynchronously without making things worse?"
+      a: >-
+        Drop, don't queue, and that's the part people get wrong. A queue is
+        right for a job system and wrong for control: under load it delivers
+        increasingly stale actions while throughput still looks healthy. Keeping
+        only the newest pending request bounds staleness by construction, so the
+        degradation shows up as a lower effective control rate rather than as a
+        growing lie. The control thread then never blocks — it reads the
+        freshest available action, and if there isn't one recent enough it takes
+        a defined fallback: hold within a bounded staleness window, controlled
+        stop beyond it. And I'd stamp results with the *observation's* timestamp
+        rather than the completion time, because staleness has to be measured
+        from when the world was seen — stamping at completion makes a slow
+        inference look fresh, which is exactly backwards.
+    - q: "What would you monitor in production?"
+      a: >-
+        Inputs before outputs. A success rate tells you it broke; input
+        statistics tell you before it broke. So I'd track an
+        out-of-distribution score — nearest-neighbour distance from the current
+        observation embedding into the training set — plus cheap image
+        statistics like brightness and saturated fraction, and alert on drift.
+        Those catch the lighting changing, a camera drifting, or the object set
+        being different from last month, which are the realistic causes of a
+        slow degradation. On the systems side, deadline miss rate and the
+        latency percentiles, because both are leading indicators that don't show
+        up in success rate until after they've cost something. And I'd make sure
+        rollback takes under a minute, because the new policy will eventually be
+        worse in a situation nobody tested and reverting quickly is worth more
+        than confidence that it won't happen.
+    - q: "How do you test the failure paths?"
+      a: >-
+        By executing them, not by writing them. A fallback that has never been
+        triggered is a hypothesis. So: unplug the camera while it's running,
+        kill the inference process mid-episode, inject 500 milliseconds of
+        artificial latency, feed it a frame from a completely different scene.
+        Each one should produce the behaviour I decided on, and in my experience
+        at least one won't the first time — usually because something upstream
+        blocks rather than timing out, or a staleness check is comparing against
+        the wrong clock. I'd also want the staleness bound itself derived rather
+        than picked: it should come from the task's bandwidth, since that's what
+        determines how quickly an old observation stops being a defensible basis
+        for action.
+  traps:
+    - "Reporting mean inference time. Deadline misses come from the tail, and the mean appears nowhere in $P(L > T)$."
+    - "Treating latency as an inference problem. It is the whole loop, and inference is rarely more than half of it."
+    - "Presenting action chunking as removing the latency problem. It trades throughput for observation staleness, and the trade should be quantified."
+    - "Versioning the checkpoint rather than the configuration tuple. Normalisation statistics, calibration, and decode parameters all change behaviour and all present as a model regression."
+check:
+  - id: dt_l5_c1
+    prompt: "A team reports their policy runs at 45 ms mean inference and is 'fast enough' for a 20 Hz loop. What do you ask?"
+    options:
+      - "Whether they used a GPU"
+      - "For the p99 and the end-to-end loop latency — deadline misses come from the tail, not the mean, and inference is only one term alongside exposure, transport, preprocessing, and actuation"
+      - "Whether the model could be smaller"
+      - "What the success rate is"
+    answer: 1
+    explanation: "Two independent gaps in the claim. The mean does not determine $P(L > T)$, so 45 ms average is consistent with regular deadline misses if the distribution has a tail — and it usually does, from GC pauses, cache misses, and thermal throttling. And the 50 ms period has to cover the whole loop; if exposure and transport are another 30 ms, the budget is already gone. Both questions are cheap to answer and either can invalidate the conclusion."
+  - id: dt_l5_c2
+    prompt: "After a model update your policy is worse, but the diff shows no change to the training code or the architecture. Where do you look first?"
+    options:
+      - "Retrain with a different seed"
+      - "The rest of the configuration tuple — normalisation statistics recomputed on a newer dataset revision, a recalibrated camera, changed action decode parameters, or updated gripper firmware — any of which changes behaviour and presents as a model regression"
+      - "The GPU driver version"
+      - "The evaluation protocol"
+    answer: 1
+    explanation: "A behaviour change with no change to the model is the signature of something else in the tuple moving, and stale normalisation statistics are the most common single cause — actions scaled by the wrong constants look like a subtly worse policy rather than like a bug. This is exactly what a configuration fingerprint logged with every rollout is for: it turns a day of bisecting into a one-second comparison. The evaluation protocol is a reasonable second check for the same reason, and it is also something you should have frozen."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Silent failure: the system continues operating but performance degrades without alerting anyone. Example: camera calibration drifts over weeks, success rate slowly drops from 95% to 70%. Nobody notices until production quality complaints. Fix: continuous monitoring dashboards, automated performance regression alerts (trigger when success rate drops $> 5\%$ from baseline), periodic recalibration schedules.
+<Steps>
+<Step title="Intermittently unstable, fine most of the time → the latency tail">
+Check p99 and the deadline-miss rate, not the mean. A uniformly slower loop can
+be tuned for; an intermittently slow one violates the tuning at random moments.
+</Step>
 
-## Interview-ready answer
+<Step title="Sluggish, lags a moving target → chunk length, not model speed">
+Reactivity is set by how often you look at the world, which is $T_a$. Making the
+model faster does not change it.
+</Step>
 
-Deployment is where most robot learning projects fail — not because the model is bad, but because the systems around it aren't robust. Key principles: (1) latency budget — know your control loop timing and design inference to fit ($t_{\text{infer}} < t_{\text{budget}}$), (2) failure detection — the system must know when it's failing (confidence estimation, anomaly detection), (3) graceful degradation — when confidence is low, fall back to safer behavior or stop, (4) monitoring — dashboards for success rate, latency, confidence distribution in production, (5) update pipeline — ability to retrain and redeploy without downtime. The question I always ask: 'What happens at 3 AM when nobody is watching?'
+<Step title="Oscillates in contact → phase margin consumed by delay">
+Compute $360 f\tau$ at the task's bandwidth. If it is approaching the margin,
+the loop is the problem and no policy change will fix it.
+</Step>
+
+<Step title="Worse after an update with no model change → the configuration tuple">
+Normalisation statistics, calibration, decode parameters, firmware. Fingerprint
+the tuple and compare.
+</Step>
+
+<Step title="Degrades slowly over weeks → input drift">
+Lighting, camera pose, object set. Monitor input statistics and OOD distance;
+the success rate notices last.
+</Step>
+
+<Step title="Freezes rather than failing → something blocks">
+A blocking call somewhere in the loop. Every wait needs a timeout and every
+timeout needs a defined next action.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+This concept is asked to find out whether you have shipped something or only
+trained something, so the useful register is concrete rather than architectural.
+Timestamps on every input. A staleness bound derived from the task bandwidth. A
+p99 rather than a mean. Drop rather than queue. A configuration fingerprint on
+every log line. Failure paths that have actually been executed. None of it is
+machine learning, and in a deployed robot system almost all of the effort goes
+there — saying so plainly is itself the signal.
+</Warning>

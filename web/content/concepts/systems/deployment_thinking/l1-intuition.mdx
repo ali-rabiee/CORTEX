@@ -1,23 +1,180 @@
 ---
 concept: deployment_thinking
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Deployment Thinking for Robot Systems in plain language: what
-    is it, and why does it matter?"
+  prompt: "Explain what changes when a research policy becomes a deployed system. What does deployment optimise that research does not?"
   keyPoints:
-    - A research demo runs on an A100 with a human ready to hit the e-stop.
-    - A deployed system runs on an edge GPU 24/7 with no human in the loop.
-    - "Deployment thinking means asking: 'What happens when the model outputs
-      garbage?"
-check: []
-papers: []
+    - "Research optimises the peak — mean success on a benchmark. Deployment optimises the tail — the worst case, the recovery, and the predictability."
+    - "Latency is a budget, not a number, and the p99 matters more than the mean: a loop that is fast on average and occasionally slow behaves worse than one uniformly slower."
+    - "Delay costs phase margin. At 5 Hz, 50 ms of loop delay is 90 degrees of lag, and 100 ms is 180 — the point where corrective action becomes positive feedback."
+    - "Everything must have a defined behaviour when it fails: stale observation, missed deadline, model timeout, sensor dropout. 'It has not happened yet' is not a behaviour."
+media:
+  - kind: article
+    title: "Champion-level drone racing using deep reinforcement learning"
+    url: https://www.nature.com/articles/s41586-023-06419-4
+    source: "Kaufmann, Bauersfeld, Loquercio, Müller, Koltun, Scaramuzza · Nature"
+    note: "The clearest published example of deployment engineering deciding the outcome. Read the sections on latency, state estimation, and what they did about the gap between their model of the drone and the drone."
+  - kind: article
+    title: "QT-Opt: Scalable Deep Reinforcement Learning for Vision-Based Robotic Manipulation"
+    url: https://arxiv.org/abs/1806.10293
+    source: "Kalashnikov, Irpan, Pastor, Ibarz, et al."
+    note: "A systems paper wearing an algorithms paper's clothes. Seven robots running for months means job scheduling, failure recovery, and data pipelines — the parts nobody writes up and everybody rediscovers."
+  - kind: article
+    title: "Fine-Tuning Vision-Language-Action Models: Optimizing Speed and Success"
+    url: https://arxiv.org/abs/2502.19645
+    source: "Kim, Finn, Liang"
+    note: "A rare careful treatment of the throughput side of policy deployment — parallel decoding, chunk length, head design — with the trade against success rate measured rather than asserted."
+check:
+  - id: dt_l1_c1
+    prompt: "Your policy averages 40 ms inference but occasionally takes 250 ms. The control loop runs at 10 Hz. Why is this worse than a policy that always takes 90 ms?"
+    options:
+      - "It is not worse; the average is lower"
+      - "The occasional overrun misses the control deadline, so the previous action is held and the effective delay for that cycle doubles — and a controller tuned for the average is not tuned for the excursion, so behaviour becomes intermittently unstable rather than uniformly sluggish"
+      - "The GPU will overheat"
+      - "Averages are always misleading"
+    answer: 1
+    explanation: "Control loops are unforgiving about variance in a way that throughput benchmarks are not. A uniformly slower loop can be designed around — you tune the controller for 90 ms of delay and it is stable. An intermittently slow one violates the assumption the tuning was based on, at unpredictable moments, and the failure looks like a policy problem rather than a systems one. Deployment reports the p99, and often bounds it deliberately by capping inference even when the model could sometimes be faster."
+  - id: dt_l1_c2
+    prompt: "What does a pure loop delay of $\\tau$ cost a control system?"
+    options:
+      - "Nothing, provided the sampling rate exceeds the Nyquist rate"
+      - "Phase margin: it adds a lag of $360 f\\tau$ degrees at frequency $f$, so at 5 Hz a 50 ms delay costs 90 degrees — and at 180 degrees a corrective action arrives in antiphase and becomes positive feedback"
+      - "Only a proportional loss of accuracy"
+      - "It reduces the effective control frequency by half"
+    answer: 1
+    explanation: "Delay does not attenuate anything; it rotates the phase, and it rotates it more at higher frequencies. That is why the same 50 ms is negligible for a slow reaching motion and destabilising for a contact-rich or dynamic task — the relevant frequencies are different. Being able to state it as $360 f \\tau$ degrees turns 'latency matters' into a budget you can allocate against the bandwidth your task actually needs."
+  - id: dt_l1_c3
+    prompt: "What is the most common category of deployment failure that never appears in research?"
+    options:
+      - "The policy being insufficiently accurate"
+      - "Undefined behaviour at the seams — a stale observation, a dropped camera frame, a missed deadline, a model server timeout — where the research code simply assumed the input arrived"
+      - "Insufficient training data"
+      - "The model being too large"
+    answer: 1
+    explanation: "Research code runs in a loop that assumes each step returns. Deployed code runs in a world where a USB camera drops a frame, a network hiccups, and a garbage collector pauses — and each of those needs a defined response, because the default is to act on a stale observation as though it were current. 'It has not happened yet' is not a behaviour; the question is what the arm does in the fifty milliseconds after the frame did not arrive."
 ---
 
-## Intuition
+## A different objective
 
-A research demo runs on an A100 with a human ready to hit the e-stop. A deployed system runs on an edge GPU 24/7 with no human in the loop. Deployment thinking means asking: 'What happens when the model outputs garbage? What if inference takes 200ms instead of 50ms? What if the camera gets occluded?'
+A research result maximises the mean success rate on a chosen task suite. A
+deployed system is judged on something else entirely: what it does on its worst
+day, whether it fails predictably, and whether anyone can tell why.
 
-## In practice
+<Intuition>
+A racing car is optimised for lap time on a known circuit with a mechanic
+between runs. A road car is optimised for the tail: starting in the cold,
+behaving predictably when a tyre deflates, and telling you what is wrong when
+something is.
 
-Deploying a pick-and-place policy: model distillation from a 300M parameter diffusion model to a 10M student model for edge inference. Add a confidence threshold — if the policy's predicted uncertainty $\hat{\sigma}$ exceeds a bound $\sigma_{\max}$, stop and request human intervention. Monitor: inference latency $p_{99}$, prediction confidence $\mathbb{E}[\hat{\sigma}]$, success rate rolling window (last 100 picks), camera health check (frame rate, exposure).
+They are both cars, and almost none of the engineering transfers.
+</Intuition>
+
+<KeyIdea>
+The shift is from *peak* to *tail*. A policy with 85% mean success and a
+graceful, detectable failure mode is deployable. One with 92% mean success that
+occasionally drives the arm into the table is not, and no amount of improving
+the mean changes that.
+</KeyIdea>
+
+## Latency is a budget
+
+<Figure src="/figures/deployment-latency-budget.svg"
+        alt="Two timing bars across one control period. The typical loop fits sensing, network, inference and actuation inside the period with slack. The p99 loop's inference overruns the deadline, so the previous action is held and the delay for that cycle doubles."
+        caption="The loop has a period and the work has to fit inside it. What breaks deployments is not the average — it is the occasional excursion that misses the deadline, at a moment nothing predicted." />
+
+Sense, transport, infer, act. Each has a duration, and their sum has to fit
+inside the control period with margin. Two things follow that research code
+never has to confront.
+
+<Steps>
+<Step title="The p99 is the number, not the mean">
+A loop that is usually fast and occasionally slow is worse than one uniformly
+slower. The uniform one can be designed around — you tune for its delay and it
+is stable. The intermittent one violates that tuning at unpredictable moments,
+and the resulting misbehaviour looks like a policy bug rather than a systems
+one. Production systems often *cap* inference time deliberately, giving up
+speed they could sometimes have in exchange for a bound.
+</Step>
+
+<Step title="Delay costs phase margin, and the cost scales with frequency">
+A pure delay $\tau$ adds a phase lag of $360 f \tau$ degrees at frequency $f$.
+At 2 Hz, 30 ms is 22 degrees and nobody notices. At 5 Hz, 50 ms is 90 degrees —
+most of your margin. At 5 Hz, 100 ms is 180 degrees, and a corrective action
+arrives exactly in antiphase, which is to say it becomes positive feedback.
+</Step>
+</Steps>
+
+<Warning>
+This is why the same latency is irrelevant for a slow reaching motion and fatal
+for a contact-rich or dynamic one. "Is 50 ms acceptable?" has no answer without
+knowing what bandwidth the task requires — and that is the question to ask
+before optimising anything.
+</Warning>
+
+## Everything at the seams needs a defined behaviour
+
+Research code assumes each step returns. Deployed code lives somewhere a USB
+camera drops frames, a network hiccups, a garbage collector pauses, and a GPU
+thermal-throttles at hour six.
+
+<Steps>
+<Step title="Stale observation">
+The frame did not arrive. Does the policy act on the last one? For how long
+before that is unsafe? Acting on a 300 ms old image as though it were current is
+the default behaviour of code that never considered it.
+</Step>
+
+<Step title="Missed deadline">
+Inference overran. Hold the previous action, interpolate, or stop? All three are
+defensible; having no answer is not.
+</Step>
+
+<Step title="Out-of-distribution input">
+The policy will produce an action for anything, confidently. Something has to
+notice that the scene is unlike anything in training, and the policy itself is
+not that something.
+</Step>
+
+<Step title="Degraded mode">
+When the loop cannot run — a component died, latency blew out — there must be a
+behaviour that is safe. Usually a slow stop and a hold, and it needs to be
+tested rather than assumed.
+</Step>
+</Steps>
+
+## What deployment adds that research skips
+
+<Steps>
+<Step title="Determinism and versioning">
+Which weights, which preprocessing, which normalisation statistics, which
+calibration. A policy is a *tuple* of all of those, and shipping the weights
+alone reproduces nothing.
+</Step>
+
+<Step title="Monitoring that watches inputs, not just outputs">
+Success rate tells you it broke. Input distribution statistics tell you *before*
+it broke — the lighting changed, a camera drifted, the object set is different
+from last month.
+</Step>
+
+<Step title="Recovery, not just success">
+The interesting question is never "does it succeed?" but "what happens when it
+does not?" A policy that fails by stopping is worth more than one with a higher
+success rate that fails by continuing.
+</Step>
+
+<Step title="A rollback path">
+The new policy is worse in some situation you did not test. Being able to revert
+in a minute is worth more than being confident it will not happen.
+</Step>
+</Steps>
+
+<KeyIdea>
+Almost none of this is machine learning, and in a deployed robot system almost
+all of it is where the effort goes. That is worth saying out loud in an
+interview: the question is usually testing whether you have shipped something or
+only trained something.
+</KeyIdea>
+
+<WatchThis />

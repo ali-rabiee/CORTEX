@@ -1,0 +1,177 @@
+---
+concept: deployment_thinking
+level: 4
+status: final
+recall:
+  prompt: "Which results are actually about deployment engineering rather than about learning? What does each show?"
+  keyPoints:
+    - "The arm farm (2016) and QT-Opt (2018) are systems papers: continuous multi-robot operation, failure recovery, and data pipelines are what made the scale possible, and are the parts nobody writes up."
+    - "ANYmal (2019) shows deployment engineering *inside* the learning loop — an actuator network fitted on real hardware supplied the physics the simulator lacked."
+    - "Champion-level drone racing (2023) is the clearest case of latency and state estimation deciding the result, with the learned policy as one component of a carefully engineered loop."
+    - "OpenVLA-OFT (2025) treats throughput as a first-class objective and measures the success trade rather than asserting it — the current form of this concern for large policies."
+papers:
+  - key: levine2016armfarm
+    title: "Learning Hand-Eye Coordination for Robotic Grasping with Deep Learning and Large-Scale Data Collection"
+    authors: "Sergey Levine, Peter Pastor, Alex Krizhevsky, Deirdre Quillen"
+    venue: ISER
+    year: 2016
+    arxiv: "1603.02199"
+    takeaway: "Runs up to 14 robots continuously for months to collect 800k grasp attempts. The learning is straightforward; the contribution is a system that keeps that many arms usefully running without a person per robot."
+  - key: kalashnikov2018qtopt
+    title: "QT-Opt: Scalable Deep Reinforcement Learning for Vision-Based Robotic Manipulation"
+    authors: "Dmitry Kalashnikov, Alex Irpan, Peter Pastor, Julian Ibarz, Alexander Herzog, Eric Jang, Deirdre Quillen, Ethan Holly, Mrinal Kalakrishnan, Vincent Vanhoucke, Sergey Levine"
+    venue: CoRL
+    year: 2018
+    arxiv: "1806.10293"
+    takeaway: "A distributed training and data-collection architecture running seven robots for months, with asynchronous training against a continuously growing buffer — an algorithms paper whose hard parts are all infrastructure."
+  - key: hwangbo2019anymal
+    title: "Learning agile and dynamic motor skills for legged robots"
+    authors: "Jemin Hwangbo, Joonho Lee, Alexey Dosovitskiy, Dario Bellicoso, Vassilios Tsounis, Vladlen Koltun, Marco Hutter"
+    venue: "Science Robotics"
+    year: 2019
+    arxiv: "1901.08652"
+    takeaway: "Fits an actuator network on real hardware measurements and inserts it into the simulator, closing a deployment gap that no amount of parameter tuning could — deployment engineering feeding back into training."
+  - key: kaufmann2023swift
+    title: "Champion-level drone racing using deep reinforcement learning"
+    authors: "Elia Kaufmann, Leonard Bauersfeld, Antonio Loquercio, Matthias Müller, Vladlen Koltun, Davide Scaramuzza"
+    venue: Nature
+    year: 2023
+    url: https://www.nature.com/articles/s41586-023-06419-4
+    takeaway: "Beats human champions on a physical drone racing course. The learned policy is one component; the result rests on latency budgeting, state estimation, and residual models identified from real flight data."
+  - key: kim2025oft
+    title: "Fine-Tuning Vision-Language-Action Models: Optimizing Speed and Success"
+    authors: "Moo Jin Kim, Chelsea Finn, Percy Liang"
+    venue: RSS
+    year: 2025
+    arxiv: "2502.19645"
+    takeaway: "Treats inference throughput as a design objective alongside success rate — parallel decoding, chunk length, and head type measured against both — rather than reporting speed as an afterthought."
+check:
+  - id: dt_l4_c1
+    prompt: "The arm farm and QT-Opt are usually cited for their learning results. What is the deployment lesson?"
+    options:
+      - "That more data always helps"
+      - "That running robots continuously at scale is an infrastructure problem — automatic reset, failure detection and recovery, job scheduling, data pipelines — and that infrastructure is what made the data volume possible in the first place"
+      - "That reinforcement learning works on real robots"
+      - "That grasping is solved"
+    answer: 1
+    explanation: "The published contribution is the policy; the enabling contribution is that fourteen arms ran for months without a person per robot. That requires automatic scene reset, detecting when a robot has jammed or an object has left the workspace, restarting failed jobs, and streaming data reliably — none of which appears in the method section and all of which is where the effort went. It is the clearest illustration that data scale in robotics is bought with systems engineering."
+  - id: dt_l4_c2
+    prompt: "What is the deployment-relevant lesson from the drone racing result?"
+    options:
+      - "That RL beats humans at control"
+      - "That a learned policy is one component of an engineered loop — the result depends on latency budgeting, state estimation, and residual models identified from real flight data, any of which could have made it fail"
+      - "That simulation is sufficient for aggressive flight"
+      - "That drones are easier than manipulators"
+    answer: 1
+    explanation: "At the speeds involved, the phase lag from a few tens of milliseconds is a large fraction of the available margin, so the loop timing is not a detail — it is a constraint the whole design is built around. The paper also identifies residual dynamics from real flight rather than trusting the simulator. Reading it as 'RL beat the humans' misses that the learned component sits inside a stack where several other pieces had to be right, which is the general shape of any deployed learned controller."
+  - id: dt_l4_c3
+    prompt: "Why is the OFT study's approach — measuring speed and success together — methodologically better than reporting inference time separately?"
+    options:
+      - "It produces larger numbers"
+      - "Because the two trade against each other: parallel decoding and shorter chunks buy throughput at some cost in success, so a speed number without the corresponding success rate describes a point nobody would deploy"
+      - "Because inference time is hard to measure"
+      - "Because success rate is the only metric that matters"
+    answer: 1
+    explanation: "Reporting either alone lets you pick the flattering operating point. Any policy can be made fast by degrading it, and any policy can be made accurate by ignoring the clock — the useful artefact is the frontier between them, because a deployment has a hard latency constraint and wants the best success rate available at that constraint. This is the same argument as reporting confidence intervals rather than point estimates: the single number invites a conclusion the measurement does not support."
+---
+
+## Scale is an infrastructure result
+
+<PaperGrid>
+<PaperCard refKey="levine2016armfarm" />
+<PaperCard refKey="kalashnikov2018qtopt" />
+</PaperGrid>
+
+Both are cited for their policies and both are, in substance, systems papers.
+Fourteen arms running for months, or seven robots for the QT-Opt collection,
+means automatic scene reset, detecting a jammed gripper or an object that has
+left the workspace, restarting failed jobs, and streaming data reliably enough
+that a month of collection is not lost to a corrupt shard.
+
+<KeyIdea>
+None of that appears in a method section, and all of it is what made the data
+volume possible. Data scale in robotics is bought with systems engineering — the
+useful reading of these papers is that the bottleneck was never the learning
+algorithm, and that anyone proposing to collect a million real trajectories is
+proposing an infrastructure project.
+</KeyIdea>
+
+QT-Opt adds a second lesson: training asynchronously against a buffer that is
+still growing, with policies deployed to robots while training continues.
+Decoupling the collection rate from the training rate is what makes continuous
+operation possible, and it introduces its own problem — the data is off-policy
+by a lag that varies with how long deployment takes.
+
+## Deployment engineering feeding back into training
+
+<PaperCard refKey="hwangbo2019anymal" />
+
+The actuator network is the clearest example of a deployment measurement
+changing the training setup. System identification left a residual well above
+sensor noise, which said the simulator's model class was too small — so they
+measured the real actuator response and inserted a learned model of it into the
+simulator.
+
+<Warning>
+The generalisable move is to treat the sim-to-real gap as a measurement rather
+than a nuisance. Replay a real trajectory through the simulator from the same
+initial state and compare; where the divergence starts tells you which component
+is missing. That is a deployment activity producing a training artefact, and it
+is much more targeted than widening randomisation ranges until something works.
+</Warning>
+
+## When the loop timing is the result
+
+<PaperCard refKey="kaufmann2023swift" />
+
+A physical drone beating human champions on a racing course. The learned policy
+is one component of a stack that includes visual-inertial state estimation with
+its own latency, a control loop whose margin is measured in tens of
+milliseconds, and residual dynamics identified from real flight data rather than
+assumed from the simulator.
+
+<KeyIdea>
+At those speeds the phase lag from a few tens of milliseconds is a large
+fraction of the available margin, so the timing budget is not a detail to be
+optimised afterwards — it is the constraint the design is built around. Reading
+the result as "RL beat the humans" misses that several non-learned components
+each had to be right, which is the general shape of any deployed learned
+controller.
+</KeyIdea>
+
+## Throughput as a first-class objective
+
+<PaperCard refKey="kim2025oft" />
+
+For large policies, the current form of this concern. The study measures
+throughput and success *together* across parallel decoding, chunk length, and
+action-head type — treating the frontier between them as the object of interest
+rather than reporting speed as an afterthought.
+
+<Steps>
+<Step title="Why the joint measurement is the right artefact">
+The two trade against each other, so either number alone lets you pick a
+flattering operating point. Any policy can be made fast by degrading it. A
+deployment has a hard latency constraint and wants the best success rate
+available *at* that constraint, which is a point on a frontier, not a headline.
+</Step>
+
+<Step title="What it says about where the effort goes">
+The gains come from decoding strategy and chunk length — choices entirely
+orthogonal to the backbone. That is the same pattern as the careful ablations in
+evaluation and data: the factors that dominate outcomes are usually not the ones
+the papers are arguing about.
+</Step>
+</Steps>
+
+## What is still not written down
+
+<Warning>
+Deployment is under-published for a structural reason: it is specific to a
+system, it does not generalise into a citable claim, and it is where most of the
+engineering time actually goes. The consequence for you is that this knowledge
+mostly transfers through practice rather than through papers, and that a
+candidate who can talk concretely about timestamps, staleness bounds, fallback
+behaviours, and configuration fingerprints is signalling something that no
+reading list demonstrates.
+</Warning>

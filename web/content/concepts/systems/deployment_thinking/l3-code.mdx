@@ -1,0 +1,261 @@
+---
+concept: deployment_thinking
+level: 3
+status: final
+recall:
+  prompt: "Write the deployment loop. How do you decouple inference from control, and what has a defined behaviour when it fails?"
+  keyPoints:
+    - "Run control at a fixed rate and inference asynchronously. The control thread never blocks on the model — it reads the freshest available action or falls back."
+    - "Drop, do not queue. A control system wants the newest answer; a queue delivers the oldest pending one and reports healthy throughput while doing it."
+    - "Every input carries a timestamp, and staleness is checked before use. Acting on a 300 ms old frame as though it were current is the default behaviour of code that never considered it."
+    - "Version the whole tuple — weights, preprocessing, normalisation statistics, calibration, decode parameters — and log its hash with every rollout."
+check:
+  - id: dt_l3_c1
+    prompt: "Why should an async inference worker drop pending requests rather than queue them?"
+    options:
+      - "Queues use more memory"
+      - "A control loop wants the most recent answer. Under load a queue delivers increasingly stale actions while throughput still looks healthy, whereas dropping bounds staleness by construction and degrades gracefully"
+      - "Dropping is easier to implement"
+      - "Queues are not thread-safe"
+    answer: 1
+    explanation: "The mismatch is between what a queue optimises and what control needs. A queue preserves every request, which is right for a job system and wrong here — an action computed from a 400 ms old observation is not merely late, it is answering a question about a world that has moved. Keeping only the newest request means the worst case is one inference period of staleness rather than an unbounded backlog, and the degradation shows up as a lower effective control rate rather than as a growing lie."
+  - id: dt_l3_c2
+    prompt: "Your control thread finds no fresh action available at its deadline. What should it do?"
+    options:
+      - "Block until inference completes"
+      - "Take a defined fallback — hold or interpolate within a bounded staleness window, and stop safely beyond it — because blocking converts a latency problem into an unbounded loss of control"
+      - "Skip the cycle entirely"
+      - "Reduce the control rate dynamically"
+    answer: 1
+    explanation: "Blocking is the choice that turns a recoverable degradation into a failure: the loop stops running, the actuator holds whatever it had with no supervision, and you have no bound on how long. A defined fallback keeps the loop live and makes the degradation observable — hold the last action while it is recent enough to be defensible, and transition to a controlled stop once it is not. The staleness bound is a safety parameter and should be derived from the task's bandwidth, not picked."
+  - id: dt_l3_c3
+    prompt: "Why log a hash of the whole configuration tuple rather than the model checkpoint name?"
+    options:
+      - "Hashes are shorter"
+      - "Because the deployed behaviour depends on weights, preprocessing, normalisation statistics, calibration, and decode parameters — any of which can change independently and present as a model regression"
+      - "To detect corrupted checkpoints"
+      - "For licensing compliance"
+    answer: 1
+    explanation: "The failure this prevents is a specific and common one: 'the new policy is worse', where nothing about the weights changed and the normalisation statistics were recomputed on a newer dataset revision, or a camera was recalibrated. Those are invisible in a checkpoint name, and reproducing them from memory a week later is unreliable. A hash over the whole tuple turns a day of confusion into a one-second comparison, which is the same argument as freezing an evaluation protocol."
+---
+
+## The loop
+
+<CodeWalk title="Fixed-rate control, asynchronous inference">
+
+```python title="deploy.py"
+import threading, time
+from dataclasses import dataclass
+
+@dataclass
+class Stamped:
+    value: object
+    t: float          # when the underlying measurement was taken, not when stored
+
+
+class InferenceWorker:
+    """Runs the policy off the control thread and keeps ONLY the newest result.
+
+    A queue is wrong here: under load it delivers increasingly stale actions
+    while throughput still looks healthy. Dropping bounds staleness by
+    construction.
+    """
+
+    def __init__(self, policy):
+        self.policy = policy
+        self._pending = None          # at most one request, always the newest
+        self._latest = None           # at most one result
+        self._lock = threading.Lock()
+        self._cv = threading.Condition(self._lock)
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def submit(self, obs: Stamped):
+        with self._cv:
+            self._pending = obs       # overwrite: drop whatever was waiting
+            self._cv.notify()
+
+    def latest(self) -> Stamped | None:
+        with self._lock:
+            return self._latest
+
+    def _run(self):
+        while True:
+            with self._cv:
+                while self._pending is None:
+                    self._cv.wait()
+                obs, self._pending = self._pending, None
+            actions = self.policy(obs.value)
+            with self._lock:
+                # Stamped with the OBSERVATION's time, so staleness is measured
+                # from when the world was seen, not from when we finished.
+                self._latest = Stamped(actions, obs.t)
+```
+
+</CodeWalk>
+
+The `_latest` result is stamped with the *observation's* timestamp, not the
+completion time. Staleness has to be measured from when the world was seen —
+stamping at completion makes a slow inference look fresh, which is precisely
+backwards.
+
+## The control thread
+
+<CodeWalk title="A loop that never blocks, and always has a behaviour">
+
+```python title="control.py"
+MAX_STALENESS_S = 0.25     # derived from the task bandwidth, not picked
+CONTROL_HZ = 20
+
+def control_loop(robot, worker, chunk_len=8):
+    period = 1.0 / CONTROL_HZ
+    next_tick = time.perf_counter()
+    chunk, chunk_idx, chunk_t = None, 0, -1e9
+
+    while robot.enabled:
+        now = time.perf_counter()
+
+        obs = robot.read_observation()             # already Stamped
+        if now - obs.t > MAX_STALENESS_S:
+            robot.safe_stop("stale observation")   # a defined behaviour
+            return
+
+        worker.submit(obs)                         # never blocks
+
+        fresh = worker.latest()
+        if fresh is not None and fresh.t > chunk_t:
+            chunk, chunk_idx, chunk_t = fresh.value, 0, fresh.t
+
+        if chunk is None or chunk_idx >= chunk_len:
+            # No action available, or the chunk is exhausted. Do not block —
+            # blocking turns a latency problem into unbounded loss of control.
+            if now - chunk_t > MAX_STALENESS_S:
+                robot.safe_stop("no fresh action")
+                return
+            robot.hold()
+        else:
+            robot.command(chunk[chunk_idx])
+            chunk_idx += 1
+
+        next_tick += period
+        sleep_for = next_tick - time.perf_counter()
+        if sleep_for > 0:
+            time.sleep(sleep_for)
+        else:
+            METRICS.deadline_miss.inc()            # count these; they are the tail
+            next_tick = time.perf_counter()        # do not accumulate lateness
+```
+
+</CodeWalk>
+
+<Warning>
+`next_tick = time.perf_counter()` after a miss matters. Without it, a single
+overrun leaves the loop permanently behind schedule and it spends the next
+several cycles running with no sleep at all, trying to catch up — converting one
+late cycle into a burst of them.
+</Warning>
+
+## Measuring the tail
+
+```python title="metrics.py"
+class LatencyTracker:
+    """Report percentiles. The mean tells you nothing about whether the loop
+    holds — a 40 ms median with a 250 ms p99 against a 100 ms period misses at
+    least 1% of cycles, which is 720 per hour at 20 Hz."""
+
+    def __init__(self, window=10_000):
+        self.samples = collections.deque(maxlen=window)
+
+    def record(self, seconds):
+        self.samples.append(seconds)
+
+    def report(self, period):
+        a = np.array(self.samples)
+        return {
+            "p50": float(np.percentile(a, 50)),
+            "p95": float(np.percentile(a, 95)),
+            "p99": float(np.percentile(a, 99)),
+            "max": float(a.max()),
+            "miss_rate": float((a > period).mean()),
+            "misses_per_hour": float((a > period).mean() * 3600 / period),
+        }
+```
+
+## Version the whole tuple
+
+```python title="version.py"
+@dataclass(frozen=True)
+class DeployedPolicy:
+    weights_sha: str
+    preprocess_sha: str        # resize, crop, colour handling
+    norm_stats_sha: str        # action mean/std — a silent killer when stale
+    calibration_sha: str       # camera intrinsics and extrinsics
+    decode_params_sha: str     # action bin edges, chunk length, T_a
+    control_params_sha: str    # rate, gains, staleness bound
+
+    def fingerprint(self) -> str:
+        blob = "|".join(astuple(self))
+        return hashlib.sha256(blob.encode()).hexdigest()[:12]
+
+
+# Every rollout log line carries the fingerprint. When two results disagree,
+# "same system?" becomes a one-second comparison instead of a day.
+```
+
+<KeyIdea>
+The most expensive deployment bug is "the new policy is worse" where the weights
+did not change — normalisation statistics recomputed on a newer dataset
+revision, a camera recalibrated, a gripper firmware update that rescaled the
+command. A checkpoint name records none of that. The fingerprint does.
+</KeyIdea>
+
+## Watch the inputs, not only the outputs
+
+```python title="monitor.py"
+class InputMonitor:
+    """Success rate tells you it broke. Input statistics tell you before.
+
+    Track the same summary you tracked over the training set, and alert on
+    drift — the lighting changed, a camera drifted, the object set is
+    different from last month.
+    """
+
+    def __init__(self, encoder, train_embeddings, k=5):
+        self.encoder = encoder
+        self.index = build_index(train_embeddings)
+        self.k = k
+
+    def check(self, obs):
+        z = normalize(self.encoder(obs))
+        sims, _ = self.index.search(z[None].astype("float32"), self.k)
+        ood_distance = 1.0 - float(sims.mean())
+        return {
+            "ood_distance": ood_distance,
+            "flag": ood_distance > OOD_THRESHOLD,   # calibrated on held-out data
+            "brightness": float(obs.mean()),
+            "saturated_frac": float((obs > 250).mean()),
+        }
+```
+
+## The checklist before anything runs unsupervised
+
+<Steps>
+<Step title="Every input is timestamped and staleness-checked">
+Including proprioception. A stale joint reading is as dangerous as a stale
+image and much less likely to be noticed.
+</Step>
+
+<Step title="Every failure path has been executed, not just written">
+Unplug the camera while it runs. Kill the inference process. Add 500 ms of
+artificial latency. A fallback that has never been triggered is a hypothesis.
+</Step>
+
+<Step title="Deadline misses and OOD flags are counted and visible">
+Both are leading indicators. Neither shows up in a success rate until after it
+has cost you something.
+</Step>
+
+<Step title="Rollback takes under a minute">
+The new policy is worse in some situation you did not test. Being able to revert
+quickly is worth more than confidence that it will not happen.
+</Step>
+</Steps>
