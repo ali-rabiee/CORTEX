@@ -1,24 +1,203 @@
 ---
 concept: task_planning
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Task Planning with LLMs for Robotics,
-    including the key equations.
+  prompt: "Formalise the grounded planning problem. Derive the SayCan scoring rule, and quantify why long horizons fail."
   keyPoints:
-    - Using large language models to decompose high-level goals into executable
-      sub-task sequences for robots.
-    - "Hierarchical planning: $\\text{LLM}(\\text{goal}, \\text{scene})
-      \\rightarrow \\{s_1, s_2, \\ldots, s_T\\}$ where each sub-task $s_i$ maps
-      to a parameterized skill $\\pi_{s_i}(a | o, \\theta_i)$."
-    - "Can be formalized as a PDDL-style planning problem where the LLM serves
-      as both the domain modeler and the planner: given predicates
-      $\\mathcal{P}$, initial state $s_0$, and goal $g$, find action sequence
-      $a_1, \\ldots, a_T$ such that $s_T \\models g$."
-check: []
-papers: []
+    - "$\\arg\\max_{\\pi_k \\in \\Pi} \\; p_{\\text{LLM}}(\\ell_{\\pi_k} \\mid i,\\, h) \\cdot p(c_{\\pi_k} \\mid s_t, \\pi_k)$ — a language prior times an affordance likelihood, which is a posterior over skills under a conditional-independence assumption."
+    - "The affordance term is the skill's value function $V^{\\pi_k}(s_t)$ with a sparse success reward, so it is exactly the probability of completing the skill from here."
+    - "Chained success is $\\prod_k p_k$, so at 90% per skill a ten-step plan succeeds about 35% of the time. Replanning turns the product into something closer to a per-step recovery process."
+    - "Feedback makes it a POMDP over the world state with language as the belief representation — which is why success-detector reliability, not planner quality, usually caps performance."
+check:
+  - id: tp_l2_c1
+    prompt: "SayCan multiplies the LLM score by the affordance score. What probabilistic statement is that?"
+    options:
+      - "It is a heuristic with no probabilistic interpretation"
+      - "Treating the LLM term as a prior over skills given the instruction and the affordance term as the likelihood of success given the state, their product is proportional to the posterior over which skill to execute — under the assumption that usefulness and feasibility are conditionally independent given the skill"
+      - "It is the expected reward of the skill"
+      - "It is a KL divergence between the two distributions"
+    answer: 1
+    explanation: "Reading it as prior times likelihood is what makes the design principled rather than a convenient product. It also exposes the assumption: usefulness and feasibility are treated as independent given the skill, which is not exactly true — whether a skill helps can depend on the state the affordance model is scoring. In practice the approximation is benign, and being able to name it is the difference between citing the formula and understanding it."
+  - id: tp_l2_c2
+    prompt: "Why is the affordance term naturally a value function rather than a separate classifier?"
+    options:
+      - "Value functions are faster to evaluate"
+      - "With a sparse reward of 1 on skill completion and 0 otherwise, and no discounting, $V^{\\pi_k}(s_t)$ *is* the probability that skill $k$ succeeds from state $s_t$ — so anything already trained to execute the skill gives you the affordance for free"
+      - "Because the LLM output is also a value"
+      - "Because classifiers cannot handle continuous states"
+    answer: 1
+    explanation: "This is a neat reuse rather than an extra component. Under a binary terminal reward, the expected return of running the skill from $s_t$ is exactly the success probability, so a value function trained alongside the skill answers the affordance question with no additional labels. The caveat worth stating is that it is only as calibrated as the skill's own training distribution — asked about a state far outside it, the value function is extrapolating, which is the same out-of-distribution optimism that afflicts offline RL."
+  - id: tp_l2_c3
+    prompt: "Each skill succeeds with probability 0.9 and a task needs 10 of them. What is the open-loop success rate, and what does replanning change?"
+    options:
+      - "0.9, since failures are independent"
+      - "About 0.35 — the product $0.9^{10}$ — and replanning changes the structure: instead of needing all ten to succeed first time, you need each to succeed within a few retries, so the effective per-step probability rises toward 1 and the product stops collapsing"
+      - "0.5, by the central limit theorem"
+      - "It cannot be computed without knowing the failure modes"
+    answer: 1
+    explanation: "The arithmetic is worth doing out loud because it explains why demos are short. $0.9^{10} \\approx 0.35$, and at 0.8 per skill a ten-step plan is under 11%. Replanning is what makes long horizons possible at all: a detected failure becomes a retry rather than a terminated plan, which replaces $p^{10}$ with something like $(1-(1-p)^r)^{10}$ for $r$ attempts. That is also why the success detector's reliability, rather than the planner's cleverness, is usually what caps the system."
 ---
 
-## Formal definition
+## The setting
 
-Using large language models to decompose high-level goals into executable sub-task sequences for robots. Hierarchical planning: $\text{LLM}(\text{goal}, \text{scene}) \rightarrow \{s_1, s_2, \ldots, s_T\}$ where each sub-task $s_i$ maps to a parameterized skill $\pi_{s_i}(a | o, \theta_i)$. Can be formalized as a PDDL-style planning problem where the LLM serves as both the domain modeler and the planner: given predicates $\mathcal{P}$, initial state $s_0$, and goal $g$, find action sequence $a_1, \ldots, a_T$ such that $s_T \models g$. Inner monologue and chain-of-thought improve multi-step reasoning.
+A robot has a library of trained skills $\Pi = \{\pi_1, \ldots, \pi_K\}$, each
+with a natural-language name $\ell_{\pi_k}$. Given a high-level instruction $i$
+and history $h$, choose a skill to execute, run it, observe, and repeat.
+
+Two sources of information bear on the choice, and neither is sufficient:
+
+$$
+\underbrace{p_{\text{LLM}}\big(\ell_{\pi_k} \mid i,\, h\big)}_{\text{does this help?}}
+\qquad\qquad
+\underbrace{p\big(c_{\pi_k} \mid s_t,\, \pi_k\big)}_{\text{can I do it from here?}}
+$$
+
+where $c_{\pi_k}$ is the event that skill $k$ completes successfully.
+
+<Derivation title="The scoring rule, read as a posterior">
+
+Ask for the most probable skill given both the instruction and the fact that we
+require it to succeed:
+
+$$
+p\big(\pi_k \mid i, h, c\big) \;\propto\; p\big(c \mid \pi_k, s_t\big)\, p\big(\pi_k \mid i, h\big)
+$$
+
+by Bayes' rule. Identifying the prior with the language model's score over skill
+names and the likelihood with the affordance model gives
+
+$$
+\boxed{\;\pi^* = \arg\max_{\pi_k \in \Pi}\;
+p_{\text{LLM}}\big(\ell_{\pi_k}\mid i,h\big)\cdot p\big(c_{\pi_k}\mid s_t,\pi_k\big)\;}
+$$
+
+**The assumption doing the work** is conditional independence: that how useful a
+skill is and whether it is feasible are independent given the skill. That is not
+exactly true — whether "wipe the table" helps depends on whether the spill is
+still there, which is also part of what the affordance model sees. In practice
+the approximation is benign, but it is the thing to name if asked why a plain
+product is legitimate.
+
+</Derivation>
+
+<Derivation title="Why the affordance term is a value function">
+
+Define the skill's MDP with a sparse terminal reward: $r = 1$ on successful
+completion, $0$ otherwise, undiscounted. Then
+
+$$
+V^{\pi_k}(s_t) = \mathbb{E}_{\pi_k}\Big[\textstyle\sum_t r_t \;\Big|\; s_t\Big]
+= 1 \cdot p(\text{success} \mid s_t) + 0 \cdot p(\text{failure} \mid s_t)
+= p\big(c_{\pi_k}\mid s_t\big)
+$$
+
+The value function *is* the affordance. Anything already trained to execute the
+skill with a success reward gives you the grounding term for free — no extra
+labels, no separate classifier.
+
+**The limitation follows from the same identity.** $V^{\pi_k}$ is only
+calibrated on the distribution the skill was trained on. Asked about a state far
+outside it, it is extrapolating, and extrapolating value functions are
+optimistic for exactly the reason they are in offline RL: nothing in the training
+data contradicts a confident high value at an unvisited state.
+
+</Derivation>
+
+## The horizon arithmetic
+
+Open-loop, the plan succeeds only if every step does:
+
+$$
+p_{\text{task}} = \prod_{k=1}^{K} p_k
+$$
+
+<KeyIdea>
+At $p_k = 0.9$ and $K = 10$, that is $0.9^{10} \approx 0.35$. At $p_k = 0.8$ it
+is under $0.11$. This single product explains why LLM-planning demonstrations are
+almost always three to six steps long, and it is the number to compute before
+believing any long-horizon claim.
+</KeyIdea>
+
+Replanning changes the structure rather than the per-step probability. If a
+detected failure becomes a retry with up to $r$ attempts:
+
+$$
+p_{\text{task}} \;\approx\; \prod_{k=1}^{K}\Big(1 - (1-p_k)^{r}\Big)
+$$
+
+At $p_k = 0.9$ and $r = 3$, each factor is $0.999$ and a ten-step plan succeeds
+about 99% of the time. The gain is enormous, and it is entirely contingent on
+detecting the failure.
+
+<Warning>
+So the binding constraint is the **success detector**, not the planner. Let its
+false-negative rate be $\beta$ (a failure reported as success). Then a retry only
+happens with probability $1-\beta$, and the effective per-step probability is
+
+$$
+\tilde p_k = p_k + (1-p_k)(1-\beta)\big(1 - (1-p_k)^{r-1}\big)
+$$
+
+which degrades toward the open-loop product as $\beta \to 1$. A detector that
+reports failure as success is *worse* than open loop, because the planner now
+proceeds confidently from a state it believes it reached. This is why so much of
+the engineering in these systems is in verification rather than in prompting.
+</Warning>
+
+## What closing the loop makes it
+
+With feedback, the planner no longer sees the world — it sees a language
+description of it. Formally that is a POMDP whose belief is carried in text:
+
+$$
+h_t = \big(i,\; \ell_{\pi_1}, o_1,\; \ell_{\pi_2}, o_2,\; \ldots\big),
+\qquad
+\pi_{\text{plan}}\big(\pi_k \mid h_t\big)
+$$
+
+where each $o_j$ is a textual observation — a success flag, a scene description,
+a human correction.
+
+<Steps>
+<Step title="Language as a belief representation">
+The context window is the belief state, and it is lossy in a specific way:
+anything the observation functions did not put into words is not in it. A
+success detector that reports only a boolean discards *how* the skill failed,
+which is exactly what a good replan would use.
+</Step>
+
+<Step title="The context window is a finite horizon">
+Long executions eventually exceed it, and truncating the history means the
+planner forgets what it has already tried — and re-proposes it. Summarisation or
+an external state representation is required beyond a few dozen steps.
+</Step>
+
+<Step title="Grounding the state, not just the skills">
+Scene graphs and structured state descriptions are the natural extension:
+instead of scoring skills against a value function alone, give the planner a
+symbolic description of what exists and where, so its proposals are constrained
+by the actual scene rather than filtered afterwards.
+</Step>
+</Steps>
+
+## Code as the output space
+
+Emitting a program rather than a skill name changes the hypothesis space from
+$\Pi^K$ — flat sequences — to the set of programs over an API, which includes
+loops, conditionals, and arithmetic:
+
+```text
+while not scene.is_clear("table"):
+    obj = scene.nearest("table", exclude=held)
+    robot.pick(obj); robot.place("bin")
+```
+
+<KeyIdea>
+The expressiveness gain is real: "stack the blocks by size" is a sort followed
+by a loop, which no flat sequence expresses. The cost is that the output is no
+longer scoreable the way a skill name is — you cannot multiply a program by an
+affordance value. Grounding moves inside the API instead, with each primitive
+checking its own preconditions and raising, and the planner responding to the
+exception. Same problem, relocated.
+</KeyIdea>

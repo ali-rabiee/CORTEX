@@ -1,0 +1,191 @@
+---
+concept: task_planning
+level: 4
+status: final
+recall:
+  prompt: "Trace LLM task planning from 2022. What did each paper add, and what does the arc say about where the difficulty is?"
+  keyPoints:
+    - "Huang et al. (2022) showed an LLM's plans are semantically sensible and not executable, and fixed the surface problem by projecting free text onto an admissible skill set."
+    - "SayCan (2022) fixed the real problem: multiply the language prior by a value function so feasibility enters the decision rather than being filtered afterwards."
+    - "Inner Monologue (2022) closed the loop with textual feedback; Code as Policies (2022) changed the output space to programs, gaining control flow."
+    - "PaLM-E (2023) put perception inside the planner, and SayPlan (2023) grounded it in a scene graph — the trend is steadily moving grounding *earlier*, from post-hoc filter to part of the model's input."
+papers:
+  - key: huang2022zeroshot
+    title: "Language Models as Zero-Shot Planners: Extracting Actionable Knowledge for Embodied Agents"
+    authors: "Wenlong Huang, Pieter Abbeel, Deepak Pathak, Igor Mordatch"
+    venue: ICML
+    year: 2022
+    arxiv: "2201.07207"
+    takeaway: "Large LMs decompose high-level tasks sensibly but emit free text no robot can execute; projecting each step onto the nearest admissible skill by embedding similarity makes the plans runnable."
+  - key: ahn2022saycan
+    title: "Do As I Can, Not As I Say: Grounding Language in Robotic Affordances"
+    authors: "Michael Ahn, Anthony Brohan, Noah Brown, Yevgen Chebotar, Omar Cortes, Byron David, Chelsea Finn, et al."
+    venue: CoRL
+    year: 2022
+    arxiv: "2204.01691"
+    takeaway: "Scores each skill by the language model's usefulness estimate times a learned value function's success probability, so infeasible steps are excluded by the decision rule rather than filtered afterwards."
+  - key: huang2022innermonologue
+    title: "Inner Monologue: Embodied Reasoning through Planning with Language Models"
+    authors: "Wenlong Huang, Fei Xia, Ted Xiao, Harris Chan, Jacky Liang, Pete Florence, Andy Zeng, Jonathan Tompson, Igor Mordatch, et al."
+    venue: CoRL
+    year: 2022
+    arxiv: "2207.05608"
+    takeaway: "Feeds success detections, scene descriptions and human corrections back into the prompt as text, turning one-shot planning into a closed loop that can recover from failures."
+  - key: liang2022cap
+    title: "Code as Policies: Language Model Programs for Embodied Control"
+    authors: "Jacky Liang, Wenlong Huang, Fei Xia, Peng Xu, Karol Hausman, Brian Ichter, Pete Florence, Andy Zeng"
+    venue: ICRA
+    year: 2023
+    arxiv: "2209.07753"
+    takeaway: "Emits Python calling perception and control APIs, so loops, conditionals and spatial arithmetic come from the language model — expressiveness a flat skill sequence cannot reach."
+  - key: driess2023palme
+    title: "PaLM-E: An Embodied Multimodal Language Model"
+    authors: "Danny Driess, Fei Xia, Mehdi S. M. Sajjadi, Corey Lynch, Aakanksha Chowdhery, Brian Ichter, et al."
+    venue: ICML
+    year: 2023
+    arxiv: "2303.03378"
+    takeaway: "Injects continuous sensor embeddings into the language model's token stream, so the planner perceives the scene directly instead of planning over a caption someone else wrote."
+  - key: yao2023react
+    title: "ReAct: Synergizing Reasoning and Acting in Language Models"
+    authors: "Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik Narasimhan, Yuan Cao"
+    venue: ICLR
+    year: 2023
+    arxiv: "2210.03629"
+    takeaway: "Interleaves reasoning traces with actions so the model's plan is revised by what it observes — the general form of the reason-act-observe loop that embodied planners instantiate."
+  - key: rana2023sayplan
+    title: "SayPlan: Grounding Large Language Models using 3D Scene Graphs for Scalable Robot Task Planning"
+    authors: "Krishan Rana, Jesse Haviland, Sourav Garg, Jad Abou-Chakra, Ian Reid, Niko Suenderhauf"
+    venue: CoRL
+    year: 2023
+    arxiv: "2307.06135"
+    takeaway: "Plans over a 3-D scene graph with semantic search and an iterative replanning loop, scaling grounded planning to multi-room environments too large to fit in a prompt."
+check:
+  - id: tp_l4_c1
+    prompt: "Huang et al. projected free-text plan steps onto the nearest admissible skill. What problem does that solve, and what does it leave open?"
+    options:
+      - "It solves both usefulness and feasibility"
+      - "It solves *executability* — every step is now a real skill — but not *feasibility*, since the nearest admissible skill may still be impossible from the current state; SayCan's value function is what addresses the second"
+      - "It solves feasibility but not executability"
+      - "It only reformats the output"
+    answer: 1
+    explanation: "The distinction is the point of the two papers taken together. Projection guarantees the plan is expressible in the robot's vocabulary, which is necessary and not sufficient — 'pick up the sponge' is a real skill and is still impossible if there is no sponge. Feasibility is state-dependent and changes at every step, so it needs a signal from the robot rather than a nearest-neighbour lookup in a fixed skill list."
+  - id: tp_l4_c2
+    prompt: "What is the trend running from SayCan through PaLM-E to SayPlan?"
+    options:
+      - "Progressively larger language models"
+      - "Grounding moving *earlier*: from a post-hoc filter on proposals, to sensor embeddings inside the model's input, to a structured scene graph the planner reasons over directly"
+      - "Replacing language models with classical planners"
+      - "Increasing the number of available skills"
+    answer: 1
+    explanation: "SayCan lets the LLM propose in ignorance and corrects afterwards, which wastes the proposal distribution — the model spends its probability mass on skills that will be zeroed out. Putting perception into the input, or giving the planner a scene graph, means proposals are conditioned on reality from the start. It is the same progression as any conditioning problem: filtering an unconditioned model is strictly weaker than conditioning it properly."
+  - id: tp_l4_c3
+    prompt: "SayPlan targets multi-room environments. What breaks in the earlier methods at that scale?"
+    options:
+      - "The value functions become inaccurate"
+      - "The context window: describing every object in every room exceeds what fits in a prompt, so the planner needs a structured representation it can search selectively rather than a flat textual dump of the world"
+      - "The language model becomes too slow"
+      - "The skills stop transferring across rooms"
+    answer: 1
+    explanation: "Everything before it assumes the relevant state fits in the prompt, which holds for a tabletop and fails for a building. A scene graph makes the environment searchable — collapse distant subtrees, expand the ones the task touches — so the planner sees a task-relevant slice rather than everything. It is the same move as retrieval over a long document, applied to physical space, and it also gives the plan a structure that can be checked before execution."
+---
+
+## The first result, and what it missed
+
+<PaperCard refKey="huang2022zeroshot" />
+
+Ask a large language model to plan "shave" and it produces something entirely
+sensible and entirely unexecutable — free text at whatever granularity it
+chooses, referring to actions no robot has. The fix here is a projection: embed
+each generated step and snap it to the nearest skill in the robot's library.
+
+<KeyIdea>
+That solves **executability** — every step is now a real skill — and not
+**feasibility**. The nearest admissible skill to "get a sponge" is "pick up
+sponge", which remains impossible if there is no sponge. Feasibility is
+state-dependent and changes every step, so it cannot come from a nearest-neighbour
+lookup in a fixed list. Keeping those two words apart is most of the conceptual
+work in this area.
+</KeyIdea>
+
+## Grounding as part of the decision
+
+<PaperCard refKey="ahn2022saycan" />
+
+SayCan's contribution is to stop treating feasibility as a post-processing step.
+Score each skill by the language model's estimate of usefulness *and* by a
+learned value function's estimate of success from the current state, and
+multiply. A skill that sounds perfect and cannot be executed now scores near
+zero and never gets proposed.
+
+The reuse is elegant: with a sparse success reward, a skill's value function
+*is* its success probability, so anything already trained to execute the skill
+provides the grounding term for free.
+
+## Closing the loop, and changing the output space
+
+<PaperGrid>
+<PaperCard refKey="huang2022innermonologue" />
+<PaperCard refKey="liang2022cap" />
+</PaperGrid>
+
+Inner Monologue makes the planner reactive: success detections, scene
+descriptions, and human corrections come back as text, so a failed grasp
+produces a replan rather than a plan continuing against an imagined world. The
+comparison against open-loop planning is the argument, and it is the same
+argument as replanning versus open-loop execution one level down.
+
+Code as Policies changes what the model emits. A flat sequence cannot express
+"repeat until the table is clear" or "if the drawer is shut, open it first"; a
+program can, and language models write code unusually well. The trade is that a
+program cannot be multiplied by an affordance score — so grounding moves inside
+the API, with primitives checking preconditions and raising messages the planner
+reads.
+
+## Grounding keeps moving earlier
+
+<PaperGrid>
+<PaperCard refKey="driess2023palme" />
+<PaperCard refKey="yao2023react" />
+<PaperCard refKey="rana2023sayplan" />
+</PaperGrid>
+
+PaLM-E puts perception *inside* the planner: continuous sensor embeddings become
+tokens in the language model's stream, so it reasons over the scene rather than
+over a caption someone else wrote. ReAct gives the general form of interleaving
+reasoning with acting so observations revise the plan mid-stream. SayPlan
+replaces the flat textual world description with a 3-D scene graph the planner
+can search selectively — necessary once the environment is a building rather
+than a tabletop and no longer fits in a prompt.
+
+<KeyIdea>
+The arc has one direction: grounding moves from a filter applied after
+generation, to information available during generation, to a structured
+representation the planner reasons over. Filtering an unconditioned model wastes
+its probability mass on proposals that will be zeroed; conditioning it properly
+does not. That progression is worth being able to state, because it also
+predicts where the area goes next.
+</KeyIdea>
+
+## What to be sceptical about
+
+<Steps>
+<Step title="The skill library is doing the heavy lifting">
+Every system here assumes a set of low-level skills that mostly work, built by
+other means. The planner selects among them; it does not create capability. An
+impressive high-level demonstration rests on a foundation that is where most of
+the robotics difficulty actually lives.
+</Step>
+
+<Step title="Horizons are short for arithmetic reasons">
+Chained success is a product. At 90% per skill, ten steps succeeds about 35% of
+the time. Replanning fixes this only to the extent that failures are detected,
+which makes the success detector — not the planner — the usual cap on
+performance.
+</Step>
+
+<Step title="Evaluation is small-sample and bespoke">
+The same problem as the rest of real-robot research: few trials, non-standard
+environments, and task suites designed alongside the method. The qualitative
+capability is real; cross-paper rankings should be read as weak evidence.
+</Step>
+</Steps>

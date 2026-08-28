@@ -1,26 +1,159 @@
 ---
 concept: task_planning
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Task Planning with LLMs for Robotics in plain language: what is
-    it, and why does it matter?"
+  prompt: "Explain LLM task planning for robotics in plain language. What does the language model contribute, and what is the one thing it cannot know?"
   keyPoints:
-    - "Ask a robot to 'make a sandwich' and it needs to break that into: open
-      the bread bag, take out two slices, get the peanut butter, open the jar,
-      pick up a knife, spread, etc."
-    - LLMs excel at this common-sense task decomposition because they've seen
-      millions of descriptions of everyday activities.
-    - The key is bridging the LLM's textual plan to the robot's physical skills
-      — each sub-task must map to something the robot can actually do.
-check: []
-papers: []
+    - "Break a high-level instruction into a sequence of executable skills. The LLM contributes commonsense decomposition — that clearing a table involves picking things up before wiping it."
+    - "What it cannot know is what *this* robot, in *this* room, can currently do. A plan can be perfectly sensible and physically impossible."
+    - "Grounding is supplying that second factor from the robot: an affordance score per skill, multiplied against the language model's preference so infeasible steps are filtered out."
+    - "The other essential ingredient is a feedback loop. Open-loop plans fail silently; the fix is to feed execution outcomes back as text and let the planner replan."
+media:
+  - kind: article
+    title: "Do As I Can, Not As I Say: Grounding Language in Robotic Affordances"
+    url: https://say-can.github.io/
+    source: "Ahn et al., Google / Everyday Robots"
+    note: "The clearest statement of the grounding problem and the cleanest fix. The title is the whole idea — read the affordance-scoring section, and note how much of the system is *not* the language model."
+  - kind: article
+    title: "Code as Policies: Language Model Programs for Embodied Control"
+    url: https://code-as-policies.github.io/
+    source: "Liang et al., Google"
+    note: "The alternative output format: emit Python that calls perception and control APIs, so loops, conditionals, and arithmetic come from the language rather than being hand-written around it."
+  - kind: article
+    title: "Inner Monologue: Embodied Reasoning through Planning with Language Models"
+    url: https://innermonologue.github.io/
+    source: "Huang, Xia, Xiao, et al."
+    note: "Closes the loop: feed success detectors, scene descriptions, and human corrections back to the planner as text. The comparison against open-loop planning is the argument for why feedback is not optional."
+check:
+  - id: tp_l1_c1
+    prompt: "An LLM plans 'wipe the spill with the sponge' but the robot has no sponge and no wiping skill. What is missing, and can prompting fix it?"
+    options:
+      - "Better prompting — describe the robot's capabilities in the system prompt"
+      - "Grounding: a score from the robot itself for whether each candidate skill is currently executable, combined with the language model's preference. Prompting helps at the margin but cannot represent the current physical state"
+      - "A larger language model"
+      - "Nothing is missing; the plan is correct and execution failed"
+    answer: 1
+    explanation: "Listing capabilities in the prompt covers what the robot can do *in general* and not what is possible *now* — whether the sponge is within reach, whether the gripper is already holding something, whether the drawer is open. That is state-dependent and changes every step, so it has to come from the robot rather than from text. SayCan's formulation makes this explicit: multiply the language model's usefulness score by a value function's success probability, and infeasible steps drop out regardless of how good they sound."
+  - id: tp_l1_c2
+    prompt: "Why do open-loop LLM plans fail in ways that are hard to notice?"
+    options:
+      - "The plans are usually syntactically invalid"
+      - "Execution failures are not reported back, so the planner continues from a state it believes it is in rather than the one it is actually in — and every subsequent step compounds the divergence"
+      - "LLMs cannot produce sequences longer than a few steps"
+      - "The robot's skills are too slow"
+    answer: 1
+    explanation: "This is the same structure as compounding error in behaviour cloning, one level up. A plan generated once assumes every step succeeds; when step three fails silently, steps four onward are being executed against an imagined world. The fix is symmetric — close the loop by feeding outcomes back as text, so the planner replans from what actually happened. Success detection then becomes a load-bearing component, and it is usually the weakest one."
+  - id: tp_l1_c3
+    prompt: "What does emitting code rather than a list of skill names buy you?"
+    options:
+      - "Faster inference"
+      - "Control flow: loops, conditionals, and arithmetic come from the language model, so 'stack all the blocks by size' becomes a program rather than requiring a hand-written planner around a fixed skill list"
+      - "It removes the need for perception"
+      - "It guarantees the plan is executable"
+    answer: 1
+    explanation: "A flat sequence of skill names cannot express 'repeat until the table is clear' or 'if the drawer is closed, open it first'. Code can, and language models are unusually good at writing it because code is heavily represented in pretraining. The cost is that a generated program can throw, loop forever, or call an API that does not exist — so it needs sandboxing and a well-designed API surface, and it does not guarantee executability any more than a skill list does."
 ---
 
-## Intuition
+## The gap this is filling
 
-Ask a robot to 'make a sandwich' and it needs to break that into: open the bread bag, take out two slices, get the peanut butter, open the jar, pick up a knife, spread, etc. LLMs excel at this common-sense task decomposition because they've seen millions of descriptions of everyday activities. The key is bridging the LLM's textual plan to the robot's physical skills — each sub-task must map to something the robot can actually do.
+Ask a robot to "clear the table" and something has to decide that this means
+picking up each object, putting it somewhere, and possibly wiping afterwards.
+That decomposition is commonsense knowledge — exactly what a language model has
+a great deal of and a control policy has none of.
 
-## In practice
+So the pattern is: instruction in, sequence of executable skills out, each skill
+being something the robot already has a policy for.
 
-SayCan + Inner Monologue pipeline: (1) VLM observes workspace, generates scene description. (2) LLM receives goal ('clean up the table') + scene description + available skills list. (3) LLM generates step-by-step plan: ['pick up the cup', 'place cup in sink', 'pick up the plate', ...]. (4) Each step is scored by affordance model $p(\text{feasible}|s_i, \text{state})$. (5) Highest-scoring feasible step is executed. (6) After execution, re-observe and re-plan (closed-loop). Error recovery: if a step fails, the LLM is prompted with the failure observation and re-plans.
+<Intuition>
+You have hired someone who knows how everything in the world works and has never
+been in this building. They can tell you that a spill needs absorbing before it
+spreads, and that you generally pick up the broken glass first.
+
+They cannot tell you whether there is a sponge in this room, whether the cupboard
+is locked, or whether you can reach the far corner. And they will confidently
+say "get the sponge" anyway.
+</Intuition>
+
+## Grounding is the whole problem
+
+<Figure src="/figures/saycan-grounding.svg"
+        alt="Four candidate skills scored twice: by a language model for how useful they sound, and by a value function for whether the robot can execute them now. The product selects a skill that is both sensible and feasible and rejects one that sounds excellent but cannot be done."
+        caption="The language model supplies one factor and the robot supplies the other. Neither is sufficient alone: usefulness without feasibility gives impossible plans, feasibility without usefulness gives a robot doing whatever it happens to be good at." />
+
+<KeyIdea>
+The language model knows what *would* help. It has no access to what this robot,
+in this room, in its current configuration, can do. Grounding means supplying
+that second factor from the robot — and it must come from the robot's own
+perception and value estimates, because it changes at every step and no amount
+of prompting can represent it.
+</KeyIdea>
+
+The cleanest formulation scores each candidate skill twice and multiplies:
+
+$$
+\text{score}(\text{skill}) = \underbrace{p_{\text{LLM}}(\text{skill} \mid \text{instruction})}_{\text{how useful it sounds}}
+\times
+\underbrace{p(\text{success} \mid \text{skill},\, \text{state})}_{\text{whether it is possible now}}
+$$
+
+A skill that sounds excellent but scores near zero on feasibility drops out.
+A skill the robot can certainly do but that helps nothing also drops out. What
+survives is the intersection, which is the plan you wanted.
+
+## Two output formats
+
+<Steps>
+<Step title="A sequence of skill names">
+"pick up sponge", "go to table", "wipe". Simple, easy to ground because each
+name maps to a policy you can score, and limited: there is no way to express
+"repeat until clear" or "if the drawer is shut, open it first".
+</Step>
+
+<Step title="A program">
+Emit Python that calls perception and control APIs. Loops, conditionals, and
+arithmetic now come from the language model, which is unusually good at writing
+code because code is heavily represented in pretraining. The cost is that a
+generated program can throw, hang, or call something that does not exist — so it
+needs a sandbox and a carefully designed API surface.
+</Step>
+</Steps>
+
+## Why open-loop planning fails quietly
+
+<Warning>
+A plan generated once assumes every step succeeds. When step three silently
+fails — the grasp slipped, the object was not where it looked — steps four
+onward execute against a world the planner is only imagining. Each subsequent
+action compounds the divergence.
+
+This is the same structure as compounding error in behaviour cloning, moved up a
+level, and it has the same fix: close the loop. Feed execution outcomes back to
+the planner as text — "grasp failed", "the drawer is now open", a human saying
+"no, the other one" — and replan from what actually happened.
+</Warning>
+
+That makes **success detection** a load-bearing component, and in practice it is
+usually the weakest one. A planner that replans on accurate feedback is robust;
+a planner replanning on a success detector that reports failure as success is
+worse than open loop, because it now confidently generates recovery plans for
+problems that do not exist.
+
+## What to be sceptical about
+
+<Steps>
+<Step title="The skill library is doing a lot of work">
+Every one of these systems assumes a set of trained low-level skills that mostly
+work. The planner is choosing among them, not creating capability. Demonstrations
+of impressive high-level reasoning rest on a foundation someone else built, and
+the hard robotics is largely in that foundation.
+</Step>
+
+<Step title="Long-horizon success rates are modest">
+Even with grounding and feedback, chaining ten steps means ten chances to fail.
+If each skill succeeds 90% of the time, the sequence succeeds about 35% of the
+time — which is why these demos are usually a handful of steps long.
+</Step>
+</Steps>
+
+<WatchThis />

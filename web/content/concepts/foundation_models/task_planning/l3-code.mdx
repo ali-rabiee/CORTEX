@@ -1,0 +1,205 @@
+---
+concept: task_planning
+level: 3
+status: final
+recall:
+  prompt: "Implement grounded planning with feedback. How do you score skills, and what does the API surface have to do?"
+  keyPoints:
+    - "Score skill names by summed token log-probability under the LLM, length-normalised — otherwise short names win regardless of relevance."
+    - "Multiply by the affordance value from each skill's own value function, then take the argmax. Both terms live in probability space, so scoring in log space and adding is the stable form."
+    - "Close the loop: append the skill and its textual outcome to the history each step, so the planner replans from what happened rather than from what it assumed."
+    - "For code output, the API surface carries the grounding — each primitive checks preconditions and raises with a message the planner can read, and everything runs sandboxed with a step budget."
+check:
+  - id: tp_l3_c1
+    prompt: "Why length-normalise the LLM's score over skill names?"
+    options:
+      - "To make the scores sum to one"
+      - "Summed token log-probabilities are negative and accumulate with length, so an unnormalised score systematically prefers short skill names — 'stop' would beat 'find a sponge and wipe the spill' regardless of relevance"
+      - "Because the affordance term is normalised"
+      - "To prevent numerical underflow"
+    answer: 1
+    explanation: "Each additional token adds a negative log-probability, so longer strings score lower purely for being longer. Without normalisation your skill library's naming conventions become a hidden prior on the plan, which is both wrong and hard to notice — the plans look conservative rather than obviously broken. Dividing by token count is the standard fix; scoring a fixed-format completion is the cleaner one."
+  - id: tp_l3_c2
+    prompt: "In a code-as-policies setup, where does grounding live?"
+    options:
+      - "In the prompt, which lists the robot's capabilities"
+      - "In the API primitives: each one checks its own preconditions and raises an informative exception, which the planner reads and responds to — since a generated program cannot be multiplied by an affordance score the way a skill name can"
+      - "In a post-hoc validator that rejects invalid programs"
+      - "Grounding is not needed when the output is code"
+    answer: 1
+    explanation: "The SayCan product needs a discrete set of candidates to score, and a program is not one of those — so grounding has to move inside execution. A primitive that raises `GraspFailed: object not within reach` gives the planner both the failure and the reason, which is strictly more information than a boolean affordance score. It also means the API surface is a design artefact carrying real responsibility, not a thin wrapper."
+  - id: tp_l3_c3
+    prompt: "Your success detector has a 20% false-negative rate — it reports failures as successes. What is the consequence for a replanning system?"
+    options:
+      - "Minor: the planner will notice on the next step"
+      - "Severe: the planner proceeds confidently from a state it never reached, so those runs behave like open-loop planning while the system reports itself as closed-loop — often worse, since recovery is never attempted"
+      - "It only slows execution"
+      - "It causes the planner to retry too often"
+    answer: 1
+    explanation: "Retries are what convert a fragile product of per-step probabilities into a robust process, and a missed failure removes exactly that. Worse, the failure is invisible in the logs: the trace shows a clean sequence of successful steps and a task that did not get done. This is why verification usually deserves more engineering effort than prompting in these systems, and why reporting *why* a step failed beats reporting whether it did."
+---
+
+## Scoring skills against both factors
+
+<CodeWalk title="Grounded skill selection">
+
+```python title="plan.py"
+import torch, torch.nn.functional as F
+
+@torch.no_grad()
+def llm_scores(lm, tokenizer, prompt, skill_names, device):
+    """Length-normalised log-probability of each skill name as a continuation.
+
+    Without normalisation, summed token log-probs punish long names, so
+    "stop" beats "find a sponge and wipe the spill" on length alone — a
+    hidden prior set by your naming conventions rather than by relevance.
+    """
+    out = []
+    prompt_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(device)
+    for name in skill_names:
+        name_ids = tokenizer(" " + name, return_tensors="pt").input_ids.to(device)
+        ids = torch.cat([prompt_ids, name_ids], dim=1)
+        logits = lm(ids).logits[:, :-1]
+        logp = F.log_softmax(logits, dim=-1)
+        tgt = ids[:, 1:]
+        tok_logp = logp.gather(-1, tgt.unsqueeze(-1)).squeeze(-1)
+        name_logp = tok_logp[:, -name_ids.shape[1]:].sum()
+        out.append((name_logp / name_ids.shape[1]).item())     # per-token
+    return torch.tensor(out)
+
+
+@torch.no_grad()
+def select_skill(lm, tokenizer, prompt, skills, obs, device):
+    llm = llm_scores(lm, tokenizer, prompt, [s.name for s in skills], device)
+
+    # The affordance IS each skill's value function under a sparse success
+    # reward: V(s) = P(this skill completes from here). No extra labels.
+    aff = torch.tensor([s.value_fn(obs) for s in skills]).clamp(1e-6, 1.0)
+
+    # Both are probabilities; add in log space rather than multiplying.
+    return skills[int((llm + aff.log()).argmax())]
+```
+
+</CodeWalk>
+
+The two terms answer different questions and neither is sufficient. `llm` says
+what would help; `aff` says what is possible from this state. Their product
+selects the intersection, and dropping either gives you a characteristic
+failure: impossible plans without the affordance, or a robot doing whatever it
+happens to be good at without the language prior.
+
+## Closing the loop
+
+<CodeWalk title="Replanning on textual feedback">
+
+```python title="loop.py"
+def run(lm, tokenizer, skills, robot, instruction, max_steps=15):
+    history = []
+    for _ in range(max_steps):
+        prompt = build_prompt(instruction, history)
+        skill = select_skill(lm, tokenizer, prompt, skills, robot.observe(), DEV)
+
+        if skill.name == "done":
+            return True
+
+        result = robot.execute(skill)
+
+        # Report WHY, not just whether. "grasp failed: object slipped" lets the
+        # planner choose a different recovery than "grasp failed: out of reach".
+        # A boolean discards exactly what a good replan would use.
+        history.append((skill.name, result.description))
+
+        if len(history) > CONTEXT_LIMIT:
+            history = summarise(lm, history)     # or the planner re-proposes
+                                                 # what it has already tried
+    return False
+```
+
+</CodeWalk>
+
+<Warning>
+`result.description` is where most of the value is, and where most
+implementations under-invest. A success detector returning a boolean tells the
+planner that something went wrong; one returning "the gripper closed on nothing"
+versus "the object is behind the box" lets it choose a *different* recovery. And
+a detector with a high false-negative rate is worse than no feedback at all —
+those runs proceed confidently from a state never reached, while the logs show a
+clean sequence of successes and a task that did not get done.
+</Warning>
+
+## Code as the output space
+
+<CodeWalk title="An API that carries the grounding">
+
+```python title="api.py"
+class RobotAPI:
+    """A generated program cannot be multiplied by an affordance score, so
+    grounding moves into the primitives: each checks its own preconditions
+    and raises something the planner can read."""
+
+    def pick(self, obj_name: str):
+        det = self.perception.locate(obj_name)
+        if det is None:
+            raise NotFound(f"no object matching '{obj_name}' is visible")
+        if not self.kinematics.reachable(det.position):
+            raise Unreachable(f"'{obj_name}' is outside the workspace")
+        if self.holding is not None:
+            raise Occupied(f"already holding '{self.holding}'")
+        return self.skills["pick"].execute(det)
+
+    def place(self, location: str): ...
+    def is_clear(self, surface: str) -> bool: ...
+    def objects_on(self, surface: str) -> list[str]: ...
+```
+
+```python title="execute.py"
+def run_program(api, code, max_steps=200):
+    """Sandboxed, budgeted, and errors returned as text for replanning."""
+    try:
+        exec(compile(code, "<plan>", "exec"),
+             {"robot": api, "__builtins__": SAFE_BUILTINS})
+        return True, "completed"
+    except RobotError as e:
+        return False, f"{type(e).__name__}: {e}"     # goes back to the planner
+    except Exception as e:
+        return False, f"program error: {e}"
+```
+
+</CodeWalk>
+
+<KeyIdea>
+The exception messages are the grounding channel. `Unreachable: 'sponge' is
+outside the workspace` carries strictly more information than an affordance
+score of 0.02 — the planner learns not just that the skill was infeasible but
+why, and can propose "move closer" rather than resampling. Designing that API
+surface, and its error vocabulary, is where the real work is in a
+code-as-policies system.
+</KeyIdea>
+
+## What to measure
+
+<Steps>
+<Step title="Per-skill success rate, separately from plan quality">
+Chained success is a product, so a planner producing perfect plans on a skill
+library at 80% will look bad. Measure the skills first; otherwise you will tune
+prompts against a problem that is not in the prompt.
+</Step>
+
+<Step title="Success-detector confusion matrix">
+False negatives — failures reported as successes — are the expensive ones,
+because they silently disable replanning. Report the two error types separately;
+an aggregate accuracy hides the one that matters.
+</Step>
+
+<Step title="Replans per task">
+Zero means the loop is not closing, either because nothing fails or because
+nothing is detected. Very many means skills are unreliable or the detector is
+firing spuriously. It is a cheap health metric for the whole system.
+</Step>
+
+<Step title="Plan validity in isolation">
+Score proposed plans against a human-labelled set with execution removed
+entirely. It separates "the planner is wrong" from "the robot cannot do it",
+which the end-to-end number conflates.
+</Step>
+</Steps>

@@ -1,25 +1,167 @@
 ---
 concept: task_planning
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Task Planning with LLMs for Robotics fail in practice, and how
-    would you present it in an interview?
+  prompt: "Give your interview answer on LLM task planning. What is the grounding problem, and what actually caps performance in practice?"
   keyPoints:
-    - "Plan infeasibility: LLM generates physically impossible sequences (e.g.,
-      'pick up the table' when the robot has a small gripper)."
-    - "Compounding errors: early step failure invalidates the rest of the plan
-      but the system doesn't re-plan."
-    - "Grounding mismatch: LLM refers to objects not present in the scene
-      (hallucination)."
-check: []
-papers: []
+    - "Separate executability from feasibility: projecting onto a skill list gives the first, and only a state-dependent signal from the robot gives the second."
+    - "State the SayCan product as prior times likelihood, and note the affordance term is just the skill's value function under a sparse success reward."
+    - "Do the horizon arithmetic out loud: $0.9^{10} \\approx 0.35$. That is why demos are short, and why replanning is what makes long horizons possible at all."
+    - "Say plainly that the success detector — not the planner — usually caps the system, and that a false negative makes closed-loop worse than open-loop."
+interview:
+  answer: >-
+    The problem is turning a high-level instruction into a sequence of skills
+    the robot actually has. The language model contributes commonsense
+    decomposition — that clearing a table means picking things up before wiping
+    it — which is exactly what a control policy has none of. What it cannot know
+    is what this robot, in this room, in its current configuration, can do. And
+    that's worth splitting into two things people often merge. Executability is
+    whether the step names a skill the robot has at all, and you get that by
+    projecting the generated text onto the skill library — that's the Huang et
+    al. result. Feasibility is whether that skill can succeed from the current
+    state, and it's state-dependent, changes at every step, and no amount of
+    prompting represents it. SayCan is the clean fix: score each candidate skill
+    by the language model's estimate of how useful it sounds, multiply by a
+    value function's estimate of the probability it succeeds from here, and take
+    the argmax. Read as prior times likelihood that's a posterior over which
+    skill to run. And the affordance term is essentially free — with a sparse
+    success reward the skill's own value function *is* the probability it
+    completes from this state, so anything you already trained to execute the
+    skill gives you the grounding. The second essential ingredient is feedback.
+    An open-loop plan assumes every step succeeds, so when step three fails
+    silently, steps four onward run against a world the planner is imagining —
+    it's compounding error one level up. Inner Monologue closes that by feeding
+    outcomes back as text and replanning. And that matters enormously for
+    arithmetic reasons: chained success is a product, so at ninety percent per
+    skill a ten-step plan succeeds about thirty-five percent of the time, which
+    is why these demos are almost always three to six steps. Replanning turns
+    that product into something like a per-step retry process and the numbers
+    become workable. But it's entirely contingent on detecting the failure — so
+    the thing that actually caps these systems in practice is the success
+    detector, not the planner. A detector with a high false-negative rate is
+    worse than no feedback, because the planner proceeds confidently from a
+    state it never reached while the logs show a clean run.
+  followUps:
+    - q: "Skill names or code as the output?"
+      a: >-
+        Skill names when the tasks are flat sequences, because they're directly
+        scoreable — you can multiply a name by an affordance value, which is
+        exactly the SayCan mechanism, and that's a clean grounding channel. Code
+        when the task needs control flow: "stack the blocks by size" is a sort
+        and a loop, and no flat sequence expresses it. The cost of code is that
+        you lose the scoring — you can't multiply a program by an affordance —
+        so grounding has to move inside the API, with each primitive checking
+        preconditions and raising informative exceptions. Which I'd argue is
+        actually better information: "unreachable: sponge is outside the
+        workspace" tells the planner why, so it can propose moving closer,
+        whereas an affordance score of 0.02 just says no.
+    - q: "Where would you spend engineering effort in one of these systems?"
+      a: >-
+        On verification and on the skill library, well before the prompt.
+        Verification because replanning is what makes long horizons possible and
+        it's gated entirely on detecting failure — and because false negatives
+        are the expensive error, so I'd report the two error types separately
+        rather than an aggregate accuracy that hides the one that matters. The
+        skill library because chained success is a product: a planner producing
+        perfect plans over skills at eighty percent will look terrible, and no
+        amount of prompt tuning fixes a problem that isn't in the prompt. I'd
+        also invest in the failure *descriptions* rather than booleans — "the
+        gripper closed on nothing" and "the object is behind the box" call for
+        different recoveries, and a boolean discards precisely what a good
+        replan would use.
+    - q: "How would you evaluate the planner separately from the robot?"
+      a: >-
+        Score proposed plans against human-labelled ground truth with execution
+        removed entirely — given this instruction and this scene description,
+        is the sequence sensible and admissible? That separates "the planner is
+        wrong" from "the robot can't do it", which the end-to-end success rate
+        completely conflates and which point at totally different fixes. On the
+        execution side I'd track per-skill success rates and replans per task.
+        Zero replans means the loop isn't closing, either because nothing fails
+        or because nothing is detected, and those are very different situations
+        that the aggregate number hides.
+    - q: "Isn't this all just prompting? What's the research content?"
+      a: >-
+        The prompting part is the least interesting part, and I'd say so. The
+        research content is where grounding enters. SayCan's contribution is
+        that feasibility belongs in the decision rule rather than as a filter
+        afterwards, and identifying the affordance with a value function so it
+        comes free. Inner Monologue's is that language is a workable belief
+        representation for a closed loop. PaLM-E's is that perception can go
+        inside the model's input rather than being captioned for it. SayPlan's
+        is that a scene graph makes the environment searchable once it stops
+        fitting in a context window. The through-line is that grounding keeps
+        moving earlier — from filtering the output, to conditioning the input,
+        to structuring the state — and filtering an unconditioned model is
+        strictly weaker than conditioning it properly. That's an argument about
+        where information should enter a system, not about prompt wording.
+  traps:
+    - "Merging executability and feasibility. Projecting onto a skill list guarantees the first and says nothing about the second."
+    - "Claiming better prompting solves grounding. Feasibility is state-dependent and changes every step; it has to come from the robot's perception and value estimates."
+    - "Presenting long-horizon LLM planning as solved. Chained success is a product, and the demos are short for that reason."
+    - "Ignoring the success detector. It is the usual cap on the system, and a false negative makes a closed-loop system behave worse than an open-loop one."
+check:
+  - id: tp_l5_c1
+    prompt: "A team's LLM planner proposes sensible plans that fail during execution. They plan to add the robot's capability list to the system prompt. What should you say?"
+    options:
+      - "Good idea — the model needs to know what skills exist"
+      - "That addresses executability, which may already be fine, but not feasibility: whether a given skill can succeed *now* depends on the current state and changes every step, so it has to come from perception or a value function rather than from static text"
+      - "They should use a larger model"
+      - "They should generate more candidate plans and pick the best"
+    answer: 1
+    explanation: "A capability list is static and the question is dynamic. It tells the model that 'pick up sponge' exists; it cannot tell it whether a sponge is visible, reachable, or already held — and those change at every step. This is exactly the executability-versus-feasibility split, and the fix is a state-dependent score from the robot multiplied against the language prior. Generating more candidates does not help either, since they will all be scored by the same state-blind criterion."
+  - id: tp_l5_c2
+    prompt: "Your closed-loop planner performs no better than the open-loop version. What is the first thing to check?"
+    options:
+      - "Whether the prompt includes enough examples"
+      - "The success detector's false-negative rate — if failures are being reported as successes, replanning never triggers and the system is effectively open-loop while reporting itself as closed"
+      - "Whether the language model is large enough"
+      - "The number of skills in the library"
+    answer: 1
+    explanation: "Closed-loop planning buys robustness precisely by converting a failure into a retry, and that conversion is gated on detecting the failure. If the detector misses them, you have paid for the loop and are getting the open-loop product of per-step probabilities. The diagnostic is cheap — count replans per task; zero or near-zero on a task that plainly fails sometimes tells you the detector, not the planner, is the problem."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Plan infeasibility: LLM generates physically impossible sequences (e.g., 'pick up the table' when the robot has a small gripper). Compounding errors: early step failure invalidates the rest of the plan but the system doesn't re-plan. Grounding mismatch: LLM refers to objects not present in the scene (hallucination). Symptoms: robot attempts impossible actions or gets stuck in loops. Fix: closed-loop re-planning after each step, affordance filtering, scene-state verification before each action, bounded re-planning attempts to avoid infinite loops.
+<Steps>
+<Step title="Plans are sensible and fail on execution → feasibility, not executability">
+The steps name real skills and are impossible from the current state. Add a
+state-dependent affordance term; a capability list in the prompt does not
+address it.
+</Step>
 
-## Interview-ready answer
+<Step title="Closed-loop performs like open-loop → check the detector">
+Count replans per task. Near zero on a task that visibly fails means failures
+are being reported as successes, and the loop is decorative.
+</Step>
 
-LLM-based task planning bridges high-level reasoning and low-level robot execution. The key architecture: LLM as planner $\rightarrow$ affordance filter $\rightarrow$ skill library $\rightarrow$ low-level controller. This separates what to do (LLM) from how to do it (learned skills) and whether it's possible (affordance model). Critical design choices: (1) closed-loop replanning — always re-observe and re-plan after each step, (2) skill grounding — the LLM must only reference skills the robot actually has, (3) failure recovery — prompt the LLM with failure observations for adaptive replanning. The main limitation: LLMs don't have physics intuition, so they may propose dynamically infeasible plans. I always pair LLM planning with a feasibility checker.
+<Step title="Planner repeats a step it already tried → context truncation">
+The history is the belief state. Once it exceeds the window and gets truncated,
+the planner forgets what it has attempted. Summarise, or keep an explicit
+external state.
+</Step>
+
+<Step title="Great plans, poor task success → measure the skills">
+Chained success is a product. A perfect planner over an 80%-reliable skill
+library looks bad. Evaluate the planner in isolation against labelled plans
+before tuning anything about it.
+</Step>
+
+<Step title="Recovery is always the same → the feedback is a boolean">
+"Failed" supports one recovery. "The gripper closed on nothing" and "the object
+is behind the box" support different ones. Report why.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The two things that make this answer land are a distinction and a number.
+Separating executability from feasibility shows you know where the grounding
+problem actually is — most candidates merge them and end up proposing better
+prompts. And computing $0.9^{10} \approx 0.35$ out loud reframes long-horizon
+planning from a capability question into an arithmetic one, which immediately
+explains why the demos are short and why the success detector, not the planner,
+is what you would work on.
+</Warning>
