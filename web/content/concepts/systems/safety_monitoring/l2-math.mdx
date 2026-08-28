@@ -1,26 +1,236 @@
 ---
 concept: safety_monitoring
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Runtime Safety Monitoring for Robot
-    Systems, including the key equations.
+  prompt: "Derive the control-barrier-function safety filter and state what it assumes. Then derive the conformal coverage guarantee."
   keyPoints:
-    - Continuous verification during robot execution that safety constraints are
-      satisfied.
-    - Formalized as monitoring a set of safety predicates $\{\phi_1, \ldots,
-      \phi_M\}$ at each control step, where violation of any predicate triggers
-      a safety response.
-    - "Common constraints: workspace bounds $\\mathbf{p}_{\\text{ee}} \\in
-      \\mathcal{W}_{\\text{safe}}$, velocity limits $\\|\\dot{\\mathbf{q}}\\|
-      \\leq \\dot{q}_{\\max}$, force/torque limits
-      $\\|\\boldsymbol{\\tau}_{\\text{ext}}\\| \\leq \\tau_{\\max}$, collision
-      avoidance $d(\\text{robot}, \\text{obstacle}) \\geq d_{\\min}$, and
-      self-collision checking."
-check: []
-papers: []
+    - "Define the safe set as $\\mathcal{C} = \\{x : h(x) \\ge 0\\}$. The CBF condition $\\dot h \\ge -\\alpha(h)$ makes $\\mathcal{C}$ forward invariant — a condition on the *derivative* keeps you inside forever."
+    - "For control-affine dynamics the condition is linear in $u$, so the filter is a QP: $\\min_u \\|u - u_\\pi\\|^2$ subject to $L_f h + L_g h\\, u \\ge -\\alpha(h)$."
+    - "Assumptions that do the work: known (or bounded) dynamics, relative degree one, and QP feasibility — all of which fail in ways worth naming."
+    - "Conformal prediction: with exchangeable calibration and test scores, the $\\lceil (n+1)(1-\\alpha)\\rceil$-th smallest calibration score is a threshold with coverage at least $1-\\alpha$, distribution-free."
+check:
+  - id: sm_l2_c1
+    prompt: "Why does the condition $\\dot h \\ge -\\alpha(h)$ guarantee the system never leaves $\\{h \\ge 0\\}$?"
+    options:
+      - "Because it forces $\\dot h \\ge 0$, so $h$ never decreases"
+      - "Because it allows $h$ to decrease while it is large but forces the decrease to vanish as $h \\to 0$ — the boundary becomes unreachable in finite time, so the set is forward invariant"
+      - "Because $\\alpha$ is chosen large enough to dominate the dynamics"
+      - "Because $h$ is convex"
+    answer: 1
+    explanation: "Option 1 describes a much stricter and far less useful condition — it would forbid ever approaching the boundary at all. The CBF condition is a rate limit that scales with your distance from danger: far away you may descend quickly, and as $h \\to 0$ the permitted descent rate goes to zero, so $h$ approaches the boundary asymptotically without crossing it. That is exactly what makes the constraint usable — it does not restrict behaviour in the interior, only near the edge."
+  - id: sm_l2_c2
+    prompt: "The safety filter is a QP. What happens when the QP is infeasible?"
+    options:
+      - "It returns the policy's action unchanged"
+      - "No admissible action satisfies the constraint — the system is already in a state from which safety cannot be recovered given the actuation limits, which means the safe set was defined without accounting for those limits"
+      - "The solver falls back to the previous action"
+      - "Infeasibility cannot occur for a valid barrier function"
+    answer: 1
+    explanation: "Infeasibility is not a numerical problem, it is a statement about the state: the constraint requires a control effort the actuators cannot deliver. It arises when the safe set was designed geometrically without accounting for braking distance — so the system is inside $\\{h \\ge 0\\}$ and outside the set it can actually keep itself in. The correct response is to design a *control*-invariant set that respects the input bounds, and to have a defined failsafe for the residual cases rather than letting the solver's fallback behaviour decide."
+  - id: sm_l2_c3
+    prompt: "Conformal prediction gives coverage 'distribution-free'. What is it actually assuming?"
+    options:
+      - "That the data is Gaussian"
+      - "Exchangeability of the calibration and test scores — a weaker condition than i.i.d., but one that deployment violates over time as lighting, objects, and hardware drift"
+      - "That the model is well calibrated"
+      - "That the score function is monotone"
+    answer: 1
+    explanation: "Distribution-free means no assumption about the *form* of the distribution, not no assumption at all. The exchangeability requirement is what makes the rank argument work, and it is precisely what a deployed robot breaks: today's observations are not exchangeable with March's calibration set once the scene has drifted. So the honest statement is that the guarantee holds over the period the calibration is representative of, and recalibration on recent data is part of operating the system rather than an optional refinement."
 ---
 
-## Formal definition
+## The safe set and forward invariance
 
-Continuous verification during robot execution that safety constraints are satisfied. Formalized as monitoring a set of safety predicates $\{\phi_1, \ldots, \phi_M\}$ at each control step, where violation of any predicate triggers a safety response. Common constraints: workspace bounds $\mathbf{p}_{\text{ee}} \in \mathcal{W}_{\text{safe}}$, velocity limits $\|\dot{\mathbf{q}}\| \leq \dot{q}_{\max}$, force/torque limits $\|\boldsymbol{\tau}_{\text{ext}}\| \leq \tau_{\max}$, collision avoidance $d(\text{robot}, \text{obstacle}) \geq d_{\min}$, and self-collision checking. Multi-layered: from low-level hardware e-stops to high-level learned anomaly detection.
+Let the state be $x$ and define a continuously differentiable $h$ whose zero
+super-level set is the region you want to stay in:
+
+$$
+\mathcal{C} = \{x \in \mathbb{R}^n : h(x) \ge 0\}
+$$
+
+$h$ might be distance to an obstacle minus a margin, or remaining joint travel,
+or a force threshold minus the measured force.
+
+<Derivation title="Why a condition on $\dot h$ keeps you inside forever">
+
+**The naive condition.** Requiring $\dot h \ge 0$ everywhere certainly keeps
+$h \ge 0$, and it also forbids ever approaching the boundary — far too strong to
+be useful, since the policy could never move toward an obstacle at all.
+
+**The barrier condition.** Let $\alpha$ be a strictly increasing function with
+$\alpha(0) = 0$ (an extended class-$\mathcal{K}$ function; $\alpha(h) = \gamma h$
+is the usual choice). Require
+
+$$
+\dot h(x, u) \;\ge\; -\alpha\big(h(x)\big)
+$$
+
+Read what this permits. When $h$ is large you may decrease it quickly. As
+$h \to 0$, the permitted rate of decrease $\alpha(h) \to 0$.
+
+**Why that implies invariance.** Along any trajectory, compare $h(t)$ with the
+solution of $\dot y = -\alpha(y)$, $y(0) = h(x_0) \ge 0$. By the comparison
+lemma, $h(t) \ge y(t)$ for all $t$. And $y = 0$ is an equilibrium of
+$\dot y = -\alpha(y)$, so a solution starting at $y(0) > 0$ approaches zero
+asymptotically and never reaches it in finite time. Hence $h(t) \ge y(t) > 0$:
+the set is **forward invariant**.
+
+**Why this is the useful form.** The constraint is inactive in the interior and
+tightens only near the boundary. The policy keeps full authority everywhere it
+is not about to cause a violation — which is what "minimal intervention" means
+formally.
+
+</Derivation>
+
+## The filter as a quadratic program
+
+Assume control-affine dynamics, which covers most robot models:
+
+$$
+\dot x = f(x) + g(x)\,u
+$$
+
+Then
+
+$$
+\dot h = \nabla h(x)^\top\big(f(x) + g(x)u\big)
+= \underbrace{L_f h(x)}_{\text{drift}} + \underbrace{L_g h(x)}_{\text{row vector}}\,u
+$$
+
+which is **affine in $u$**. So the barrier condition is a linear inequality, and
+finding the nearest safe action is a QP:
+
+$$
+\boxed{
+\begin{aligned}
+u^* = \arg\min_{u \in \mathcal{U}} \;& \|u - u_\pi(x)\|^2 \\
+\text{subject to}\quad & L_f h(x) + L_g h(x)\,u \;\ge\; -\alpha\big(h(x)\big)
+\end{aligned}}
+$$
+
+<KeyIdea>
+One quadratic objective and one linear constraint per barrier. It solves in
+microseconds, runs at the control rate, and returns $u_\pi$ exactly whenever the
+constraint is slack. That combination — provable invariance, negligible cost,
+zero interference when things are fine — is why runtime filtering became the
+practical answer rather than constrained training.
+</KeyIdea>
+
+## What it assumes, and how each assumption fails
+
+<Steps>
+<Step title="Known dynamics">
+$L_f h$ and $L_g h$ require $f$ and $g$. Robot models are wrong, and the error
+enters the constraint directly. The standard remedy is to tighten the constraint
+by a bound on the model error, $\dot h \ge -\alpha(h) + \varepsilon$, which trades
+conservatism for robustness — and you must have a bound to use it.
+</Step>
+
+<Step title="Relative degree one">
+$L_g h \ne 0$ is needed, or the input does not appear in $\dot h$ and the
+constraint says nothing about $u$. For a position-based $h$ with acceleration
+control, $L_g h = 0$ and you need a higher-order barrier that differentiates
+until the input appears.
+</Step>
+
+<Step title="Feasibility">
+With input bounds $u \in \mathcal{U}$, the QP can be infeasible: no admissible
+action satisfies the constraint. This is not a solver problem — it says the state
+is one from which safety cannot be recovered with the available actuation.
+</Step>
+</Steps>
+
+<Warning>
+Infeasibility is the failure mode worth understanding, because it exposes a
+common design error. A geometric safe set — "stay 10 cm from the obstacle" —
+ignores braking distance, so at speed the system can be inside $\{h \ge 0\}$ and
+outside the set it can actually *keep itself* in. The fix is to design a
+control-invariant set that respects the input bounds, which is what backup-controller
+and reachability methods compute directly. Whatever you do, the residual
+infeasible cases need a defined failsafe rather than whatever the solver returns
+on failure.
+</Warning>
+
+## The alternative: a backup controller
+
+Rather than a barrier, verify a simple controller $\pi_{\text{backup}}$ — a hard
+brake, a retract to a home pose — and define the safe set as the states from
+which it succeeds:
+
+$$
+\mathcal{S} = \big\{x : \text{the trajectory under } \pi_{\text{backup}} \text{ from } x \text{ never violates the constraint}\big\}
+$$
+
+Then allow the learned policy's action only if the resulting next state is still
+in $\mathcal{S}$; otherwise hand over to the backup.
+
+<KeyIdea>
+This trades analysis for computation. You do not need a barrier function with the
+right relative degree — you need to be able to *simulate the backup controller
+forward* and check. It is often much easier to construct in practice, and it
+degrades honestly: when the check fails you have a specific verified thing to do,
+rather than an infeasible QP.
+</KeyIdea>
+
+## A calibrated "I do not know"
+
+Neither mechanism above notices that the *scene* is unlike anything in training.
+For that you need an uncertainty score with a meaning.
+
+<Derivation title="Conformal coverage, from a rank argument">
+
+Take any score $s(x)$ where larger means more anomalous — ensemble variance, a
+density estimate, a reconstruction error. Its scale is arbitrary and its
+calibration unknown.
+
+**Step 1 — score a held-out calibration set.** Compute $s_1, \ldots, s_n$ on $n$
+in-distribution examples not used for training.
+
+**Step 2 — take an order statistic as the threshold.** Let
+
+$$
+\hat q = \text{the } \big\lceil (n+1)(1-\alpha) \big\rceil \text{-th smallest of } s_1,\ldots,s_n
+$$
+
+**Step 3 — the guarantee.** If the test score $s_{n+1}$ is exchangeable with the
+calibration scores, then all $(n+1)!$ orderings are equally likely, so the rank
+of $s_{n+1}$ among the $n+1$ scores is uniform. Therefore
+
+$$
+\Pr\big(s_{n+1} \le \hat q\big) \;\ge\; 1 - \alpha
+$$
+
+**Note what is not assumed.** Nothing about the distribution's form, nothing
+about the model being calibrated, nothing about $s$ being a probability. The
+argument is combinatorial — it is about ranks — which is why it holds for any
+score you care to invent.
+
+**The assumption that does the work is exchangeability**, and it is exactly what
+deployment breaks. Lighting drifts, the object set changes, the hardware wears —
+so today's observations are not exchangeable with March's calibration set. The
+honest statement is that the guarantee holds over the period the calibration
+represents, which makes recalibration on recent data part of operating the
+system rather than an optional refinement.
+
+</Derivation>
+
+## Expected safety is not safety
+
+A constrained-RL objective of the form
+
+$$
+\max_\pi\; \mathbb{E}[R] \quad \text{s.t.} \quad \mathbb{E}[C] \le d
+$$
+
+bounds the *expected* cost. That permits rare catastrophic violations offset by
+many safe episodes, which is precisely the trade you do not want when the cost is
+an injury.
+
+<Warning>
+If the constraint must hold per-episode rather than on average, an expectation
+constraint is the wrong object. CVaR — the mean over the worst $\beta$-fraction
+of episodes — is the usual improvement and it is still a statistical statement,
+not a guarantee. Anything that must never happen belongs in the filter layer,
+where the claim is invariance rather than an expectation, and not in the training
+objective.
+</Warning>

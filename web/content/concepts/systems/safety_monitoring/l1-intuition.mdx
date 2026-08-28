@@ -1,24 +1,171 @@
 ---
 concept: safety_monitoring
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Runtime Safety Monitoring for Robot Systems in plain language:
-    what is it, and why does it matter?"
+  prompt: "Explain how to make a system with a learned policy safe. Why can safety not be a property of the policy itself?"
   keyPoints:
-    - "A self-driving car has multiple safety systems: lane departure warning,
-      automatic braking, airbags."
-    - Robot systems need the same layered approach.
-    - The learned policy is like the driver — usually good, but can make
-      mistakes.
-check: []
-papers: []
+    - "A learned policy will produce a confident action for any input, including inputs unlike anything it trained on, and it cannot reliably report that it is out of its depth."
+    - "So safety has to be an independent layer that does not depend on the policy being right — it proposes, something simpler and verifiable disposes."
+    - "Defence in depth: learned policy, then a safety filter with its own sensing and simple model, then a real-time limit checker, then a hardware stop with no software in the path."
+    - "Separate the constraints you can check geometrically — workspace, joint, velocity, force limits — from semantic safety, which is much harder and should not be asked of the same mechanism."
+media:
+  - kind: article
+    title: "Safe Learning in Robotics: From Learning-Based Control to Safe Reinforcement Learning"
+    url: https://arxiv.org/abs/2108.06266
+    source: "Brunke, Greeff, Hall, Yuan, Zhou, Panerati, Schoellig"
+    note: "The survey to orient yourself with. Its taxonomy — safety by construction, by constrained learning, and by runtime filtering — is the right way to place any method you meet, and it is honest about which assumptions each one needs."
+  - kind: article
+    title: "Control Barrier Functions: Theory and Applications"
+    url: https://arxiv.org/abs/1903.11199
+    source: "Ames, Coogan, Egerstedt, Notomista, Sreenath, Tabuada"
+    note: "The reference for the safety-filter machinery derived in Level 2. Read Section 3 for forward invariance — the argument that a condition on the *derivative* keeps you inside a set forever is the whole idea."
+  - kind: article
+    title: "A Gentle Introduction to Conformal Prediction and Distribution-Free Uncertainty Quantification"
+    url: https://arxiv.org/abs/2107.07511
+    source: "Angelopoulos, Bates"
+    note: "How to get a calibrated 'I do not know' out of a model that has no notion of one. The coverage guarantee is distribution-free and needs only exchangeability, which makes it unusually applicable to deployed systems."
+check:
+  - id: sm_l1_c1
+    prompt: "Why can safety not be delegated to the learned policy — for example by training it with a penalty on unsafe actions?"
+    options:
+      - "Because penalties are difficult to tune"
+      - "Because a penalty shapes the *expected* behaviour on the training distribution, while safety is a constraint that must hold on every input — including ones unlike anything in training, where the policy will still answer confidently"
+      - "Because neural networks cannot represent constraints"
+      - "Because reinforcement learning always violates constraints"
+    answer: 1
+    explanation: "The mismatch is between an expectation and a guarantee. A penalty makes unsafe actions rare *in aggregate over the training distribution*, which is a statement about averages and about the states the policy was trained on. Safety is a per-instance constraint, and the states you most need it in are exactly the unusual ones the training distribution did not cover. Penalties are worth having — they make the filter intervene less often — but they cannot be the mechanism that guarantees anything."
+  - id: sm_l1_c2
+    prompt: "What does a safety filter do to a policy's proposed action?"
+    options:
+      - "Replaces it with a hand-designed safe action"
+      - "Projects it onto the set of actions that keep the system inside the safe region — leaving it unchanged when it is already safe, and making the smallest change that restores the constraint when it is not"
+      - "Scales it down by a fixed factor"
+      - "Rejects it and stops the robot"
+    answer: 1
+    explanation: "'Minimal intervention' is the design goal and the reason filters are practical: the policy retains authority whenever it is behaving, so the filter costs you nothing on the vast majority of steps and you have not replaced your capable policy with a conservative one. Concretely it is a small quadratic program — minimise the distance to the proposed action subject to the safety constraint — which also gives you a free diagnostic, since how often and how much it intervenes measures how close the policy is running to the boundary."
+  - id: sm_l1_c3
+    prompt: "Which of these should NOT be handled by the same mechanism as the others?"
+    options:
+      - "Joint limits, velocity limits, and workspace bounds"
+      - "'Do not close the gripper on a person's hand' — semantic safety, which requires recognising a situation rather than checking a geometric condition, and inherits all the reliability limits of the perception system"
+      - "Force and torque thresholds"
+      - "Self-collision avoidance"
+    answer: 1
+    explanation: "The first, third, and fourth are checkable against kinematic and dynamic quantities you measure directly, so they can live in a simple layer you can verify and even certify. Semantic safety depends on a perception model recognising something, which means its reliability is bounded by that model's — and putting it in the same layer as your provable constraints quietly downgrades the guarantee on all of them. Keep them in separate layers with different claims attached."
 ---
 
-## Intuition
+## Why safety cannot live in the policy
 
-A self-driving car has multiple safety systems: lane departure warning, automatic braking, airbags. Robot systems need the same layered approach. The learned policy is like the driver — usually good, but can make mistakes. Safety monitoring is the set of guardrails that prevent those mistakes from causing damage: hard limits the policy can never exceed, soft limits that trigger caution, and anomaly detection that flags when something unexpected is happening.
+A learned policy is a function that returns an action for any input. Show it a
+scene unlike anything in its training data and it does not decline — it produces
+something confident and wrong. It also has no reliable internal notion of being
+out of its depth, because nothing in the training objective asked it to have one.
 
-## In practice
+<KeyIdea>
+So safety has to be a **separate layer that does not depend on the policy being
+right**. The policy proposes; something simpler, independently sensed, and
+actually verifiable disposes. Any architecture where the guarantee flows through
+the network has no guarantee.
+</KeyIdea>
 
-Safety stack for a collaborative robot manipulation system: Layer 1 (hardware, $< 1\,\text{ms}$): joint torque limits, e-stop circuit. Layer 2 (real-time controller, $< 5\,\text{ms}$): workspace bounds check $\mathbf{p}_{\text{ee}} \in \mathcal{W}$, velocity scaling near limits ($v_{\text{scale}} = \min(1, d_{\text{boundary}} / d_{\text{margin}})$), collision checking against known geometry. Layer 3 (policy level, $< 50\,\text{ms}$): action clipping to kinematically feasible set, confidence-based speed scaling ($v \propto \text{confidence}$). Layer 4 (high-level, $< 1\,\text{s}$): learned anomaly detector (autoencoder on observation history, trigger when reconstruction error $\|o - \hat{o}\| > \epsilon_{\text{anomaly}}$), task progress monitoring (detect if stuck or regressing). Each layer has a defined response: Layer 1 = hard stop, Layer 2 = velocity reduction + alert, Layer 3 = conservative fallback behavior, Layer 4 = pause and request human review.
+<Intuition>
+A skilled driver does not make a car safe. Seatbelts, crumple zones, and ABS make
+a car safe, and they work precisely because they do not assume the driver is
+skilled — they are simple, testable mechanisms that hold regardless.
+
+The learned policy is the driver. You want it to be excellent. You do not want
+your safety case to rest on it.
+</Intuition>
+
+## Defence in depth
+
+<Figure src="/figures/safety-filter-layers.svg"
+        alt="A learned policy proposes an action to a safety filter with its own sensing, which solves a small optimisation to find the nearest safe action before commanding the actuators. Below, nested layers: policy, safety filter, real-time limit checker, hardware e-stop."
+        caption="Each layer is simpler and more verifiable than the one above it. The capable component is unverifiable, the verifiable components are not very capable, and the architecture is what lets you have both." />
+
+<Steps>
+<Step title="The learned policy — capable, unverifiable">
+Does the task. Makes no promises. Should be *penalised* for unsafe behaviour
+during training, not because that makes it safe but because it makes the layer
+below intervene less often.
+</Step>
+
+<Step title="The safety filter — simple model, provable invariance">
+Takes the proposed action and returns the nearest action that keeps the system
+inside a safe set. Uses its own sensing and its own low-fidelity dynamics model,
+so it does not inherit the policy's failure modes. This is where the guarantee
+actually lives.
+</Step>
+
+<Step title="The real-time limit checker — bounds, not models">
+Joint limits, velocity limits, force thresholds, workspace boundaries. No
+optimisation, no model, no learning. Runs at the control rate on the real-time
+side and is simple enough to read in full.
+</Step>
+
+<Step title="The hardware stop — no software in the path">
+A physical circuit. It works when the computer has hung, the network is down, and
+the software is in a state nobody anticipated — which is the state you most need
+it in.
+</Step>
+</Steps>
+
+## Minimal intervention is what makes it practical
+
+The filter is not a replacement policy. It solves a small optimisation: find the
+action closest to what the policy asked for, subject to remaining safe. When the
+policy is behaving, the filter changes nothing and costs nothing.
+
+<KeyIdea>
+That matters for adoption as much as for performance. A safety layer that
+constantly overrides the policy will be turned off, and a layer that only acts
+at the boundary will not. It also gives you a free diagnostic: how often the
+filter intervenes, and by how much, measures how close your policy is running to
+the edge — a leading indicator that a success rate will not give you.
+</KeyIdea>
+
+## Two kinds of safety, and they should not share a layer
+
+<Warning>
+**Geometric and dynamic constraints** — joint limits, velocity, force, workspace
+bounds, self-collision — are checkable against quantities you measure directly.
+They can live in a simple layer you can verify line by line, and in some settings
+certify.
+
+**Semantic safety** — "do not close the gripper on a person's hand", "do not
+knock the cup off the table" — requires *recognising a situation*. Its
+reliability is bounded by the perception model's reliability, which is bounded
+by the same things that limit the policy.
+
+Putting them in the same mechanism quietly downgrades the guarantee on the first
+set to the reliability of the second. Keep them in separate layers with
+different claims attached, and be honest about which claim is which.
+</Warning>
+
+## Knowing when you do not know
+
+The remaining gap is detecting that the current situation is outside what the
+policy can handle at all, which needs an uncertainty signal the policy does not
+natively provide. Two workable approaches.
+
+**Ensemble disagreement.** Train several policies and measure how much they
+differ. Where the data was dense they agree; where it was absent they diverge.
+Cheap in principle, expensive in inference, and it gives a number without a
+calibrated meaning.
+
+**Conformal prediction.** Take any score you like — ensemble variance, a density
+estimate, a reconstruction error — and calibrate a threshold on held-out data so
+that the flag fires at a chosen rate. The coverage guarantee is distribution-free
+and requires only that calibration and deployment data be exchangeable, which is
+about as weak an assumption as is available.
+
+<Warning>
+Exchangeability is a real assumption and it is exactly what deployment violates
+over time: the lighting changes, the object set changes, the robot wears. A
+conformal threshold calibrated in March is not calibrated in September. Recalibrate
+on recent data, and treat the guarantee as a statement about a period rather than
+about the system.
+</Warning>
+
+<WatchThis />

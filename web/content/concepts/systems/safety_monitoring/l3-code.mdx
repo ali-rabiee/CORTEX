@@ -1,0 +1,236 @@
+---
+concept: safety_monitoring
+level: 3
+status: final
+recall:
+  prompt: "Implement a safety filter and an OOD monitor. What must be independent of the policy, and what happens when the filter cannot find a safe action?"
+  keyPoints:
+    - "The filter is a QP: minimise distance to the proposed action subject to the barrier inequality and the input bounds. Solves in microseconds at control rate."
+    - "It must use its own sensing and its own simple model — sharing the policy's perception stack means sharing its failure modes, and the guarantee evaporates."
+    - "Infeasibility needs a defined failsafe, not whatever the solver returns. Log it: infeasibility means the safe set was designed without accounting for actuation limits."
+    - "Calibrate the OOD threshold conformally on held-out data, and recalibrate on recent data — the guarantee assumes exchangeability, which deployment breaks over time."
+check:
+  - id: sm_l3_c1
+    prompt: "Why must the safety filter use its own sensing rather than the policy's perception outputs?"
+    options:
+      - "For redundancy against sensor hardware failure only"
+      - "Because a filter downstream of the policy's perception inherits its failure modes — if the perception says the obstacle is elsewhere, both the policy and the filter are wrong in the same way and the layering has bought nothing"
+      - "Because the filter runs at a different rate"
+      - "Because neural network outputs cannot be used in a QP"
+    answer: 1
+    explanation: "Layered safety works only if the layers fail independently. A filter reading the same learned scene representation is not a second opinion, it is the same opinion with a QP after it — and the correlated failure is exactly the case you built the layer for. In practice this means the filter reads joint encoders, force-torque, and where possible a direct range measurement, and uses a low-fidelity kinematic model it can be verified against, rather than anything the policy computed."
+  - id: sm_l3_c2
+    prompt: "Your safety QP returns infeasible during a fast motion. What is the right response, in the code and afterwards?"
+    options:
+      - "Pass through the policy's action and log a warning"
+      - "Execute a predefined failsafe — a verified braking or retract controller — and afterwards treat the infeasibility as a design bug: the safe set was specified geometrically without accounting for braking distance under the actuation limits"
+      - "Retry the solve with a relaxed constraint"
+      - "Reduce the control rate and try again"
+    answer: 1
+    explanation: "Passing the action through is the worst option: infeasibility means no admissible action satisfies the constraint, so the policy's action certainly does not. Relaxing the constraint converts a detected violation into an undetected one. The failsafe is the only correct runtime behaviour, and the infeasibility event is information — recurring infeasibility at speed says your safe set is not control-invariant given the input bounds, which is fixed by design rather than at runtime."
+  - id: sm_l3_c3
+    prompt: "You calibrate a conformal OOD threshold in March and deploy through September. What goes wrong?"
+    options:
+      - "Nothing; the guarantee is distribution-free"
+      - "The coverage guarantee assumes calibration and test scores are exchangeable, and drift in lighting, object set, and hardware breaks that — so the empirical flag rate diverges from the nominal one and the threshold silently stops meaning what it claims"
+      - "The scores overflow numerically"
+      - "The ensemble becomes correlated over time"
+    answer: 1
+    explanation: "'Distribution-free' means no assumption about the form of the distribution, not that the distribution may change. Once September's observations are systematically different from March's calibration set, the rank argument no longer applies and the threshold's nominal $\\alpha$ is no longer its actual flag rate — usually flagging far more or far less than intended. The operational response is to monitor the empirical flag rate against the nominal one as a drift alarm, and to recalibrate on recent verified-nominal data."
+---
+
+## The filter
+
+<CodeWalk title="A CBF quadratic program at control rate">
+
+```python title="safety_filter.py"
+import numpy as np
+from qpsolvers import solve_qp
+
+class SafetyFilter:
+    """min ||u - u_pi||^2  s.t.  Lf_h + Lg_h u >= -alpha(h),  u in [lo, hi]
+
+    Uses its OWN sensing and its OWN simple model. A filter reading the
+    policy's perception is not a second opinion — it is the same opinion with
+    a QP after it, and it fails in exactly the correlated way you built the
+    layer to prevent.
+    """
+
+    def __init__(self, barriers, u_lo, u_hi, gamma=5.0, model_margin=0.0):
+        self.barriers = barriers          # each returns (h, grad_h)
+        self.u_lo, self.u_hi = u_lo, u_hi
+        self.gamma = gamma                # alpha(h) = gamma * h
+        self.margin = model_margin        # tightening for model error
+
+    def __call__(self, x, u_pi, f, g):
+        n = u_pi.shape[0]
+        G, hvec = [], []                  # QP form: G u <= h
+
+        for barrier in self.barriers:
+            h, grad_h = barrier(x)        # measured, not inferred
+            Lf_h = grad_h @ f(x)
+            Lg_h = grad_h @ g(x)
+            # Lf_h + Lg_h u >= -gamma*h + margin   ->   -Lg_h u <= Lf_h + gamma*h - margin
+            G.append(-Lg_h)
+            hvec.append(Lf_h + self.gamma * h - self.margin)
+
+        u = solve_qp(
+            P=np.eye(n), q=-u_pi,                     # ||u - u_pi||^2 up to a constant
+            G=np.array(G), h=np.array(hvec),
+            lb=self.u_lo, ub=self.u_hi, solver="osqp",
+        )
+        if u is None:
+            # Infeasible: NO admissible action satisfies the constraint, so the
+            # policy's certainly does not. Passing it through is the worst
+            # option; relaxing turns a detected violation into an undetected one.
+            raise Infeasible(x)
+        return u, float(np.linalg.norm(u - u_pi))     # intervention magnitude
+```
+
+</CodeWalk>
+
+The returned intervention magnitude is worth logging on every step. How often
+the filter acts, and by how much, is a leading indicator of a policy drifting
+toward the boundary — visible long before a success rate moves.
+
+## Barriers read from measurements
+
+```python title="barriers.py"
+def workspace_barrier(centre, radius):
+    """Stay inside a sphere. h > 0 inside, and grad_h points inward."""
+    def barrier(x):
+        p = x[:3]                                # from forward kinematics on
+        d = p - centre                           # ENCODER readings, not vision
+        dist = np.linalg.norm(d)
+        h = radius - dist
+        grad_h = -d / max(dist, 1e-6)
+        return h, np.concatenate([grad_h, np.zeros(len(x) - 3)])
+    return barrier
+
+
+def force_barrier(f_max):
+    """h = f_max - |measured force|. Directly from the F/T sensor: no model,
+    no perception, nothing learned in the path."""
+    def barrier(x):
+        f = np.linalg.norm(x[FORCE_IDX])
+        return f_max - f, force_gradient(x)
+    return barrier
+```
+
+## The failsafe, and what to do afterwards
+
+```python title="failsafe.py"
+def step(robot, policy, filt, monitor):
+    x = robot.state()                            # encoders, F/T — independent
+    u_pi = policy(robot.observation())
+
+    flag = monitor.check(robot.observation())
+    if flag["ood"]:
+        robot.execute(BACKUP.brake(x))           # verified, simple, tested
+        METRICS.ood_stops.inc()
+        return
+
+    try:
+        u, intervention = filt(x, u_pi, robot.f, robot.g)
+    except Infeasible:
+        # A defined behaviour, not the solver's fallback.
+        robot.execute(BACKUP.brake(x))
+        METRICS.infeasible.inc()                 # a DESIGN bug: the safe set is
+        LOG.error("QP infeasible at %s", x)      # not control-invariant here
+        return
+
+    METRICS.intervention.observe(intervention)   # leading indicator
+    robot.execute(u)
+```
+
+<Warning>
+Recurring infeasibility is not a runtime problem to be handled better — it says
+the safe set was specified geometrically without accounting for braking distance
+under the actuation limits, so the system can be inside $\{h \ge 0\}$ and outside
+the set it can keep itself in. Log it, count it, and fix it by designing a
+control-invariant set rather than by relaxing the constraint.
+</Warning>
+
+## A calibrated out-of-distribution flag
+
+<CodeWalk title="Conformal threshold on any anomaly score">
+
+```python title="ood.py"
+class ConformalOOD:
+    """Turns an arbitrary anomaly score into a threshold with a coverage
+    guarantee. The argument is about RANKS, so it holds for any score —
+    ensemble variance, density, reconstruction error.
+    """
+
+    def __init__(self, score_fn, calib_observations, alpha=0.05):
+        self.score_fn = score_fn
+        self.alpha = alpha
+        self.calibrate(calib_observations)
+
+    def calibrate(self, observations):
+        s = np.sort([self.score_fn(o) for o in observations])
+        n = len(s)
+        k = int(np.ceil((n + 1) * (1 - self.alpha))) - 1   # 0-indexed
+        self.threshold = float(s[min(k, n - 1)])
+        self.calibrated_at = time.time()
+
+    def check(self, obs):
+        s = self.score_fn(obs)
+        return {"score": s, "ood": s > self.threshold}
+
+
+def ensemble_variance(policies):
+    """Where the data was dense the members agree; where it was absent they
+    diverge. Cheap in principle, expensive at inference."""
+    def score(obs):
+        return float(np.stack([p(obs) for p in policies]).var(axis=0).mean())
+    return score
+```
+
+</CodeWalk>
+
+```python title="drift.py"
+class FlagRateMonitor:
+    """The guarantee assumes exchangeability, which deployment breaks.
+    Watch the EMPIRICAL flag rate against the nominal alpha — divergence is a
+    drift alarm and a signal to recalibrate on recent verified-nominal data."""
+
+    def __init__(self, alpha, window=5000, tol=3.0):
+        self.alpha, self.tol = alpha, tol
+        self.flags = collections.deque(maxlen=window)
+
+    def record(self, flagged):
+        self.flags.append(bool(flagged))
+        if len(self.flags) == self.flags.maxlen:
+            rate = np.mean(self.flags)
+            if rate > self.tol * self.alpha or rate < self.alpha / self.tol:
+                ALERT("conformal threshold has drifted: %.3f vs nominal %.3f",
+                      rate, self.alpha)
+```
+
+## Testing the safety layer
+
+<Steps>
+<Step title="Adversarial actions, not adversarial scenes">
+Feed the filter deliberately unsafe proposals — full-speed commands straight
+into the barrier — and confirm it corrects them. This tests the layer directly
+rather than hoping the policy produces the right test case.
+</Step>
+
+<Step title="Break the policy's perception, not the filter's">
+Feed the policy garbage and confirm the filter still holds. If the system fails,
+your layers are not independent, which is the failure the architecture exists to
+prevent.
+</Step>
+
+<Step title="Execute every failsafe path">
+Force infeasibility, force an OOD flag, kill the policy process. A failsafe that
+has never run is a hypothesis, and this is the one place where that matters
+physically.
+</Step>
+
+<Step title="Track intervention rate as a health metric">
+A rising intervention rate means the policy is drifting toward the boundary.
+It moves before the success rate does, and it is free.
+</Step>
+</Steps>

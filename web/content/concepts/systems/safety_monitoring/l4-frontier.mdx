@@ -1,0 +1,210 @@
+---
+concept: safety_monitoring
+level: 4
+status: final
+recall:
+  prompt: "Map the safe-learning literature. What are the three families, and which assumption does each buy its guarantee with?"
+  keyPoints:
+    - "Three families, per the Brunke et al. taxonomy: safety by construction (constrain the policy class), by constrained learning (penalise or constrain during training), and by runtime filtering (project actions at execution time)."
+    - "Control barrier functions give forward invariance in exchange for a known model, the right relative degree, and QP feasibility — a strong guarantee bought with a strong assumption."
+    - "Shielding gives the same idea in the discrete setting with a formally synthesised shield, which is verifiable but requires an abstraction of the environment."
+    - "Conformal prediction supplies the missing piece — a calibrated 'I do not know' with a distribution-free guarantee — at the cost of an exchangeability assumption deployment steadily erodes."
+papers:
+  - key: ames2019cbf
+    title: "Control Barrier Functions: Theory and Applications"
+    authors: "Aaron D. Ames, Samuel Coogan, Magnus Egerstedt, Gennaro Notomista, Koushil Sreenath, Paulo Tabuada"
+    venue: ECC
+    year: 2019
+    arxiv: "1903.11199"
+    takeaway: "The reference treatment of forward invariance via barrier functions, and of the QP formulation that turns it into a real-time safety filter around an arbitrary nominal controller."
+  - key: alshiekh2018shielding
+    title: "Safe Reinforcement Learning via Shielding"
+    authors: "Mohammed Alshiekh, Roderick Bloem, Rüdiger Ehlers, Bettina Könighofer, Scott Niekum, Ufuk Topcu"
+    venue: AAAI
+    year: 2018
+    arxiv: "1708.08611"
+    takeaway: "Synthesises a shield from a temporal-logic specification that corrects the agent's action whenever it would violate the property — runtime filtering with a formal guarantee, in the discrete setting."
+  - key: dalal2018safeexploration
+    title: "Safe Exploration in Continuous Action Spaces"
+    authors: "Gal Dalal, Krishnamurthy Dvijotham, Matej Vecerik, Todd Hester, Cosmin Paduraru, Yuval Tassa"
+    year: 2018
+    arxiv: "1801.08757"
+    takeaway: "Learns a linear model of the constraint's response to actions and adds a closed-form projection layer to the policy, keeping constraints satisfied during exploration rather than only at convergence."
+  - key: brunke2022safelearning
+    title: "Safe Learning in Robotics: From Learning-Based Control to Safe Reinforcement Learning"
+    authors: "Lukas Brunke, Melissa Greeff, Adam W. Hall, Zhaocong Yuan, Siqi Zhou, Jacopo Panerati, Angela P. Schoellig"
+    venue: "Annual Review of Control, Robotics, and Autonomous Systems"
+    year: 2022
+    arxiv: "2108.06266"
+    takeaway: "The organising survey: separates safety by construction, by constrained learning, and by runtime filtering, and is explicit about which assumptions each family needs to make its guarantee mean anything."
+  - key: angelopoulos2021conformal
+    title: "A Gentle Introduction to Conformal Prediction and Distribution-Free Uncertainty Quantification"
+    authors: "Anastasios N. Angelopoulos, Stephen Bates"
+    year: 2021
+    arxiv: "2107.07511"
+    takeaway: "Turns any anomaly or uncertainty score into a threshold with finite-sample coverage, assuming only exchangeability — the practical route to a calibrated abstention signal from a model that has none."
+  - key: lindemann2023conformalplanning
+    title: "Safe Planning in Dynamic Environments using Conformal Prediction"
+    authors: "Lars Lindemann, Matthew Cleaveland, Gihyun Shim, George J. Pappas"
+    year: 2022
+    arxiv: "2210.10254"
+    takeaway: "Applies conformal prediction to learned trajectory forecasts so a planner can reason with calibrated prediction regions rather than point predictions — uncertainty that carries a guarantee into the constraint."
+check:
+  - id: sm_l4_c1
+    prompt: "Brunke et al. separate safety by construction, by constrained learning, and by runtime filtering. Which family does a CBF safety filter belong to, and what does that imply?"
+    options:
+      - "Safety by construction, since the barrier is designed in advance"
+      - "Runtime filtering: the guarantee comes from projecting actions at execution time, so it holds regardless of how the policy was trained — and equally, training the policy safely buys you nothing extra in guarantee terms"
+      - "Constrained learning, since the QP is an optimisation"
+      - "It spans all three"
+    answer: 1
+    explanation: "Placing a method in the taxonomy tells you where its guarantee comes from and therefore what it survives. Runtime filtering is independent of the policy's provenance, which is exactly why it composes with an arbitrary learned controller — you can swap the policy without redoing the safety argument. The corollary worth stating is that constrained training does not strengthen the guarantee; it reduces how often the filter has to intervene, which matters for performance and for adoption but not for the safety claim."
+  - id: sm_l4_c2
+    prompt: "Shielding synthesises a corrective layer from a temporal-logic specification. What limits its applicability to a manipulator?"
+    options:
+      - "It is too slow to run in real time"
+      - "It needs a discrete abstraction of the environment and dynamics to synthesise against, and constructing a faithful abstraction of continuous contact-rich manipulation is itself the hard problem"
+      - "It cannot handle stochastic environments"
+      - "It requires the policy to be differentiable"
+    answer: 1
+    explanation: "The guarantee is genuine and it is relative to the model you synthesised against. In a gridworld or a discrete-event system the abstraction is exact and the shield is airtight; for a 7-DoF arm making contact, any tractable discrete abstraction is lossy in precisely the regime that matters. That is why the continuous-control literature converged on barrier functions and reachability, where the model is continuous and the conservatism is explicit rather than hidden in the abstraction."
+  - id: sm_l4_c3
+    prompt: "Why is conformal prediction a natural complement to a safety filter rather than a competitor?"
+    options:
+      - "It is faster to compute"
+      - "They cover different failures: the filter enforces constraints the model can express, while conformal detects that the situation is outside what the policy was calibrated for — a filter cannot notice novelty and an OOD flag cannot enforce a constraint"
+      - "Conformal prediction replaces the need for a barrier function"
+      - "Both provide the same guarantee by different means"
+    answer: 1
+    explanation: "The filter answers 'is this action about to violate a constraint I wrote down?' and is silent about anything not encoded in a barrier. Conformal answers 'is this situation like the ones I was calibrated on?' and provides no mechanism to act on the answer. A deployed system needs both, and they fail in different ways — the filter fails through model error and infeasibility, the flag fails through drift breaking exchangeability."
+---
+
+## The organising taxonomy
+
+<PaperCard refKey="brunke2022safelearning" />
+
+The most useful thing this survey does is separate three families by *where the
+guarantee comes from*, which determines what each one survives.
+
+<Steps>
+<Step title="Safety by construction">
+Restrict the policy class so unsafe behaviour is unrepresentable. Strongest when
+it applies, and it usually applies only to simple systems and simple constraints.
+</Step>
+
+<Step title="Safety by constrained learning">
+Penalise or constrain during training — Lagrangian methods, constrained policy
+optimisation. Bounds an *expectation* over the training distribution, which is a
+statistical statement, not a per-episode guarantee.
+</Step>
+
+<Step title="Safety by runtime filtering">
+Project the action at execution time. The guarantee is independent of how the
+policy was trained, which is why it composes with an arbitrary learned
+controller — and why it is what actually gets deployed.
+</Step>
+</Steps>
+
+<KeyIdea>
+The corollary is worth stating explicitly: constrained training does **not**
+strengthen a filtered system's guarantee. It reduces how often the filter has to
+intervene, which matters for performance and for whether anyone leaves the filter
+switched on — but the safety claim comes from the filter, and swapping the policy
+does not require redoing it.
+</KeyIdea>
+
+## The filter machinery
+
+<PaperCard refKey="ames2019cbf" />
+
+The reference for the forward-invariance argument and the QP formulation.
+Its practical significance is that it turns a Lyapunov-style analysis into a
+component: one quadratic objective, one linear constraint per barrier, solved in
+microseconds around an arbitrary nominal controller.
+
+<Warning>
+The guarantee is bought with three assumptions, and it is worth naming which one
+bites in your setting. **Known dynamics** — the Lie derivatives need $f$ and $g$,
+and model error enters the constraint directly, remedied by tightening with an
+error bound you must actually have. **Relative degree one** — if the input does
+not appear in $\dot h$ the constraint says nothing about $u$. **Feasibility** —
+with input bounds, the QP can have no solution, which is a statement about the
+state rather than about the solver.
+</Warning>
+
+<PaperCard refKey="dalal2018safeexploration" />
+
+A pragmatic middle path from the RL side: learn a linear model of how actions
+affect the constraint signal, and add a closed-form projection layer to the
+policy. Weaker than a full CBF and much cheaper to obtain, and it targets the
+period that matters most — keeping constraints satisfied *during exploration*
+rather than only once the policy has converged.
+
+## The formal-methods line
+
+<PaperCard refKey="alshiekh2018shielding" />
+
+The same runtime-filtering idea with a formal guarantee: synthesise a shield
+from a temporal-logic specification, and let it correct any action that would
+violate the property. In a discrete setting the shield is airtight.
+
+<KeyIdea>
+The limitation is the abstraction, not the method. The guarantee is relative to
+the model you synthesised against, and constructing a faithful discrete
+abstraction of continuous contact-rich manipulation is itself the hard problem —
+any tractable abstraction is lossy exactly where the difficulty is. That is why
+continuous control converged on barrier functions and reachability, where the
+model stays continuous and the conservatism is explicit rather than buried in the
+abstraction step.
+</KeyIdea>
+
+## Knowing when you are outside your competence
+
+<PaperGrid>
+<PaperCard refKey="angelopoulos2021conformal" />
+<PaperCard refKey="lindemann2023conformalplanning" />
+</PaperGrid>
+
+Both filters and shields answer "is this action about to violate a constraint I
+wrote down?" Neither notices that the *scene* is unlike anything the policy was
+trained on, because that is not expressible as a barrier.
+
+Conformal prediction supplies the missing signal: take any anomaly score, and a
+rank argument on a held-out calibration set turns it into a threshold with
+finite-sample coverage — distribution-free, requiring only exchangeability.
+Lindemann et al. carry it into planning, so a planner reasons with calibrated
+prediction regions around learned forecasts rather than with point predictions.
+
+<Warning>
+Exchangeability is the assumption deployment erodes. Lighting drifts, the object
+set changes, hardware wears — so today's observations are not exchangeable with
+a calibration set from six months ago, and the threshold's nominal rate stops
+being its actual rate. The operational form of the guarantee is "valid over the
+period the calibration represents", which makes monitoring the empirical flag
+rate against the nominal one, and recalibrating on recent data, part of running
+the system.
+</Warning>
+
+## What the field has and has not settled
+
+<Steps>
+<Step title="Settled">
+That safety belongs in a layer independent of the policy, that runtime filtering
+composes with arbitrary learned controllers, and that expectation constraints are
+the wrong object for anything that must never happen.
+</Step>
+
+<Step title="Workable but assumption-heavy">
+Barrier functions for constraints expressible in a model you have. Every
+deployment is an argument about whether the model error bound is real and whether
+the safe set is control-invariant given the actuators.
+</Step>
+
+<Step title="Genuinely open">
+Semantic safety. "Do not close the gripper on a person's hand" is not a barrier
+function — it requires recognising a situation, so its reliability is bounded by
+a perception model's, and no amount of control theory upgrades that. The honest
+architectural response is to keep it in a separate layer with a weaker claim
+attached rather than to let it contaminate the guarantees you can actually make.
+</Step>
+</Steps>

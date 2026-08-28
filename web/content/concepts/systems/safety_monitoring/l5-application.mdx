@@ -1,26 +1,171 @@
 ---
 concept: safety_monitoring
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Runtime Safety Monitoring for Robot Systems fail in practice,
-    and how would you present it in an interview?
+  prompt: "Give your interview answer on making a learned policy safe. What is the architectural claim, and what would you refuse to promise?"
   keyPoints:
-    - "Safety monitor is too conservative: overly tight bounds cause frequent
-      unnecessary stops, reducing throughput and annoying operators."
-    - "Safety monitor is too permissive: bounds set during benign testing miss
-      edge cases in deployment (e.g., a new obstacle not in the collision
-      model)."
-    - "Latent failure: safety monitor itself fails silently (sensor providing
-      safety data dies)."
-check: []
-papers: []
+    - "The claim: safety is a layer independent of the policy. A learned policy answers confidently for any input and cannot report being out of its depth, so the guarantee cannot flow through it."
+    - "Name the mechanism concretely — a CBF-QP projecting the proposed action onto the safe set, minimal intervention, microseconds at control rate — and the three assumptions it buys the guarantee with."
+    - "Separate what you can guarantee (geometric and dynamic constraints against measured quantities) from what you cannot (semantic safety, bounded by a perception model)."
+    - "Add a calibrated abstention signal, and be honest that its exchangeability assumption decays — recalibration is part of operating the system."
+interview:
+  answer: >-
+    The starting point is that safety can't be a property of the policy. A
+    learned policy returns an action for any input, including scenes unlike
+    anything it trained on, and it has no reliable internal notion of being out
+    of its depth because nothing in the objective asked it for one. Training
+    with a penalty on unsafe actions doesn't fix that either — a penalty shapes
+    the expected behaviour over the training distribution, and safety is a
+    per-instance constraint that has to hold on exactly the unusual inputs the
+    training distribution didn't cover. So the architecture is layered, and the
+    guarantee lives below the policy. The policy proposes an action; a safety
+    filter with its own sensing and its own simple model projects it onto the
+    set of actions that keep the system inside a verified safe region. Concretely
+    that's a control barrier function: define h of x positive inside the safe
+    set, and require h-dot at least minus alpha of h. That's a rate limit that
+    scales with your distance from danger, so you can move fast in the interior
+    and the permitted rate of approach goes to zero at the boundary — which
+    makes the set forward invariant. For control-affine dynamics the condition is
+    linear in u, so finding the nearest safe action is a QP: minimise the
+    distance to the policy's action subject to that inequality and the input
+    bounds. It solves in microseconds and returns the policy's action unchanged
+    whenever the constraint is slack, which matters for adoption — a filter that
+    constantly overrides gets switched off. Three assumptions buy that guarantee
+    and each fails in a way worth naming: you need the dynamics, which are wrong,
+    so you tighten by a model-error bound you have to actually have; you need the
+    input to appear in h-dot, so a position barrier with acceleration control
+    needs a higher-order form; and the QP can be infeasible, which isn't a solver
+    problem — it says the safe set was designed geometrically without accounting
+    for braking distance under the actuator limits. Below the filter I'd want a
+    real-time limit checker on joint, velocity and force bounds, and a hardware
+    e-stop with no software in the path, because that's the layer that works when
+    the computer has hung. And the piece none of that covers is noticing the
+    scene is outside what the policy handles at all — for that I'd use conformal
+    prediction to turn an anomaly score into a threshold with a coverage
+    guarantee, while being clear that it assumes exchangeability, which drift
+    breaks, so recalibration is part of operating the thing.
+  followUps:
+    - q: "What would you refuse to promise?"
+      a: >-
+        Semantic safety, at the same confidence as the geometric constraints.
+        "Don't close the gripper on a person's hand" isn't a barrier function —
+        it requires recognising a situation, so its reliability is bounded by a
+        perception model's reliability, which is bounded by the same things that
+        limit the policy. I'd still build it, with a person detector and a
+        conservative interlock, but I'd keep it in a separate layer with a
+        weaker claim attached and say so explicitly. What I won't do is put it
+        in the same mechanism as joint limits and force thresholds, because that
+        quietly downgrades the guarantee on the constraints I *can* make good on
+        to the reliability of the one I can't. Being precise about which claims
+        are provable and which are statistical is most of what a safety case is.
+    - q: "Your safety QP is infeasible during fast motions. What do you do?"
+      a: >-
+        At runtime, execute a predefined verified failsafe — a braking or retract
+        controller — and log it. Passing the policy's action through is the worst
+        option, because infeasibility means no admissible action satisfies the
+        constraint, so the policy's certainly doesn't. And relaxing the
+        constraint converts a detected violation into an undetected one. Then
+        afterwards I'd treat recurring infeasibility as a design bug rather than
+        a runtime one: it means the safe set isn't control-invariant given the
+        input bounds. A geometric set like "stay ten centimetres from the
+        obstacle" ignores braking distance, so at speed you can be inside h
+        greater than zero and outside the set you can actually keep yourself in.
+        The fix is to design the set to respect the actuation limits, which is
+        what backup-controller and reachability methods compute directly.
+    - q: "Isn't a backup-controller approach simpler than barrier functions?"
+      a: >-
+        Often yes, and I'd reach for it when the barrier is awkward to
+        construct. You verify a simple controller — a hard brake, a retract to
+        home — and define the safe set as the states from which it succeeds.
+        Then you allow the policy's action only if the resulting next state is
+        still in that set. It trades analysis for computation: you don't need a
+        barrier with the right relative degree, you need to simulate the backup
+        forward and check. It also degrades more honestly, because when the
+        check fails you have a specific verified thing to do rather than an
+        infeasible QP and a decision to make in the exception handler. The cost
+        is that the safe set is now implicit and expensive to characterise, so
+        you can't reason about it as easily offline.
+    - q: "How would you know the safety layer is working, before something goes wrong?"
+      a: >-
+        Instrument the intervention itself. Log how often the filter changes the
+        action and by how much, on every step — a rising intervention rate means
+        the policy is drifting toward the boundary, and it moves well before a
+        success rate does. Same for infeasibility counts and OOD flags. And I'd
+        test the layer directly rather than hoping the policy generates the test
+        case: feed the filter deliberately unsafe proposals, full-speed commands
+        straight into the barrier, and confirm it corrects them. Then feed the
+        *policy* garbage while leaving the filter's sensing intact and confirm
+        the system still holds — if it doesn't, my layers aren't independent,
+        which is the exact failure the architecture exists to prevent. Every
+        failsafe path gets executed, because one that has never run is a
+        hypothesis, and this is the one place where that's physical.
+  traps:
+    - "Proposing to make the policy safe through reward shaping or a constrained objective. Those bound an expectation over the training distribution; safety is a per-instance constraint on inputs that distribution did not cover."
+    - "Letting the safety filter read the policy's perception. Layers must fail independently, and a filter downstream of the same perception is the same opinion with a QP after it."
+    - "Treating QP infeasibility as a numerical issue. It means the safe set is not control-invariant given the actuation limits — a design bug, not a runtime one."
+    - "Claiming semantic safety at the same confidence as geometric constraints. It inherits the perception model's reliability and belongs in its own layer with a weaker claim."
+check:
+  - id: sm_l5_c1
+    prompt: "A team proposes making their RL policy safe by adding a large negative reward for collisions. What is the precise objection?"
+    options:
+      - "The penalty will be hard to tune"
+      - "It bounds behaviour in expectation over the training distribution, which permits rare violations and says nothing about states the training distribution did not cover — exactly the states where you need the guarantee"
+      - "Negative rewards destabilise policy gradient methods"
+      - "Collisions cannot be detected during training"
+    answer: 1
+    explanation: "The objection is about the type of the statement, not its tuning. A penalty makes violations rare in aggregate, which is a statement about averages over states the policy was trained on; a safety requirement is per-instance and matters most on unusual inputs. Penalties are still worth having — they reduce how often the filter has to intervene, which affects performance and whether the filter stays enabled — but they are not the mechanism that guarantees anything, and presenting them as one is the error."
+  - id: sm_l5_c2
+    prompt: "You are asked to guarantee a robot will never injure a person working alongside it. What is the honest answer?"
+    options:
+      - "Yes, with a control barrier function on distance to the person"
+      - "Split the claim: force, velocity, and workspace limits can be guaranteed against directly measured quantities in a verifiable layer. Anything requiring the robot to *recognise* the person is bounded by the perception model and gets a weaker, statistical claim — plus physical measures that do not depend on recognition at all"
+      - "No; learned policies cannot be made safe"
+      - "Yes, provided the policy is trained with a collision penalty"
+    answer: 1
+    explanation: "Option 1 hides the weak link: the barrier needs the person's position, which comes from perception, so the guarantee is only as good as the detector however rigorous the control theory around it. The defensible answer separates the claims — bounded force and velocity hold against force-torque and encoder measurements regardless of whether anyone is detected, and are what physical safety standards actually rest on — and is explicit that recognition-dependent constraints carry a different kind of assurance."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Safety monitor is too conservative: overly tight bounds cause frequent unnecessary stops, reducing throughput and annoying operators. Safety monitor is too permissive: bounds set during benign testing miss edge cases in deployment (e.g., a new obstacle not in the collision model). Latent failure: safety monitor itself fails silently (sensor providing safety data dies). Symptoms: either constant false alarms or a real safety incident that monitoring should have caught. Fix: tune safety bounds with deployment data, use redundant sensing for critical monitors, monitor the monitors (watchdog timers, heartbeat checks), conduct regular safety audits with adversarial testing.
+<Steps>
+<Step title="Filter intervening constantly → the policy is running at the boundary">
+Log intervention rate and magnitude. A high rate is not a filter problem; it says
+the policy was never shaped to respect the constraint, and it is the precursor to
+someone switching the filter off.
+</Step>
 
-## Interview-ready answer
+<Step title="QP infeasible at speed → the safe set is not control-invariant">
+Geometric sets ignore braking distance. Redesign against the input bounds, and
+have a verified failsafe for the residual cases.
+</Step>
 
-Runtime safety monitoring is non-negotiable for deployed robot systems. I design safety as a layered architecture: hardware limits (always-on, cannot be overridden by software), real-time geometric checks (workspace bounds, collision avoidance at $> 100\,\text{Hz}$), policy-level guards (action feasibility, confidence thresholds), and high-level anomaly detection (learned models that flag out-of-distribution situations). Key design principles: (1) defense in depth — every layer is independent, (2) fail-safe defaults — unknown = stop, (3) monitor the monitors — watchdogs and redundancy, (4) graceful degradation — reduce speed before stopping entirely. The hardest part: tuning thresholds that are safe without being so conservative they prevent useful work. I always start conservative and relax based on operational data, never the other way around.
+<Step title="Filter fails when the policy fails → the layers are not independent">
+The filter is reading the policy's perception. Give it its own sensing —
+encoders, force-torque, direct range — and its own simple model.
+</Step>
+
+<Step title="OOD flag rate drifting from nominal → exchangeability broken">
+The conformal threshold has stopped meaning what it claims. Recalibrate on recent
+verified-nominal data, and monitor the empirical rate as a drift alarm.
+</Step>
+
+<Step title="Safe in testing, unsafe in a new cell → semantic constraints failed silently">
+Anything depending on recognition inherits the detector's reliability. Check
+which constraints were geometric and which were semantic, and whether the claim
+you made covered both.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The register that works here is precision about what is guaranteed and what is
+not. Anyone can say "we add a safety layer". What distinguishes a strong answer
+is naming the mechanism (a CBF-QP projecting onto the safe set), the three
+assumptions it rests on and how each fails, the independence requirement that
+makes layering mean anything, and the boundary between constraints you can prove
+and constraints bounded by a perception model. Volunteering the last of those —
+that you would not promise semantic safety at the same confidence — is worth more
+than any amount of enthusiasm about the machinery.
+</Warning>
