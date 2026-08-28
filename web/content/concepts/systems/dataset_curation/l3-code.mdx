@@ -1,0 +1,218 @@
+---
+concept: dataset_curation
+level: 3
+status: final
+recall:
+  prompt: "Implement a curation pipeline. What metadata do you log, how do you split, and how do you find the gaps?"
+  keyPoints:
+    - "Log per episode: operator, session, object instance, lighting, hardware revision, outcome, and a failure category. None of it is recoverable later."
+    - "Split by session, not by episode and certainly not by timestep — episodes from one sitting share lighting, calibration, and operator state."
+    - "Quality conditioning beats filtering when labels exist: train on everything with an operator token, request the expert at inference."
+    - "Find gaps by embedding the data and measuring nearest-neighbour distance from deployment observations into the training set. That distance, not the loss, tells you where you are extrapolating."
+check:
+  - id: dc_l3_c1
+    prompt: "Why split by session rather than by episode?"
+    options:
+      - "Sessions are easier to index"
+      - "Episodes from one sitting share lighting, object instances, calibration, and operator state — so an episode-level split still leaks those nuisance factors and validation loss overstates generalisation"
+      - "Episode-level splits are not reproducible"
+      - "Because sessions have equal numbers of episodes"
+    answer: 1
+    explanation: "Per-timestep splits leak near-duplicate frames and are the classic error. Per-episode splits fix that and leave a subtler one: everything constant within a sitting is shared across the split, so the validation set is drawn from the same lighting, the same physical object instances, and the same calibration. Holding out whole sessions — and ideally whole operators — is what makes the number predict deployment rather than in-session fit."
+  - id: dc_l3_c2
+    prompt: "You have operator labels and mixed quality. Filter or condition?"
+    options:
+      - "Always filter — low-quality data can only hurt"
+      - "Condition when the weak operator contributes coverage you have no other source for: their data still trains the shared encoder while the conditioning variable keeps them from setting the behaviour. Filter when quality is unlabelled or the coverage is redundant"
+      - "Always condition — it strictly dominates"
+      - "Neither; reweight the loss by operator quality"
+    answer: 1
+    explanation: "The decision turns on what the weak data is contributing. If a novice worked in lighting nobody else did, filtering throws away your only support in that region, and conditioning keeps the representation benefit while excluding the behaviour. If their episodes duplicate coverage you already have, filtering is simpler and there is nothing to lose. And conditioning has a hard precondition — quality must be labelled per episode, which is a collection-time decision you cannot revisit."
+  - id: dc_l3_c3
+    prompt: "What does nearest-neighbour distance in embedding space, from deployment observations into the training set, tell you that validation loss does not?"
+    options:
+      - "It measures the policy's accuracy"
+      - "It identifies where the policy is *extrapolating* — validation loss is computed on the data distribution and is silent about regions with no data, whereas a large distance flags observations with no support at all"
+      - "It measures dataset size"
+      - "It detects label noise"
+    answer: 1
+    explanation: "The two answer different questions, and the loss answers the less useful one. Held-out likelihood tells you how well the model fits where you have data; it is structurally incapable of reporting on regions where you have none, because there is nothing there to evaluate against. The nearest-neighbour distance is a support diagnostic, and its practical payoff is a ranked list of what to collect next — which is the output curation should actually produce."
+---
+
+## Log everything at collection time
+
+<CodeWalk title="The episode record">
+
+```python title="record.py"
+from dataclasses import dataclass, asdict
+
+@dataclass
+class EpisodeMeta:
+    episode_id: str
+    session_id: str          # one sitting: shared lighting, calibration, mood
+    operator_id: str         # quality conditioning needs this label
+    task_id: str
+    instruction: str
+    object_instance: str     # THIS mug, not "a mug" — instances differ
+    lighting: str
+    hardware_rev: str        # gripper swaps change the dynamics
+    outcome: str             # "success" | "failure" | "aborted"
+    failure_mode: str | None
+    n_steps: int
+    timestamp: float
+    notes: str = ""
+```
+
+</CodeWalk>
+
+None of this is recoverable afterwards. Three weeks later, when results shift
+inexplicably, the question is always which of these changed — and if you did not
+log the gripper revision or the operator, the answer is unavailable at any
+price. It costs one struct at collection time.
+
+## Split by session
+
+```python title="splits.py"
+def split_by_session(metas, val_frac=0.15, test_frac=0.15, seed=0):
+    """Per-timestep splits leak near-duplicate frames — the classic reason a
+    beautiful validation curve accompanies a policy that does not work.
+    Per-episode splits fix that and still leak lighting, object instances and
+    calibration, all of which are constant within a sitting.
+    """
+    rng = np.random.default_rng(seed)
+    sessions = sorted({m.session_id for m in metas})
+    rng.shuffle(sessions)
+
+    n_test = max(1, int(len(sessions) * test_frac))
+    n_val = max(1, int(len(sessions) * val_frac))
+    test, val, train = sessions[:n_test], sessions[n_test:n_test + n_val], sessions[n_test + n_val:]
+
+    assign = {s: "test" for s in test} | {s: "val" for s in val} | {s: "train" for s in train}
+    return {m.episode_id: assign[m.session_id] for m in metas}
+```
+
+<Warning>
+If you want validation loss to say anything about deployment, hold out whole
+operators as well. A policy that generalises across sessions but not across
+operators has learned one person's idiosyncratic technique, and an
+operator-stratified split is the only thing that exposes it.
+</Warning>
+
+## Filter, or condition
+
+<CodeWalk title="Keep the weak data, exclude its behaviour">
+
+```python title="curate.py"
+OPERATOR_QUALITY = {"op_03": "expert", "op_07": "expert", "op_11": "novice"}
+
+def build_training_set(metas, mode="condition"):
+    """Filtering removes the averaging and costs you the weak operator's
+    coverage. Conditioning keeps their episodes training the shared encoder
+    while the token stops them from setting the behaviour."""
+    keep = [m for m in metas if m.outcome == "success"]   # cloning only
+
+    if mode == "filter":
+        return [m for m in keep if OPERATOR_QUALITY[m.operator_id] == "expert"], None
+
+    quality_token = {m.episode_id: OPERATOR_QUALITY[m.operator_id] for m in keep}
+    return keep, quality_token
+
+
+# At inference: always request the expert setting.
+action = policy(obs, quality="expert")
+```
+
+</CodeWalk>
+
+The failures are excluded from the cloning set and **not deleted** — they are the
+only negative examples a value function, an offline-RL objective, or a success
+detector will ever have, and deleting is a decision taken on behalf of uses you
+have not thought of yet.
+
+## Find the gaps
+
+<CodeWalk title="Coverage by nearest-neighbour distance">
+
+```python title="coverage.py"
+import faiss, numpy as np
+
+def coverage_report(encoder, train_obs, deploy_obs, k=5):
+    """Validation loss is computed on the data distribution, so it is silent
+    about regions with no data. This is not — it says where the policy will
+    be extrapolating, and therefore what to collect next."""
+    Z = normalize(encoder(train_obs))                  # (N, d)
+    Q = normalize(encoder(deploy_obs))                 # (M, d)
+
+    index = faiss.IndexFlatIP(Z.shape[1])
+    index.add(Z.astype("float32"))
+    sims, _ = index.search(Q.astype("float32"), k)
+    dist = 1.0 - sims.mean(axis=1)                     # mean distance to k-NN
+
+    return {
+        "median_distance": float(np.median(dist)),
+        "p95_distance": float(np.percentile(dist, 95)),
+        # These are the observations to go and collect around.
+        "worst_covered": np.argsort(-dist)[:50].tolist(),
+    }
+```
+
+</CodeWalk>
+
+```python title="gaps.py"
+def gaps_by_stratum(metas, min_episodes=50):
+    """The cheap version, and often enough. Count episodes per
+    (task, object, lighting) cell and list the thin ones — the floor below
+    which a cell simply will not work."""
+    counts = Counter((m.task_id, m.object_instance, m.lighting) for m in metas)
+    return sorted((c, cell) for cell, c in counts.items() if c < min_episodes)
+```
+
+<KeyIdea>
+The deliverable from curation is this list, not the dataset. It says which
+session to run next, and it is the thing that keeps collection from defaulting
+to more of what is easiest — which is always the setup you already have and
+therefore the region you already cover.
+</KeyIdea>
+
+## Deduplication
+
+```python title="dedup.py"
+def drop_near_duplicate_episodes(encoder, metas, episodes, thresh=0.995):
+    """Two demonstrations of the same object from the same pose by the same
+    operator are close to one demonstration counted twice. They inflate the
+    dataset size and shift the effective weighting toward whatever setup was
+    easiest to repeat."""
+    embs = normalize(np.stack([encoder(ep.observations).mean(0) for ep in episodes]))
+    keep, kept_embs = [], []
+    for meta, e in zip(metas, embs):
+        if kept_embs and max(np.dot(k, e) for k in kept_embs) > thresh:
+            continue
+        keep.append(meta); kept_embs.append(e)
+    return keep
+```
+
+## Before training, check
+
+<Steps>
+<Step title="Episodes per stratum against the floor">
+A cell with five episodes will not work and will dilute the batches. Either
+collect it up to the floor or drop it and stop claiming it.
+</Step>
+
+<Step title="Operator balance per task">
+One operator dominating a task means that task encodes their technique. Visible
+only if you logged the operator.
+</Step>
+
+<Step title="Action statistics per dimension">
+Normalisation constants come from here, and a dimension whose distribution is
+bimodal across operators is exactly the averaging problem showing up in a
+histogram before it shows up on the robot.
+</Step>
+
+<Step title="Split leakage">
+Confirm no session — and no object instance — appears on both sides of the
+split. It is a two-line assertion and it catches the most expensive class of
+mistake in this whole pipeline.
+</Step>
+</Steps>

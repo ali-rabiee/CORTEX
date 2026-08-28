@@ -1,23 +1,209 @@
 ---
 concept: dataset_curation
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Dataset Curation for Robot Learning,
-    including the key equations.
+  prompt: "Formalise what a mixed-quality dataset does to behaviour cloning, and give the two fixes. Then state coverage in terms of the deployment distribution."
   keyPoints:
-    - The systematic process of collecting, filtering, balancing, and versioning
-      demonstration datasets for training robot policies.
-    - "Quality matters more than quantity: a policy trained on $N$ high-quality
-      demonstrations often outperforms one trained on $10N$ noisy ones."
-    - "Key considerations: state-action coverage $\\mathcal{C}(\\mathcal{D}) =
-      \\text{vol}(\\text{support}(\\mathcal{D}))$ over the relevant task
-      manifold, data balance across modes/conditions, outlier removal, and
-      consistent labeling."
-check: []
-papers: []
+    - "A dataset from operators $\\{\\pi_j\\}$ with weights $w_j$ has conditional mean $\\mathbb{E}[a\\mid o] = \\sum_j \\tilde w_j(o)\\,\\mu_j(o)$, so MSE cloning fits a weighted average of strategies — not any one of them."
+    - "Two fixes with different costs: **filter** (drop weak operators, losing their coverage) or **condition** (add a quality token, train on everything, request 'expert' at test time)."
+    - "Coverage is a support condition: the deployment state-action distribution should lie inside the data's support. Where it does not, the policy is extrapolating and nothing in the loss reports it."
+    - "Marginal value of a demonstration falls with local density, which is why targeting gaps beats collecting more of what you already have."
+check:
+  - id: dc_l2_c1
+    prompt: "Two operators demonstrate the same task with different strategies, $\\mu_1(o)$ and $\\mu_2(o)$, in equal proportion. What does an MSE-trained deterministic policy converge to, and when is that harmful?"
+    options:
+      - "Whichever strategy has lower variance"
+      - "$\\tfrac12(\\mu_1(o) + \\mu_2(o))$ — the conditional mean — which is harmful whenever the two strategies are separated rather than nearby, since the midpoint of 'left around' and 'right around' passes through the object"
+      - "A random choice between them per observation"
+      - "The strategy that appears first in the dataset"
+    answer: 1
+    explanation: "The MSE minimiser is the conditional mean of whatever mixture you supplied, and that is a property of the loss rather than the network. The harm depends on geometry: if the strategies differ slightly the average is a fine compromise, and if they are separated the average is in the gap between them, where nothing was demonstrated and the behaviour may be invalid. That is why 'mixed quality' is not simply 'noisier' — it can be qualitatively worse than either source."
+  - id: dc_l2_c2
+    prompt: "Instead of dropping the novice operator's data, you add an operator-id token to the observation and set it to the expert at inference. What does this buy?"
+    options:
+      - "Nothing — the novice data still biases the shared weights"
+      - "The conditional mean is now taken *within* each operator rather than across them, so the expert setting recovers the expert's strategy while the novice data still trains the shared visual representation"
+      - "It doubles the effective dataset size"
+      - "It converts the problem to reinforcement learning"
+    answer: 1
+    explanation: "Conditioning changes what the expectation is over. $\\mathbb{E}[a \\mid o, j = \\text{expert}]$ is the expert's mean, not the mixture's, so the averaging pathology disappears while the novice episodes still contribute gradient to the encoder. It is the same mechanism as return conditioning in offline RL: keep the low-quality data for representation learning and use the conditioning variable to ask for the behaviour you want. The requirement is that quality is actually labelled, which is why logging the operator per episode matters more than it looks."
+  - id: dc_l2_c3
+    prompt: "Why does the marginal value of an additional demonstration fall with the local density of existing data?"
+    options:
+      - "Because of diminishing returns in optimisation"
+      - "Because the policy's error in a region is driven by how much data supports it, and adding the $n$-th nearby demonstration reduces that error like $1/\\sqrt{n}$ locally — while the first demonstration in an unsupported region removes an extrapolation with unbounded error"
+      - "Because storage costs grow linearly"
+      - "Because near-duplicates are automatically discarded"
+    answer: 1
+    explanation: "The comparison is between reducing a small error and removing an unbounded one. In a well-covered region the estimator is already close and additional samples buy the usual square-root improvement; in an uncovered region the network is extrapolating and its error is limited only by its inductive bias. That asymmetry is the entire argument for gap-directed collection, and it runs against the grain of what is easy to collect — more of the same setup is always the cheapest session to run."
 ---
 
-## Formal definition
+## What a mixture of operators does
 
-The systematic process of collecting, filtering, balancing, and versioning demonstration datasets for training robot policies. Quality matters more than quantity: a policy trained on $N$ high-quality demonstrations often outperforms one trained on $10N$ noisy ones. Key considerations: state-action coverage $\mathcal{C}(\mathcal{D}) = \text{vol}(\text{support}(\mathcal{D}))$ over the relevant task manifold, data balance across modes/conditions, outlier removal, and consistent labeling. For multi-task datasets, maintain per-task statistics and ensure no task is severely underrepresented ($N_{\text{task}_i} \geq N_{\min}$ for all $i$).
+Let the dataset be generated by operators $j = 1 \ldots J$ with policies
+$\pi_j(a \mid o)$ and mixing weights $w_j$. The dataset's conditional
+distribution is a mixture:
+
+$$
+p_{\mathcal{D}}(a \mid o) = \sum_j \tilde w_j(o)\, \pi_j(a\mid o),
+\qquad
+\tilde w_j(o) = \frac{w_j\, p_j(o)}{\sum_{j'} w_{j'}\,p_{j'}(o)}
+$$
+
+where $p_j(o)$ is operator $j$'s state distribution — so the effective mixing
+weight is state-dependent, since operators visit different states.
+
+<Derivation title="MSE cloning fits the mixture mean">
+
+The MSE-optimal deterministic policy is the conditional mean:
+
+$$
+\mu^*(o) = \mathbb{E}_{p_\mathcal{D}}[a \mid o]
+= \sum_j \tilde w_j(o)\, \underbrace{\mathbb{E}_{\pi_j}[a\mid o]}_{\mu_j(o)}
+$$
+
+a weighted average of the operators' mean actions.
+
+**When this is benign.** If the $\mu_j$ are close, the average is a reasonable
+compromise and the mixture acts like noise around a common strategy — the usual
+case for operators trained on the same protocol.
+
+**When it is harmful.** If two operators approach an object from opposite sides,
+the midpoint passes through the object. The averaged action was demonstrated by
+nobody and may be invalid, and the loss is *lower* there than at either
+strategy. This is mode averaging with the modes supplied by people rather than
+by task ambiguity.
+
+**Why quality mixing is worse than it sounds.** A novice is not simply a noisier
+expert — a novice often has a systematically different strategy, so
+$\mu_{\text{novice}} \ne \mu_{\text{expert}}$ in a structured way, and the
+average inherits neither's competence.
+
+</Derivation>
+
+## Two fixes, with different costs
+
+<Steps>
+<Step title="Filter">
+Keep only operators above a quality bar. Removes the averaging entirely, and
+costs you their coverage — which may have been the only data you had in some
+region of state space.
+</Step>
+
+<Step title="Condition">
+Add an operator or quality token to the observation and train on everything.
+Then $\mathbb{E}[a \mid o, j] = \mu_j(o)$: the conditional mean is taken *within*
+an operator rather than across them, so requesting the expert at inference
+recovers the expert's strategy while the novice data still trains the shared
+encoder.
+</Step>
+</Steps>
+
+<KeyIdea>
+Conditioning is the same mechanism as return conditioning in offline RL: keep
+low-quality data for representation learning and use a conditioning variable to
+ask for the behaviour you want at test time. Its precondition is that quality is
+*labelled*, which is why logging the operator per episode is worth far more than
+it looks at collection time — you cannot recover it later.
+</KeyIdea>
+
+## Coverage, stated properly
+
+Let $d^{\pi_{\text{deploy}}}(s,a)$ be the distribution the policy will actually
+meet and $d^{\mathcal{D}}$ the data's. The condition you want is a support
+condition:
+
+$$
+\operatorname{supp}\big(d^{\pi_{\text{deploy}}}\big) \subseteq \operatorname{supp}\big(d^{\mathcal{D}}\big)
+$$
+
+<Warning>
+Two things make this harder than it looks. It is **circular**: the deployment
+distribution depends on the policy, which depends on the data — the same
+covariate-shift loop, seen from the collection side. And it is **unmeasurable
+from the loss**: held-out likelihood is computed on the data distribution, so it
+says nothing about regions with no data. A policy can have excellent validation
+loss and be extrapolating everywhere it will actually operate.
+
+The practical proxy is a density estimate in a learned embedding space — encode
+your demonstrations, encode a sample of deployment observations, and look at the
+nearest-neighbour distance from deployment points into the training set. Large
+distances mark the extrapolation regions, and they are where to collect next.
+</Warning>
+
+## The marginal value of a demonstration
+
+<Derivation title="Why gaps beat density">
+
+Consider the policy's error in a local region containing $n$ demonstrations.
+Where the region is supported, the estimator behaves like a local average and
+its error falls roughly as
+
+$$
+\varepsilon(n) \sim \frac{\sigma}{\sqrt{n}}
+\qquad\Longrightarrow\qquad
+\Big|\frac{\mathrm{d}\varepsilon}{\mathrm{d}n}\Big| \sim \frac{\sigma}{2 n^{3/2}}
+$$
+
+so the marginal value of one more demonstration decays as $n^{-3/2}$ — steeply.
+
+In an *unsupported* region, the network is extrapolating and its error is not
+bounded by data at all, only by inductive bias. The first demonstration there
+converts an unbounded error into a bounded one.
+
+**The consequence.** The comparison is not between two small improvements; it is
+between shaving a fraction off an already-small error and removing an
+unconstrained one. This is what justifies gap-directed collection — and it runs
+directly against what is cheap, since another session in the same setup is
+always the easiest thing to run.
+
+</Derivation>
+
+## Breadth versus depth, mechanically
+
+Why does task count dominate demonstrations per task for generalisation? Because
+of what the loss makes cheapest.
+
+With $T$ tasks and one instruction each, the policy can minimise the training
+loss by learning a lookup:
+
+$$
+\pi(a \mid o, \ell) \approx \pi_{\text{task}(\ell)}(a\mid o),
+\qquad \text{task}(\cdot) \text{ a table with } T \text{ entries}
+$$
+
+This is *optimal* on the training set and has zero compositional structure. For
+decomposition to be the cheaper solution, the same verb must appear with many
+objects and the same object with many verbs — so that representing "pick" and
+"mug" separately costs $O(V + N)$ parameters instead of $O(VN)$ table entries.
+
+<KeyIdea>
+Compositionality is not something the architecture provides; it is what the data
+makes economical. That is why the actionable version of "collect more data" is
+"vary verbs and objects independently", and why a hundred tasks at fifty
+demonstrations beats five tasks at a thousand for anything you want to
+generalise.
+</KeyIdea>
+
+## Splitting, and the near-duplicate trap
+
+Consecutive frames within an episode are nearly identical, so a per-timestep
+random split leaks:
+
+$$
+\text{corr}\big(o_t, o_{t+1}\big) \approx 1
+\quad\Longrightarrow\quad
+\text{a validation frame's neighbour is in the training set}
+$$
+
+Held-out loss then measures interpolation between adjacent frames rather than
+generalisation, and it will look excellent while the policy fails.
+
+<Warning>
+Split by **episode**, and preferably by **session** — episodes from one sitting
+share lighting, object instances, operator state, and hardware calibration, so
+an episode-level split still leaks session-level nuisance factors. If you want
+validation loss to predict anything about deployment, hold out whole sessions,
+and ideally whole operators.
+</Warning>

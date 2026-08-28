@@ -1,0 +1,201 @@
+---
+concept: dataset_curation
+level: 4
+status: final
+recall:
+  prompt: "Trace how robot data collection changed from 2018 to now. What did each step establish about what data is worth collecting?"
+  keyPoints:
+    - "RoboTurk (2018) made collection scalable through crowdsourced teleoperation, and exposed operator variance as a first-class variable rather than noise."
+    - "robomimic (2021) measured it: operator quality and observation design dominate several of the algorithmic differences that were being argued about."
+    - "BC-Z (2021) established the breadth-over-depth result — generalisation tracks the number of distinct tasks far more than demonstrations per task."
+    - "Bridge, Open X-Embodiment and DROID (2021-2024) moved to pooled, cross-lab, cross-embodiment data, and the scaling-law work is now separating environments, objects, and demonstrations as distinct axes rather than one 'more data' dial."
+papers:
+  - key: mandlekar2018roboturk
+    title: "RoboTurk: A Crowdsourcing Platform for Robotic Skill Learning through Imitation"
+    authors: "Ajay Mandlekar, Yuke Zhu, Animesh Garg, Jonathan Booher, Max Spero, Albert Tung, Julian Gao, John Emmons, Anchit Gupta, Emre Orbay, Silvio Savarese, Li Fei-Fei"
+    venue: CoRL
+    year: 2018
+    takeaway: "Crowdsourced teleoperation through a phone interface, collecting thousands of demonstrations from many operators — and making operator variance an explicit property of the dataset rather than an unmodelled nuisance."
+    arxiv: "1811.02790"
+  - key: ebert2021bridge
+    title: "Bridge Data: Boosting Generalization of Robotic Skills with Cross-Domain Datasets"
+    authors: "Frederik Ebert, Yanlai Yang, Karl Schmeckpeper, Bernadette Bucher, Georgios Georgakis, Kostas Daniilidis, Chelsea Finn, Sergey Levine"
+    venue: RSS
+    year: 2022
+    arxiv: "2109.13396"
+    takeaway: "Shows data from other domains and other tasks measurably improves a target task, making the case that a shared multi-domain corpus is worth more than the same effort spent on one setup."
+  - key: mandlekar2021robomimic
+    title: "What Matters in Learning from Offline Human Demonstrations for Robot Manipulation"
+    authors: "Ajay Mandlekar, Danfei Xu, Josiah Wong, Soroush Nasiriany, Chen Wang, Rohun Kulkarni, Li Fei-Fei, Silvio Savarese, Yuke Zhu, Roberto Martín-Martín"
+    venue: CoRL
+    year: 2021
+    arxiv: "2108.03298"
+    takeaway: "A controlled large-scale study finding that demonstration quality and observation choices move results more than several of the algorithmic differences under debate — the strongest available argument for spending effort on data."
+  - key: jang2022bcz
+    title: "BC-Z: Zero-Shot Task Generalization with Robotic Imitation Learning"
+    authors: "Eric Jang, Alex Irpan, Mohi Khansari, Daniel Kappler, Frederik Ebert, Corey Lynch, Sergey Levine, Chelsea Finn"
+    venue: CoRL
+    year: 2021
+    arxiv: "2202.02005"
+    takeaway: "Zero-shot success on held-out tasks tracks the number of distinct *training tasks* far more than demonstrations per task — the result that turns 'collect more data' into 'collect more varied tasks'."
+  - key: oneill2023openx
+    title: "Open X-Embodiment: Robotic Learning Datasets and RT-X Models"
+    authors: "Open X-Embodiment Collaboration (Abby O'Neill et al.)"
+    year: 2023
+    arxiv: "2310.08864"
+    takeaway: "Pools data from 22 embodiments across many labs and demonstrates positive transfer across robot bodies — establishing that heterogeneous pooled data beats per-embodiment collection."
+  - key: khazatsky2024droid
+    title: "DROID: A Large-Scale In-The-Wild Robot Manipulation Dataset"
+    authors: "Alexander Khazatsky, Karl Pertsch, Suraj Nair, Ashwin Balakrishna, Sudeep Dasari, Siddharth Karamcheti, Soroush Nasiriany, et al."
+    venue: RSS
+    year: 2024
+    arxiv: "2403.12945"
+    takeaway: "Standardises the hardware and protocol across many labs and collects deliberately diverse scenes in real buildings — a collection *design* contribution as much as a dataset."
+  - key: lin2024scalinglaws
+    title: "Data Scaling Laws in Imitation Learning for Robotic Manipulation"
+    authors: "Fanqi Lin, Yingdong Hu, Pingyue Sheng, Chuan Wen, Jiacheng You, Yang Gao"
+    year: 2024
+    arxiv: "2410.18647"
+    takeaway: "Separates environments, objects, and demonstrations per environment-object pair as distinct scaling axes, finding diversity along the first two matters more than volume along the third."
+check:
+  - id: dc_l4_c1
+    prompt: "robomimic found demonstration quality and observation choices outweigh several algorithmic differences. What should that change about how you allocate effort?"
+    options:
+      - "Nothing — algorithms still need improving"
+      - "Spend the marginal effort on data and on the baseline rather than on the fifth architectural variant, and control for data quality before attributing any improvement to an algorithm"
+      - "Stop using learned policies"
+      - "Collect data from a single expert operator only"
+    answer: 1
+    explanation: "The finding is about where variance in outcomes comes from, so it is directly an allocation argument. If operator quality moves results more than the architecture, then an uncontrolled comparison between architectures is largely measuring which one happened to be trained on better data. The practical response has two halves: invest in data, and hold data fixed when comparing methods — which is exactly the pairing discipline from evaluation applied one level up."
+  - id: dc_l4_c2
+    prompt: "What did Open X-Embodiment establish that a single-lab dataset could not?"
+    options:
+      - "That larger datasets train better models"
+      - "That pooling *heterogeneous* data across different robot bodies gives positive transfer — a single policy trained on 22 embodiments beating per-embodiment training, which was not obvious given the action spaces differ"
+      - "That teleoperation is the best collection method"
+      - "That simulation data is unnecessary"
+    answer: 1
+    explanation: "The non-obvious part is the heterogeneity. Different robots have different kinematics, action spaces, and cameras, so it was entirely plausible that pooling would cause interference rather than transfer — the negative-transfer regime familiar from multi-task learning. That it helps says the shared structure (visual scenes, object semantics, manipulation strategies) outweighs the embodiment differences, which is what makes a pooled corpus worth contributing to rather than a distraction from your own setup."
+  - id: dc_l4_c3
+    prompt: "Why is DROID's contribution described as collection *design* rather than dataset size?"
+    options:
+      - "Because the dataset is small"
+      - "Because standardising hardware and protocol across labs, and deliberately collecting in varied real buildings rather than one lab, is what makes the diversity real — the axis that matters most according to the scaling work"
+      - "Because it was collected in simulation"
+      - "Because it contains no action labels"
+    answer: 1
+    explanation: "Volume is the easy axis and diversity is the hard one, because diversity requires going somewhere else. A standardised rig means many labs can contribute data that actually combines, and collecting in real kitchens and offices rather than one instrumented lab produces the scene variation that a single site structurally cannot. Read against the scaling-law finding — environment and object diversity matter more than demonstrations per pair — the protocol is the contribution."
+---
+
+## Making collection scalable, and exposing operator variance
+
+<PaperCard refKey="mandlekar2018roboturk" />
+
+RoboTurk's practical contribution was a phone-based teleoperation interface that
+let many people contribute demonstrations. Its lasting contribution was making
+**operator identity** a variable in the dataset rather than an unmodelled
+nuisance — which is the precondition for everything in Level 2 about
+conditioning on quality.
+
+## Measuring what actually matters
+
+<PaperCard refKey="mandlekar2021robomimic" />
+
+A controlled study across algorithms, observation spaces, and demonstration
+sources, with the finding that demonstration quality and observation design move
+results more than several of the algorithmic differences being argued about at
+the time.
+
+<KeyIdea>
+This is an allocation argument, and it cuts two ways. Spend marginal effort on
+data rather than on the fifth architectural variant. And hold data fixed when
+comparing methods — an uncontrolled comparison is substantially measuring which
+method happened to be trained on better demonstrations, which is the same
+pairing discipline that evaluation requires, applied one level up.
+</KeyIdea>
+
+## Breadth over depth
+
+<PaperCard refKey="jang2022bcz" />
+
+The result that changes what you go and collect. Zero-shot success on held-out
+tasks tracked the number of distinct training tasks far more than the
+demonstrations per task — so a hundred tasks at fifty demonstrations beats five
+tasks at a thousand, for anything you want to generalise.
+
+The mechanism is about what the loss makes cheapest. With few tasks, a lookup
+from instruction to behaviour is optimal on the training set and generalises to
+nothing; only varied verb-object combinations make decomposition the economical
+representation. It is also, inconveniently, the more annoying thing to collect —
+which is part of why it took a while to become standard practice.
+
+## Pooling across domains and bodies
+
+<PaperGrid>
+<PaperCard refKey="ebert2021bridge" />
+<PaperCard refKey="oneill2023openx" />
+</PaperGrid>
+
+Bridge Data made the case that data from *other* domains and tasks measurably
+improves a target task. Open X-Embodiment pushed it much further: 22 embodiments
+pooled across many labs, with a single policy beating per-embodiment training.
+
+<Warning>
+The non-obvious part is the heterogeneity. Different robots have different
+kinematics, action spaces, and camera setups, so interference rather than
+transfer was entirely plausible — this is the negative-transfer regime familiar
+from multi-task learning. That it helps says the shared structure — visual
+scenes, object semantics, manipulation strategy — outweighs the embodiment
+differences at this scale. It is a scale-dependent claim, and it is the argument
+for contributing to a pooled corpus rather than treating your own setup as the
+unit of work.
+</Warning>
+
+## Collection as a design problem
+
+<PaperCard refKey="khazatsky2024droid" />
+
+DROID's contribution is the protocol. A standardised rig so that many labs
+produce data that actually combines, and deliberate collection in real kitchens,
+offices and homes rather than one instrumented lab.
+
+<KeyIdea>
+Volume is the easy axis; diversity is the hard one, because diversity requires
+physically going somewhere else. A single lab can collect a hundred thousand
+episodes and still have one lighting distribution, one floor, one set of object
+instances. That constraint is structural, and it is why the standardised-protocol
+approach matters more than any individual dataset's size.
+</KeyIdea>
+
+## Separating the scaling axes
+
+<PaperCard refKey="lin2024scalinglaws" />
+
+The most useful recent framing: stop treating "more data" as one dial. Separate
+the number of *environments*, the number of *objects*, and the number of
+demonstrations per environment-object pair — and find that diversity along the
+first two matters more than volume along the third.
+
+<Steps>
+<Step title="What this tells you to do">
+Once a cell is above its floor, additional demonstrations in that cell are the
+cheapest and least valuable thing to collect. New environments and new objects
+are more expensive and worth more.
+</Step>
+
+<Step title="What it does not settle">
+Where the floor is for a given task, how the axes trade against each other
+quantitatively, and whether the exponents hold outside the tasks studied.
+Robotics does not yet have scaling laws in the sense language modelling does —
+it has a first careful attempt at asking the question properly.
+</Step>
+</Steps>
+
+<Warning>
+The honest summary of this whole line is that data curation is the least
+glamorous and highest-leverage part of robot learning, and that the field's
+published incentives point the other way. A paper reporting "we collected more
+carefully" is harder to publish than one reporting a new architecture, which is
+exactly why the careful ablations keep finding that data dominates the
+architecture.
+</Warning>

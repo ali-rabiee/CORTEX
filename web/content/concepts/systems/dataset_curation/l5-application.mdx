@@ -1,26 +1,168 @@
 ---
 concept: dataset_curation
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Dataset Curation for Robot Learning fail in practice, and how
-    would you present it in an interview?
+  prompt: "Give your interview answer on dataset curation. What is the highest-leverage thing you would change, and what would you refuse to do?"
   keyPoints:
-    - "Distribution mismatch: training data collected in one setting (single
-      table, good lighting) but deployed in another (different table height,
-      variable lighting)."
-    - Covariate shift causes policy failure on out-of-distribution observations.
-    - "Also: demonstrator inconsistency — multiple operators with different
-      styles create conflicting multi-modal data that confuses unimodal
-      policies."
-check: []
-papers: []
+    - "Open with the framing: in imitation learning the dataset is the specification, so curation is designing the behaviour rather than preprocessing."
+    - "Cite the two results that change decisions — breadth beats depth for generalisation, and demonstration quality outweighs several algorithmic differences."
+    - "Explain mixed quality mechanically: MSE fits the mean over the operator mixture, so an expert plus a novice gives you neither. Filter, or condition on a quality token."
+    - "Refuse to delete failures, and refuse to split by timestep. Both are irreversible or silently invalidating."
+interview:
+  answer: >-
+    In imitation learning there's no reward function saying what good behaviour
+    is — there's only the data. So the dataset is the specification: the
+    policy's ceiling, its failure modes, and its idiosyncrasies are all
+    properties of what it was shown. That makes curation the opposite of
+    preprocessing; it's where you decide what the robot will do. And that's not
+    just a framing — robomimic ran a careful controlled study and found
+    demonstration quality and observation choices moved results more than
+    several of the algorithmic differences people were arguing about. Which has
+    a direct consequence for how you compare methods: if data quality dominates
+    the architecture, an uncontrolled comparison is largely measuring which
+    method happened to get better demonstrations. There are three axes and
+    they're not interchangeable. Coverage — which states, objects, and
+    conditions appear — determines where the policy works at all. Quality.
+    And the breadth-versus-depth split, where the counterintuitive result lives:
+    BC-Z found zero-shot generalisation tracks the number of distinct training
+    tasks far more than demonstrations per task. A hundred tasks at fifty demos
+    beats five tasks at a thousand. The mechanism is about what the loss makes
+    cheapest — with few tasks, memorising a lookup from instruction to behaviour
+    is optimal on the training set and generalises to nothing, and only varied
+    verb-object combinations make decomposition the economical representation.
+    On quality specifically, the thing worth being precise about is that mixed
+    quality isn't just noisier. If two operators have different strategies, MSE
+    cloning fits the conditional mean over the mixture, so an expert and a
+    novice give you the average — which can be worse than either, because the
+    midpoint of "left around the object" and "right around it" goes through the
+    object. Two fixes with different costs. Filter, which removes the averaging
+    and costs you the weak operator's coverage. Or condition: add an operator or
+    quality token, train on everything, request the expert at inference. Then
+    the conditional mean is taken within an operator rather than across them,
+    and the novice data still trains the shared encoder. That has a
+    collection-time precondition though — you have to have logged the operator,
+    and you can't recover it later.
+  followUps:
+    - q: "What's the first thing you'd change on a team with a working collection pipeline?"
+      a: >-
+        The split, and then the metadata. Splitting by timestep leaks
+        near-duplicate frames, and it's the single most common reason a
+        beautiful validation curve accompanies a policy that doesn't work — but
+        even per-episode splits leak, because episodes from one sitting share
+        lighting, object instances, calibration, and operator state. I'd hold
+        out whole sessions and ideally whole operators, because a policy that
+        generalises across sessions but not across operators has learned one
+        person's technique and nothing else exposes that. Then metadata:
+        operator, session, object instance, lighting, hardware revision, outcome
+        and failure category, logged per episode. It costs one struct at
+        collection time and it's the only thing that answers "what changed?"
+        three weeks later — which is a question you will definitely ask.
+    - q: "How do you decide what to collect next?"
+      a: >-
+        By finding where the policy is extrapolating, which the loss cannot tell
+        you. Held-out likelihood is computed on the data distribution, so it's
+        structurally silent about regions with no data. What I'd do instead is
+        embed the training demonstrations and a sample of deployment
+        observations and look at nearest-neighbour distance from deployment into
+        training — large distances mark the unsupported regions, and those are
+        the next session. The cheap version is just counting episodes per task,
+        object, and lighting cell and listing the thin ones. The reason this
+        matters is asymmetric marginal value: in a well-covered region the
+        error is already small and another demo buys the usual root-n
+        improvement, while the first demo in an uncovered region converts an
+        unbounded extrapolation error into a bounded one. And that runs directly
+        against what's cheap to collect, since another session in the same setup
+        is always the easiest thing to run.
+    - q: "Should you throw away failed episodes?"
+      a: >-
+        Remove them from the cloning training set, because maximum likelihood on
+        a failure is teaching the failure. But archive rather than delete, and
+        I'd push back on anyone doing otherwise. A value function, an offline RL
+        objective, and a learned success detector all need negative examples and
+        have no other source for them — a success detector in particular is
+        usually the weakest component in a closed-loop system, and it's trained
+        on exactly this data. Deleting is an irreversible decision taken on
+        behalf of every future use of the dataset, at the moment you know least
+        about what those uses will be. The same argument applies to aborted
+        episodes and to the operator's notes.
+    - q: "Does any of this change with a pretrained VLA?"
+      a: >-
+        The breadth argument gets stronger and the quality argument stays the
+        same. Pretraining supplies the semantics — the model already knows what
+        a mug is — so your demonstrations only need to teach motor skill, which
+        shifts the marginal value further toward covering new *situations*
+        rather than repeating the same one. But the fine-tuning data still sets
+        the behaviour, so mixed operator quality averages exactly as before, and
+        at a few hundred demonstrations the forgetting risk means you're
+        constrained to LoRA or co-fine-tuning anyway. The thing that genuinely
+        changes is that pooled cross-embodiment data becomes worth contributing
+        to — Open X-Embodiment showed heterogeneous pooling gives positive
+        transfer across robot bodies, which wasn't obvious, and it means your own
+        setup isn't necessarily the right unit of work.
+  traps:
+    - "Treating curation as preprocessing. In imitation learning the dataset is the specification, and it outweighs the architecture in every careful ablation."
+    - "Describing mixed-quality data as merely noisier. MSE fits the mean over the operator mixture, and the mean of two strategies need not be a strategy."
+    - "Splitting by timestep, or even by episode. Consecutive frames are near-duplicates and sessions share nuisance factors; hold out sessions and operators."
+    - "Deleting failures. They are useless for cloning and are the only negative examples a critic or success detector will ever get."
+check:
+  - id: dc_l5_c1
+    prompt: "A team reports 0.008 validation loss and a policy that fails on the robot. What do you check first?"
+    options:
+      - "The learning rate schedule"
+      - "How the validation split was made — a per-timestep split puts near-identical consecutive frames on both sides, so the number measures interpolation between adjacent frames rather than generalisation"
+      - "The size of the network"
+      - "Whether the reward function is correct"
+    answer: 1
+    explanation: "An excellent validation loss alongside a policy that does not work is almost diagnostic of a leaking split, and it is the cheapest thing to check. Consecutive frames within an episode are near-duplicates, so random per-timestep assignment means most validation frames have a near-copy in training. Even after fixing that to per-episode, sessions share lighting and calibration, so the honest version holds out whole sessions. Note that a correctly-split low validation loss still would not prove much, since it measures accuracy on the expert's state distribution rather than the policy's."
+  - id: dc_l5_c2
+    prompt: "You have 2,000 demonstrations of one task and want the policy to handle new objects. Budget for 2,000 more. What do you collect?"
+    options:
+      - "2,000 more of the same task to reduce variance"
+      - "Demonstrations spanning many new objects and scenes, even at fifty per cell — diversity along the object and environment axes buys generalisation, while additional demonstrations in an already-covered cell have steeply diminishing value"
+      - "2,000 demonstrations from a second operator on the same task"
+      - "Simulated demonstrations of the same task"
+    answer: 1
+    explanation: "At 2,000 demonstrations the original cell is far above any reasonable floor, so its marginal value has decayed steeply — the estimator is already close and more samples buy the usual root-n shaving. Spreading across new objects and scenes converts unsupported regions into supported ones, which is the asymmetry that makes gap-directed collection worth it. Option 3 is not useless — a second operator adds some diversity — but it varies the wrong axis given the stated goal, and it introduces the mixed-quality problem unless the operators are matched."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Distribution mismatch: training data collected in one setting (single table, good lighting) but deployed in another (different table height, variable lighting). Covariate shift causes policy failure on out-of-distribution observations. Also: demonstrator inconsistency — multiple operators with different styles create conflicting multi-modal data that confuses unimodal policies. Symptoms: policy works in the training environment but fails in deployment; policy exhibits hesitant or averaged behavior. Fix: collect data across deployment conditions, standardize operator instructions, use multi-modal policy architectures (diffusion) for multi-operator data, track and visualize data distribution coverage.
+<Steps>
+<Step title="Low validation loss, poor robot performance → check the split">
+Per-timestep splits leak near-duplicates. Per-episode splits still leak session
+factors. Hold out whole sessions, and operators if you can.
+</Step>
 
-## Interview-ready answer
+<Step title="Policy averages two approaches → mixed operator strategies">
+Histogram the actions per dimension conditioned on operator. A bimodal
+distribution is the averaging problem visible before it reaches the robot.
+Filter or condition.
+</Step>
 
-Dataset curation is arguably the highest-leverage activity in robot learning — more impactful than architecture search or hyperparameter tuning. My curation pipeline: (1) define coverage requirements upfront (task variations, object diversity, approach directions), (2) collect with quality checks in the loop (real-time visualization, automated anomaly detection), (3) post-collection filtering (success verification, kinematic feasibility, statistical outlier removal), (4) balance analysis and targeted augmentation for underrepresented regions, (5) version everything with DVC. Key insight: invest time in understanding your data distribution before training. I always plot action distributions, state-space coverage, and per-task statistics. A common mistake: collecting 1000 demos of the easy case and 10 of the hard case — the policy will only learn the easy case.
+<Step title="Works on trained objects, fails on new ones → breadth, not volume">
+More demonstrations of the covered objects will not help. New objects and new
+scenes will.
+</Step>
+
+<Step title="Results shift with no code change → unlogged metadata">
+Hardware revision, operator, lighting, object instance. If it was not logged it
+cannot be diagnosed, only guessed at.
+</Step>
+
+<Step title="Success detector performs poorly → you deleted its training data">
+Failures are the only negative examples available. Archive them.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The framing that carries this answer is that the dataset is the specification —
+it makes curation a design activity rather than a chore, and it explains why
+every careful ablation finds data dominating the architecture. Follow it with
+the two results that actually change decisions (breadth over depth, and quality
+outweighing algorithms) and the mechanical account of what mixed quality does to
+an MSE loss. That combination is what distinguishes someone who has collected a
+dataset from someone who has downloaded one.
+</Warning>

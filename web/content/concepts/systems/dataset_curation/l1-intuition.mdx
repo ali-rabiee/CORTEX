@@ -1,25 +1,158 @@
 ---
 concept: dataset_curation
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Dataset Curation for Robot Learning in plain language: what is
-    it, and why does it matter?"
+  prompt: "Explain why dataset curation is the highest-leverage work in robot learning. What are the three axes, and what is the counterintuitive finding about them?"
   keyPoints:
-    - Garbage in, garbage out — but for robots, this is even more critical
-      because bad demonstrations teach bad physical habits.
-    - A dataset with 1000 demos where the robot always approaches from the right
-      will produce a policy that can't handle left-side approaches.
-    - Curation means ensuring your training data covers the situations the robot
-      will actually encounter, with consistent quality throughout.
-check: []
-papers: []
+    - "In imitation learning the dataset *is* the specification — the policy can only be as good as what it was shown, so curation is not preprocessing, it is the design of the behaviour."
+    - "Three axes: coverage (states, objects, conditions), quality (operator skill and consistency), and the breadth-versus-depth split between number of tasks and demonstrations per task."
+    - "The counterintuitive finding is that breadth beats depth for generalisation: a hundred tasks with fifty demonstrations each generalises better than five tasks with a thousand."
+    - "Mixed-quality data is actively harmful to cloning, because MSE fits the mean of the operators' behaviours — which can be worse than either. Filter it, or condition on quality and ask for the good one at test time."
+media:
+  - kind: article
+    title: "What Matters in Learning from Offline Human Demonstrations for Robot Manipulation"
+    url: https://arxiv.org/abs/2108.03298
+    source: "Mandlekar, Xu, Wong, Nasiriany, et al."
+    note: "The study that put numbers on this. Its finding that operator quality and observation choices dominate several algorithmic differences is the single most useful result for deciding where to spend your effort."
+  - kind: article
+    title: "DROID: A Large-Scale In-The-Wild Robot Manipulation Dataset"
+    url: https://droid-dataset.github.io/
+    source: "Khazatsky, Pertsch, Nair, et al."
+    note: "Worth reading for the collection protocol rather than the model results — how they standardised hardware across labs, and what they did about scene and operator diversity, is the practical curriculum."
+  - kind: article
+    title: "Data Scaling Laws in Imitation Learning for Robotic Manipulation"
+    url: https://arxiv.org/abs/2410.18647
+    source: "Lin, Hu, Sheng, Wen, You, Gao"
+    note: "Takes the scaling question seriously in manipulation and separates the axes — environments, objects, and demonstrations per pair — rather than treating 'more data' as one dial."
+check:
+  - id: dc_l1_c1
+    prompt: "You have budget for 5,000 more demonstrations and want the policy to generalise to new objects and phrasings. More per task, or more tasks?"
+    options:
+      - "More per task, to reduce noise in each behaviour"
+      - "More tasks: with few tasks, memorising a mapping from instruction to behaviour is the cheapest solution and generalises to nothing — only varied tasks force the policy to decompose what it is being asked"
+      - "Split evenly, since both matter equally"
+      - "Neither; collect more diverse camera angles instead"
+    answer: 1
+    explanation: "This is BC-Z's finding, and it reframes data collection. Zero-shot success on held-out tasks tracked the *number of distinct training tasks* far more than demonstrations per task. The mechanism is economic: with five tasks, a lookup table from instruction to behaviour minimises the loss perfectly, and only when verbs and objects recur in varied combinations does decomposition become the cheaper representation. The caveat is a floor — below roughly fifty demonstrations a task will not work at all, so top up the thin ones first and spend the rest on breadth."
+  - id: dc_l1_c2
+    prompt: "Your dataset mixes an expert operator with a novice, roughly half and half. What does MSE-trained behaviour cloning learn?"
+    options:
+      - "The expert's behaviour, since it appears more consistently"
+      - "Roughly the average of the two, which may be worse than either — the loss fits the conditional mean over the mixture, and the mean of two different strategies need not be a strategy at all"
+      - "The novice's behaviour, since novice demonstrations are more numerous per unit time"
+      - "A bimodal policy that switches between them"
+    answer: 1
+    explanation: "This is mode averaging with the modes supplied by people rather than by task ambiguity. The MSE minimiser is $\\mathbb{E}[a \\mid o]$ over whatever mixture you fed it, so two operators who approach an object from different sides yield an average approach that hits it. The fixes are to filter — drop the weak operator — or to condition: add an operator or quality token during training and request the expert setting at inference, which keeps the novice data useful for representation learning without letting it set the behaviour."
+  - id: dc_l1_c3
+    prompt: "Should you delete failed episodes from your dataset?"
+    options:
+      - "Yes — cloning would imitate the failures"
+      - "Remove them from the cloning training set, but archive rather than delete: failures are useless for imitation and genuinely informative for a critic, an offline-RL objective, or a success detector"
+      - "No, keep them in; the policy learns what not to do"
+      - "Only delete them if they exceed 20% of the data"
+    answer: 1
+    explanation: "The right action depends on the consumer, which is why 'delete' is the wrong default. Behaviour cloning maximises the likelihood of whatever it is shown, so a failure in the training set is a failure being taught. But a value function, an offline RL algorithm, or a learned success detector all need negative examples and cannot get them anywhere else. Deleting is an irreversible decision made on behalf of every future use of the data."
 ---
 
-## Intuition
+## The dataset is the specification
 
-Garbage in, garbage out — but for robots, this is even more critical because bad demonstrations teach bad physical habits. A dataset with 1000 demos where the robot always approaches from the right will produce a policy that can't handle left-side approaches. Curation means ensuring your training data covers the situations the robot will actually encounter, with consistent quality throughout.
+In imitation learning there is no reward function saying what good behaviour is.
+There is only the data. The policy's ceiling, its failure modes, its
+generalisation, and its idiosyncrasies are all properties of what it was shown.
 
-## In practice
+<KeyIdea>
+That makes curation the opposite of preprocessing. It is where you decide what
+the robot will do — and in most projects it is higher-leverage than the choice of
+architecture, because a careful ablation almost always finds that data quality
+and observation design move results more than the algorithmic difference being
+argued about.
+</KeyIdea>
 
-Curating a bimanual manipulation dataset: (1) Collect 500 teleoperated demonstrations across 10 tasks. (2) Automated filtering: discard episodes where task success is ambiguous, joint velocity exceeds safety limits ($\|\dot{q}\| > \dot{q}_{\max}$), or gripper force is anomalous. (3) Balance check: ensure each task has $\geq 40$ demos, each object orientation bin has $\geq 10$ demos. (4) Quality audit: human reviews a random 10% sample for labeling accuracy. (5) Augmentation: for underrepresented regions, collect targeted demonstrations. (6) Version with DVC: tag as `v1.2`, log statistics (per-task counts, action distribution plots, state-space coverage heatmaps). Result: 420 clean demos that train a better policy than the original 500.
+<Intuition>
+You are teaching someone a craft by letting them watch. They will absorb your
+technique, your shortcuts, your bad habits, and the fact that you only ever work
+in good light on a clean bench.
+
+Now imagine they watch three people with different techniques and no way to tell
+who is the expert. They will not pick the best one; they will average.
+</Intuition>
+
+## Three axes, and they are not interchangeable
+
+<Steps>
+<Step title="Coverage">
+Which states, objects, poses, lightings, and starting configurations appear.
+This is the axis that determines where the policy works at all, and it is
+directly the covariate-shift problem seen from the data side.
+</Step>
+
+<Step title="Quality">
+Operator skill and consistency. Mixed quality is not neutral — it is actively
+harmful to cloning, because the loss fits the *mean* of the demonstrated
+behaviours, and the mean of two different strategies need not be a strategy.
+</Step>
+
+<Step title="Breadth versus depth">
+The split between number of distinct tasks and demonstrations per task. This is
+where the counterintuitive result lives.
+</Step>
+</Steps>
+
+<Warning>
+Breadth beats depth for generalisation, and it is not close. BC-Z found zero-shot
+success on held-out tasks tracked the *number of distinct training tasks* far
+more than the demonstrations per task. The mechanism is economic: with a handful
+of tasks, memorising a lookup from instruction to behaviour minimises the loss
+perfectly and generalises to nothing. Only when verbs and objects recur in varied
+combinations does decomposing the instruction become the cheaper representation.
+
+The caveat is a floor. Below roughly fifty demonstrations a task usually will not
+work at all, so top up the thin tasks first and spend the remainder on breadth.
+</Warning>
+
+## Curation is a loop, not a filter
+
+<Figure src="/figures/dataset-curation-funnel.svg"
+        alt="Raw episodes pass through success, quality, and deduplication filters, shrinking from 2400 to 950. A coverage analysis of the survivors feeds back into the next collection session."
+        caption="The output of curation is a collection plan as much as a dataset. Adding more of what you already cover is the cheapest thing to collect and close to the least useful." />
+
+The filters matter, but the feedback arrow is what separates a curated dataset
+from a filtered one. After each session, ask what the surviving data is thin on
+— which objects appear five times, which lighting conditions never, which
+starting poses are absent — and target the next session at those gaps.
+
+<KeyIdea>
+Marginal value falls sharply with coverage. The five hundredth demonstration of
+a mug on a white table teaches almost nothing; the first demonstration on a
+reflective surface may fix a whole failure class. Collection is cheapest where
+you already are, which is exactly where it is least useful.
+</KeyIdea>
+
+## Failures are not garbage
+
+<Warning>
+Remove failed episodes from the *cloning* training set — maximum likelihood on a
+failure is teaching the failure. But archive them rather than deleting, because
+different consumers want different things: a value function, an offline RL
+objective, and a learned success detector all need negative examples and have no
+other source for them.
+
+Deleting is an irreversible decision made on behalf of every future use of the
+data, taken at the moment you know least about what those uses will be.
+</Warning>
+
+## The two quiet mistakes
+
+**Splitting by timestep instead of by episode.** Consecutive frames are near
+duplicates, so a random per-timestep split puts near-identical examples in both
+train and validation. Validation loss then looks excellent and means nothing —
+this is the single most common reason a policy with a beautiful loss curve fails
+on the robot.
+
+**Recording only the outcome.** The metadata you did not log — operator,
+session, lighting, object instance, hardware revision — is exactly what you will
+want when results shift inexplicably three weeks later, and it cannot be
+recovered.
+
+<WatchThis />
