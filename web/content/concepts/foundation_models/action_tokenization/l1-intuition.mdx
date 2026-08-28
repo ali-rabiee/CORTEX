@@ -1,26 +1,166 @@
 ---
 concept: action_tokenization
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Action Tokenization for Foundation Models in plain language:
-    what is it, and why does it matter?"
+  prompt: "Explain action tokenisation as a coding problem. What are you trading, and why does the naive scheme waste its budget?"
   keyPoints:
-    - Language models operate on discrete tokens, but robot actions are
-      continuous (joint angles, velocities, end-effector poses).
-    - Action tokenization bridges this gap — like converting analog signals to
-      digital.
-    - Coarse binning (few bins) loses precision but is easier to model; fine
-      binning (many bins) preserves precision but explodes the vocabulary and
-      makes prediction harder.
-check: []
-papers: []
+    - "A transformer emits discrete symbols; a robot action is continuous. Tokenising is choosing a *code* for a continuous signal — which makes it a rate-distortion problem, not a formatting problem."
+    - "You are trading bits against error: more tokens buys lower reconstruction error and costs sequence length, which is what you pay for at inference."
+    - "The naive code — bin every dimension at every timestep — spends one token per sample regardless of how predictable that sample was, and action chunks are extremely predictable because they are smooth in time."
+    - "Exploiting that structure is where the wins are: transform to a basis where energy concentrates, or quantise jointly with a learned codebook, and get the same fidelity from a quarter of the tokens."
+media:
+  - kind: article
+    title: "FAST: Efficient Action Tokenization for Vision-Language-Action Models"
+    url: https://arxiv.org/abs/2501.09747
+    source: "Pertsch, Stachowicz, Ichter, Driess, Nair, Vuong, Mees, Finn, Levine"
+    note: "The paper that treats this explicitly as a compression problem. Read it for the framing more than the method — once you see action chunks as a signal with exploitable structure, the design space opens up."
+  - kind: article
+    title: "Neural Discrete Representation Learning"
+    url: https://arxiv.org/abs/1711.00937
+    source: "van den Oord, Vinyals, Kavukcuoglu"
+    note: "VQ-VAE, the learned-codebook alternative to hand-designed binning. Section 3's straight-through estimator and commitment loss are the parts you will reimplement; the codebook-collapse failure is the part you will debug."
+  - kind: article
+    title: "Behavior Transformers: Cloning k modes with one stone"
+    url: https://arxiv.org/abs/2206.11251
+    source: "Shafiullah, Cui, Altanzaya, Pinto"
+    note: "The hybrid worth knowing: cluster actions into discrete bins for the multi-modality, then regress a continuous residual for the precision. It is the cleanest statement of why you might not want to choose."
+check:
+  - id: at_l1_c1
+    prompt: "What are you actually trading when you design an action tokeniser?"
+    options:
+      - "Model size against training time"
+      - "Bits against distortion — more tokens means lower reconstruction error and a longer sequence, and sequence length is what you pay for in inference latency"
+      - "Discrete against continuous representations"
+      - "Accuracy against multi-modality"
+    answer: 1
+    explanation: "Framing it as rate-distortion is what makes the design space navigable rather than a list of tricks. Every scheme sits somewhere on a curve of reconstruction error against token count, and the reason token count matters is that autoregressive decoding costs one forward pass per token — so a code that halves the sequence halves your inference latency. That framing also tells you where to look for improvements: any structure in the signal that a code fails to exploit is budget being spent on redundancy."
+  - id: at_l1_c2
+    prompt: "Why is binning each action dimension at each timestep a wasteful code?"
+    options:
+      - "Because 256 bins is too coarse"
+      - "Because action chunks are smooth in time, so consecutive samples are highly correlated and largely predictable from each other — yet the code spends a full token on each one as though it carried independent information"
+      - "Because the dimensions are correlated"
+      - "Because uniform bins are suboptimal for non-uniform distributions"
+    answer: 1
+    explanation: "A good code spends bits in proportion to information content, and a smooth trajectory has far less information than its sample count suggests — knowing the first few samples largely determines the rest. Per-sample binning ignores that entirely. Options 3 and 4 name real inefficiencies too, and they are second-order: cross-dimension correlation is what vector quantisation exploits and bin placement is what quantile binning fixes, but temporal redundancy is the largest single waste."
+  - id: at_l1_c3
+    prompt: "Empirically, roughly how much of a smooth 16-step action chunk's energy sits in its first four frequency-domain coefficients?"
+    options:
+      - "About 25%, proportional to the fraction of coefficients kept"
+      - "Around 99% — because the signal is dominated by low-frequency motion, so a quarter of the coefficients reconstructs it almost exactly"
+      - "About 50%"
+      - "It depends entirely on the task and cannot be characterised"
+    answer: 1
+    explanation: "This is the same energy-compaction property that makes image and audio codecs work, applied to trajectories. Robot motion is band-limited — actuators cannot produce arbitrarily high frequencies and demonstrators do not command them — so the spectrum decays fast. Option 1 is what you would expect if the coefficients were equally important, which is exactly the assumption per-sample binning implicitly makes. The task dependence in option 4 is real at the margin but does not overturn the effect."
 ---
 
-## Intuition
+## A coding problem in disguise
 
-Language models operate on discrete tokens, but robot actions are continuous (joint angles, velocities, end-effector poses). Action tokenization bridges this gap — like converting analog signals to digital. Coarse binning (few bins) loses precision but is easier to model; fine binning (many bins) preserves precision but explodes the vocabulary and makes prediction harder. VQ-VAE codebooks learn a smarter discretization that captures the structure of the action space, putting more bins where actions are dense and fewer where they're sparse.
+A transformer emits symbols from a finite vocabulary. A robot action is a vector
+of real numbers. Something has to bridge that, and the bridge is a **code**.
 
-## In practice
+Once you say it that way, the whole design space becomes familiar: you are
+choosing how to represent a continuous signal with a finite alphabet, trading
+**bits against distortion**. That is the same problem as designing an image or
+audio codec, and the same tools apply.
 
-RT-2 tokenization: 7-DOF action (3 translation + 3 rotation + 1 gripper) $\rightarrow$ each dimension uniformly binned into 256 levels $\rightarrow$ 7 action tokens appended to the language model vocabulary. The model generates text tokens for reasoning, then switches to generating action tokens: 'pick up the red cup' $\rightarrow$ reasoning tokens $\rightarrow$ [a_x: 128, a_y: 64, a_z: 200, ...]. Alternative: Octo uses continuous action heads (diffusion/flow) instead of tokenization, avoiding discretization loss entirely. LAPA (Latent Action Pre-training) uses VQ-VAE to learn a compact action codebook from video, then fine-tunes on robot data — the learned codebook captures semantically meaningful action primitives.
+<KeyIdea>
+The currency is sequence length. Autoregressive decoding costs one forward pass
+through the backbone per token, so a code that halves the token count halves your
+inference latency. Reconstruction error is what you buy with those tokens. Every
+tokenisation scheme is a point on that curve.
+</KeyIdea>
+
+<Intuition>
+Storing a photograph by writing down every pixel value works and nobody does it,
+because photographs have structure — neighbouring pixels are similar, and most of
+the visual energy is in low spatial frequencies. A codec spends its bits where
+the information actually is.
+
+An action chunk is a photograph of a motion. It has exactly the same kind of
+structure, and the obvious code ignores all of it.
+</Intuition>
+
+## Where the naive code wastes its budget
+
+<Figure src="/figures/action-tokenization-rate.svg"
+        alt="A smooth action signal over 16 timesteps. On the right, two codes: sixteen tokens from binning every sample, versus four tokens from binning the first four frequency coefficients with the rest discarded."
+        caption="Per-sample binning spends one token on each sample however predictable that sample was. Transforming first concentrates the energy, and four coefficients reconstruct the chunk to about 99% of its energy." />
+
+Robot motion is smooth. Actuators cannot produce arbitrarily high frequencies and
+demonstrators do not command them, so a trajectory is band-limited — and a
+band-limited signal carries far less information than its sample count suggests.
+
+Measured on typical smooth chunks, the first four of sixteen frequency-domain
+coefficients carry around 99% of the energy. So a 16-step, 7-DoF chunk that costs
+112 tokens under per-sample binning costs 28 in a frequency basis, at essentially
+the same fidelity.
+
+<Steps>
+<Step title="Temporal redundancy — the biggest waste">
+Consecutive samples are highly correlated. Any code that treats them as
+independent is paying full price for information it already has.
+</Step>
+
+<Step title="Cross-dimension correlation — the second waste">
+Joint angles move together during a coordinated motion. Quantising each dimension
+independently cannot exploit that; a joint code over the whole action vector can.
+</Step>
+
+<Step title="Bin placement — the smallest but easiest to fix">
+Uniform bins over the observed range waste resolution on the tails. Quantile
+binning puts the bins where the data is, which is nearly free.
+</Step>
+</Steps>
+
+## The design space
+
+<Steps>
+<Step title="Scalar quantisation">
+Bin each dimension independently. Simple, no training, and the only structure it
+exploits is the marginal distribution per dimension. This is what RT-2 and
+OpenVLA do, and it is a perfectly reasonable default.
+</Step>
+
+<Step title="Transform coding">
+Move to a basis where energy concentrates — a discrete cosine transform over the
+time axis — keep the significant coefficients, and quantise those. Exploits
+temporal smoothness explicitly, needs no training, and is the FAST approach.
+</Step>
+
+<Step title="Vector quantisation">
+Learn a codebook of action-chunk prototypes and emit codebook indices. Exploits
+whatever structure the data actually has, including correlations you did not
+anticipate, at the cost of a training procedure with its own failure mode.
+</Step>
+
+<Step title="Do not tokenise at all">
+Attach a continuous generative head — diffusion or flow matching — and skip the
+code entirely. No quantisation floor, and you give up the property that made
+tokenisation attractive: that actions are indistinguishable from language to the
+rest of the model.
+</Step>
+</Steps>
+
+## What discretisation buys beyond compatibility
+
+<KeyIdea>
+There is a reason to discretise that has nothing to do with fitting a
+transformer's interface. A categorical distribution over bins can put probability
+on two separated actions with nothing between them, which an MSE regression
+structurally cannot — its minimiser is the conditional mean. So tokenising gets
+you multi-modality for free, by exactly the same route diffusion policies get it,
+and that is a substantive benefit rather than a workaround.
+</KeyIdea>
+
+<Warning>
+The cost is a resolution floor, and it is worth computing rather than debating.
+At 256 uniform bins over a $\pm 5$ cm end-effector delta, the worst-case error is
+about 0.2 mm — irrelevant for picking up a mug and comparable to the clearance in
+a tight connector insertion. So discretisation is not a general weakness; it is a
+floor that binds only on precision tasks, and that is the question to ask before
+reaching for a continuous head.
+</Warning>
+
+<WatchThis />

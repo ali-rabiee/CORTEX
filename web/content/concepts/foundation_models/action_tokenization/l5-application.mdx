@@ -1,25 +1,172 @@
 ---
 concept: action_tokenization
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Action Tokenization for Foundation Models fail in practice, and
-    how would you present it in an interview?
+  prompt: "Give your interview answer on action tokenisation. What framing do you lead with, and how do you decide between schemes?"
   keyPoints:
-    - "Discretization error: with $B = 256$ bins over a range of $[-1, 1]$,
-      resolution is $\\sim 0.008$ per bin."
-    - For high-precision tasks (peg insertion with 0.5mm tolerance over 50cm
-      range), this gives $\sim 0.4$mm precision — marginal.
-    - "Bin boundary effects: actions near bin edges oscillate between adjacent
-      bins across timesteps, causing jittery motion."
-check: []
-papers: []
+    - "Lead with rate-distortion: you are choosing a code for a continuous signal, trading bits against error, and the currency is sequence length because decoding costs one forward pass per token."
+    - "Name the wasted structure: chunks are smooth, so per-sample binning pays full price for information it already has — roughly 99% of a 16-step chunk's energy is in its first four DCT coefficients."
+    - "Decide with two numbers: the quantisation floor against your precision requirement (~0.2 mm at 256 bins over 10 cm), and $Hd$ decode steps against your latency budget."
+    - "Say that discretisation buys multi-modality — a categorical can place mass on separated actions where an MSE minimiser cannot — so it is a benefit, not a workaround."
+interview:
+  answer: >-
+    The framing I'd lead with is that this is a coding problem. A transformer
+    emits discrete symbols and a robot action is a vector of reals, so you're
+    choosing a code for a continuous signal — which makes it rate-distortion,
+    trading bits against reconstruction error. And the currency is specific:
+    autoregressive decoding costs one backbone forward pass per token, so
+    sequence length is what you actually pay, and reconstruction error is what
+    you buy with it. Once you see it that way the design space is navigable
+    rather than a list of tricks. The naive code is to bin each dimension at
+    each timestep — RT-1 and OpenVLA do this, 256 bins per dimension — and it
+    works, but it's wasteful in a specific way. Action chunks are smooth,
+    because actuators are band-limited and demonstrators don't command high
+    frequencies, so consecutive samples are highly correlated and largely
+    predictable from each other. Per-sample binning spends a full token on each
+    one as though it carried independent information. If you measure it, the
+    first four of sixteen DCT coefficients carry about 99 percent of a typical
+    chunk's energy — so a 16-step 7-DoF chunk that costs 112 tokens costs 28 in
+    a frequency basis at essentially the same fidelity. That's a four-times
+    reduction in decode steps, which is the FAST idea. The other direction is
+    vector quantisation: learn a codebook of chunk prototypes, which exploits
+    whatever structure the data actually has rather than the structure you
+    assumed. That has two separate advantages over scalar quantisation worth
+    keeping apart — the memory advantage from exploiting correlation between
+    components, which is large for robot actions since joints move together,
+    and the space-filling advantage which is purely geometric and exists even
+    for independent components. The cost is codebook collapse, which is
+    self-reinforcing because an unused codeword gets no gradient, and it
+    presents only as a plateaued reconstruction error with every loss curve
+    looking healthy. And I'd want to say that discretising isn't purely a
+    concession to the transformer's interface. A categorical distribution over
+    bins can put mass on two separated actions with nothing in between, which
+    an MSE regression structurally can't because its minimiser is the
+    conditional mean. So tokenising buys the same multi-modality that diffusion
+    policies buy, by a completely different route.
+  followUps:
+    - q: "How would you actually choose a scheme for a new project?"
+      a: >-
+        With two numbers and a curve, before training any policy. The first
+        number is the quantisation floor against my precision requirement: 256
+        uniform bins over a plus-or-minus five centimetre delta gives a worst
+        case around 0.2 millimetres, which is irrelevant for picking up a mug
+        and comparable to the clearance in a tight connector insertion. The
+        second is decode steps against my latency budget — H times d sequential
+        passes through the backbone, so 16 by 7 is 112, and if that doesn't fit
+        the period then no amount of tuning the model will help. Then I'd plot
+        reconstruction error against token count on held-out chunks for the
+        candidate codes, which costs almost nothing since no policy is involved.
+        If both numbers say the simple code is fine, I'd use the simple code and
+        say so — that's a defensible answer, not a lazy one.
+    - q: "What would you check beyond mean reconstruction error?"
+      a: >-
+        Error at discontinuities, because means hide localised failures.
+        Truncating high-frequency coefficients is exactly the operation that
+        smooths a step, so a transform code can reconstruct 99 percent of the
+        energy while turning a crisp gripper close into a ramp — and the mean
+        barely moves, because the discontinuity occupies a handful of samples
+        out of sixteen. So I'd stratify the reconstruction error by whether the
+        chunk contains a contact or gripper event; that column is where the
+        codes actually differ. And the check I'd run first is a round trip:
+        encode and decode a whole demonstration and physically replay the
+        reconstruction. If the task fails on the decoded demonstration, that's
+        an upper bound on the entire pipeline — a policy can't outperform the
+        reconstruction of its own training targets.
+    - q: "Why does VQ beat scalar quantisation? Be precise."
+      a: >-
+        Two separate reasons that respond to different things. The memory
+        advantage is that scalar quantisation treats components independently,
+        so its cells are axis-aligned hypercubes, and if the components are
+        correlated most of those cells contain almost no probability mass —
+        you're spending resolution on empty space. VQ puts codewords where the
+        data is. That's large for robot actions, since joints move together
+        during a coordinated motion and successive timesteps are near
+        duplicates. The space-filling advantage is purely geometric: even for
+        independent components, hypercubes aren't the most efficient
+        tessellation for minimising mean squared error at a fixed cell count,
+        and the gap grows with dimension. Keeping them apart matters because
+        one says "use VQ when your components are correlated" and the other says
+        "use VQ in high dimensions", and action chunks are both.
+    - q: "Is the discrete route going to survive, given flow-matching heads?"
+      a: >-
+        I'd say it depends on the requirement rather than on which is better,
+        and I'd be sceptical of anyone claiming it's settled. Staying discrete
+        keeps three things: the pretrained embedding table and output head
+        transfer untouched, since RT-2's trick of overwriting unused vocabulary
+        slots means actions are indistinguishable from language to the model;
+        multi-modality comes free from the softmax; and the tooling is simpler.
+        Going continuous removes the resolution floor and the sequential decode
+        entirely, at the cost of a separate head with its own training dynamics
+        and its own way of representing modes. FAST is the interesting
+        development because it shows the decode-length objection to the discrete
+        route was addressable rather than fundamental — so the remaining
+        argument is really about precision, which is a task property and not a
+        general one.
+  traps:
+    - "Presenting tokenisation as a formatting concession to the transformer. It is a code, the trade is rate against distortion, and discretisation buys multi-modality as a genuine benefit."
+    - "Asserting the quantisation error is a problem without computing it. About 0.2 mm at 256 bins over a 10 cm range settles the question for most tasks."
+    - "Treating scalar and vector quantisation as differing only in sophistication. The memory and space-filling advantages are separate and respond to different properties of the data."
+    - "Choosing a code by policy success rate. Reconstruction error against token count on held-out chunks answers the question far more cheaply and without confounding."
+check:
+  - id: at_l5_c1
+    prompt: "Your VLA is too slow and someone proposes a smaller backbone. What is the tokenisation-side alternative and why might it be better?"
+    options:
+      - "Reduce the number of bins per dimension"
+      - "Shorten the code — transform-coding the chunk so it costs a quarter of the tokens — because latency is dominated by $H \\times d$ sequential decode steps, and this reduces the multiplier without touching model capacity"
+      - "Increase the chunk length"
+      - "Use a larger vocabulary"
+    answer: 1
+    explanation: "Latency is roughly prefill plus $Hd$ times the per-token decode cost, and with $H = 16$, $d = 7$ that is 112 backbone passes against one prefill — so the decode term dominates by a large factor. Shrinking the backbone reduces the per-pass cost while leaving the multiplier alone, and it costs capacity. Compressing the code attacks the multiplier directly and costs only reconstruction error, which you can measure in advance. Option 1 reduces bits per token but not the token count, so it barely helps latency."
+  - id: at_l5_c2
+    prompt: "A colleague reports their learned VQ tokeniser reconstructs held-out chunks better than DCT truncation, and proposes switching. What do you ask?"
+    options:
+      - "How long it took to train"
+      - "Whether the comparison was at equal token counts, and what the error looks like at contact and gripper events — a code can win on mean error while blurring the discontinuities the task depends on"
+      - "Whether the codebook is large enough"
+      - "Which optimiser they used"
+    answer: 1
+    explanation: "Two things make the comparison meaningful. Equal token budget, because the whole point is the rate-distortion trade and a code with more tokens should reconstruct better — comparing at different rates says nothing. And error stratified by discontinuity, because mean error over a chunk averages away exactly the localised failures that determine whether a gripper closes crisply. Both are cheap to check and either can reverse the conclusion."
 ---
 
-## Failure modes
+## Reading the situation
 
-Discretization error: with $B = 256$ bins over a range of $[-1, 1]$, resolution is $\sim 0.008$ per bin. For high-precision tasks (peg insertion with 0.5mm tolerance over 50cm range), this gives $\sim 0.4$mm precision — marginal. Bin boundary effects: actions near bin edges oscillate between adjacent bins across timesteps, causing jittery motion. Vocabulary explosion: $B$ bins $\times$ $d$ dimensions = $B^d$ possible action combinations for joint prediction, making modeling harder. Symptoms: jittery robot motion, inability to achieve sub-millimeter precision, mode collapse in action prediction. Fix: increase bin count for precision-critical dimensions, use residual action prediction (coarse bin + continuous offset), switch to continuous action heads for precision tasks, use action chunking to amortize discretization noise over time.
+<Steps>
+<Step title="Policy too slow → count decode steps before shrinking the model">
+$H \times d$ sequential passes dominates. Compressing the code attacks the
+multiplier; a smaller backbone attacks the per-pass cost and costs capacity.
+</Step>
 
-## Interview-ready answer
+<Step title="Precise task failing at the last millimetre → check the floor">
+Compute $\rho/2B$. If it is comparable to the task's tolerance, the code is the
+ceiling and no policy improvement passes it.
+</Step>
 
-Action tokenization is the key design choice that enables language model architectures to generate robot actions. The trade-off is precision vs. modeling simplicity. RT-2's approach — 256 bins per dimension — is simple and works for most manipulation tasks, but hits precision limits for fine assembly. The alternative: continuous action heads (diffusion in Octo, flow matching in $\pi_0$) avoid discretization entirely but lose the elegance of unified token prediction. VQ-VAE codebooks offer a middle ground — learned discretization that adapts to the action distribution. In practice, I choose based on the task: tokenization for high-level manipulation where 1mm precision suffices, continuous heads for precision assembly or contact-rich tasks. The trend is moving toward continuous action heads as they scale better and avoid discretization artifacts.
+<Step title="Actions clipped or coarse → the quantile range">
+Histogram the emitted tokens. Mass at the extremes means the range is too narrow;
+mass in the centre means it is too wide and resolution is wasted.
+</Step>
+
+<Step title="VQ reconstruction plateaus with healthy losses → codebook collapse">
+Log utilisation. Self-reinforcing, invisible in the loss curves, and fixed by EMA
+updates and dead-code restarts rather than by the optimiser.
+</Step>
+
+<Step title="Smooth motion fine, gripper transitions mushy → smoothness prior">
+A transform code truncating high frequencies blurs steps. Stratify reconstruction
+error by contact and gripper events before blaming the policy.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The framing is what carries this answer. Most candidates describe tokenisation as
+a formatting step — how you make a continuous thing fit a discrete interface.
+Saying instead that it is a code, with a rate-distortion trade whose currency is
+sequence length, immediately explains why the naive scheme is wasteful, why
+transform coding helps, what vector quantisation is exploiting, and how you would
+choose between them without training a policy. It also lets you make the
+non-obvious point that discretisation buys multi-modality, which turns an
+apparent compromise into a genuine design advantage.
+</Warning>

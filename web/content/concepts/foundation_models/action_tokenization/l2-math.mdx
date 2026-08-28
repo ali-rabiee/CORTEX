@@ -1,27 +1,244 @@
 ---
 concept: action_tokenization
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Action Tokenization for Foundation
-    Models, including the key equations.
+  prompt: "Set up action tokenisation as rate-distortion. Derive the quantisation error, the DCT energy-compaction argument, and why vector quantisation beats scalar."
   keyPoints:
-    - Converting continuous robot actions $a \in \mathbb{R}^d$ into discrete
-      token sequences for processing by language model architectures.
-    - "Methods: (1) Uniform binning: divide each action dimension into $B$ bins,
-      map continuous value to bin index: $\\text{tok}(a_i) = \\lfloor (a_i -
-      a_{\\min}) / (a_{\\max} - a_{\\min}) \\cdot B \\rfloor$. (2) VQ-VAE
-      codebook: learn a codebook $\\{e_k\\}_{k=1}^K$ and encoder
-      $f_\\text{enc}$, tokenize as $\\text{tok}(a) = \\arg\\min_k
-      \\|f_\\text{enc}(a) - e_k\\|$. (3) Action chunking + tokenization: encode
-      a sequence of $H$ actions as a single token or short token sequence via a
-      temporal encoder."
-    - RT-2 uses per-dimension uniform binning with 256 bins per dimension,
-      representing a 7-DOF action as 7 tokens in the language model vocabulary.
-check: []
-papers: []
+    - "Rate $R = H d \\log_2 B$ bits for per-sample binning; distortion for a uniform quantiser of width $w$ is $\\mathbb{E}[e^2] = w^2/12$. The design problem is minimising rate at fixed distortion."
+    - "An orthonormal transform preserves total energy (Parseval) but redistributes it. For band-limited signals it concentrates into few coefficients, so discarding the rest costs distortion equal to the discarded energy."
+    - "Vector quantisation beats scalar for two separable reasons: the *space-filling* advantage (better cell shapes) and the *memory* advantage (exploiting correlation between components)."
+    - "VQ's failure mode is codebook collapse — unused entries receive no gradient and stay unused. EMA updates, a commitment loss, and dead-code restarts are the standard remedies."
+check:
+  - id: at_l2_c1
+    prompt: "A uniform quantiser has bin width $w$. What is the mean squared error, assuming the value is uniform within its bin?"
+    options:
+      - "$w^2/4$"
+      - "$w^2/12$ — the variance of a uniform distribution on an interval of width $w$, which is why halving the bin width quarters the distortion"
+      - "$w/2$"
+      - "$w^2/2$"
+    answer: 1
+    explanation: "The error is uniform on $[-w/2, w/2]$, whose variance is $w^2/12$. The consequence worth carrying is the exponent: distortion falls as $w^2$, and $w$ halves with each extra bit, so distortion falls by 6 dB per bit — the standard result. It also tells you the exchange rate for the rate-distortion trade: each bit per sample you spend buys a factor of four in mean squared error, and each bit costs sequence length if the bits are tokens. $w^2/4$ is the worst case rather than the mean, which is the tempting confusion."
+  - id: at_l2_c2
+    prompt: "You take an orthonormal DCT of an action chunk and keep only the largest $k$ coefficients. What is the reconstruction error?"
+    options:
+      - "It cannot be computed without reconstructing"
+      - "Exactly the energy of the discarded coefficients — Parseval says an orthonormal transform preserves total energy, so the squared error in the time domain equals the squared error in the transform domain"
+      - "Proportional to $k$"
+      - "Zero, since the DCT is invertible"
+    answer: 1
+    explanation: "Orthonormality is doing the work: $\\|x - \\hat x\\|^2 = \\|C - \\hat C\\|^2$, so you can compute the time-domain error entirely in the transform domain without reconstructing anything. That is what makes coefficient selection a well-posed optimisation — keep the largest, and you have provably minimised the error for that budget. It is also what lets you set $k$ from a target error rather than by trial: pick the smallest $k$ whose discarded energy is under your tolerance."
+  - id: at_l2_c3
+    prompt: "Why does vector quantisation achieve lower distortion than scalar quantisation at the same rate, even for *independent* components?"
+    options:
+      - "It does not; the advantage requires correlation"
+      - "The space-filling advantage: scalar quantisation tiles the space with hypercubes, which are not the most efficient cell shape, and VQ can use better-shaped cells — a gain that exists even with independent components, separate from the memory advantage that comes from correlation"
+      - "Because codebooks are learned rather than fixed"
+      - "Because VQ uses fewer bits per component"
+    answer: 1
+    explanation: "The two advantages are genuinely separate and worth keeping apart. The memory advantage exploits statistical dependence between components — real and large for robot actions, where joints move together. The space-filling advantage is purely geometric: in high dimensions, hypercubes are a poor tessellation and better-shaped cells reduce the mean squared error for the same number of cells. That is why VQ helps even in the independent case, though for actions the memory advantage is the larger term."
 ---
 
-## Formal definition
+## The problem, stated as rate-distortion
 
-Converting continuous robot actions $a \in \mathbb{R}^d$ into discrete token sequences for processing by language model architectures. Methods: (1) Uniform binning: divide each action dimension into $B$ bins, map continuous value to bin index: $\text{tok}(a_i) = \lfloor (a_i - a_{\min}) / (a_{\max} - a_{\min}) \cdot B \rfloor$. (2) VQ-VAE codebook: learn a codebook $\{e_k\}_{k=1}^K$ and encoder $f_\text{enc}$, tokenize as $\text{tok}(a) = \arg\min_k \|f_\text{enc}(a) - e_k\|$. (3) Action chunking + tokenization: encode a sequence of $H$ actions as a single token or short token sequence via a temporal encoder. RT-2 uses per-dimension uniform binning with 256 bins per dimension, representing a 7-DOF action as 7 tokens in the language model vocabulary.
+Given an action chunk $a \in \mathbb{R}^{H \times d}$, choose an encoder
+$Q: \mathbb{R}^{H\times d} \to \{1,\ldots,V\}^{L}$ producing $L$ tokens from a
+vocabulary of size $V$, and a decoder $Q^{-1}$. Two quantities:
+
+$$
+\underbrace{R = L\log_2 V \ \text{bits}}_{\text{rate}}
+\qquad\qquad
+\underbrace{D = \mathbb{E}\big\|a - Q^{-1}(Q(a))\big\|^2}_{\text{distortion}}
+$$
+
+Minimise $R$ at a tolerable $D$. What makes this a real engineering problem
+rather than an abstract one is that $L$, not $R$, is what you pay: autoregressive
+decoding costs one backbone forward pass per token.
+
+## Scalar quantisation
+
+<Derivation title="The $w^2/12$ law, and the 6 dB per bit rule">
+
+Bin a scalar uniformly with width $w$ and decode to the bin centre. If the value
+is uniform within its bin, the error $e$ is uniform on $[-w/2, w/2]$:
+
+$$
+\mathbb{E}[e] = 0,
+\qquad
+\mathbb{E}[e^2] = \frac{1}{w}\int_{-w/2}^{w/2} e^2\,\mathrm{d}e = \frac{w^2}{12}
+$$
+
+With range $\rho$ and $B$ bins, $w = \rho/B$, so
+
+$$
+D_{\text{scalar}} = \frac{\rho^2}{12 B^2}
+$$
+
+**The exponent is the useful part.** Each additional bit halves $w$ and therefore
+quarters $D$ — the standard 6 dB per bit. So the exchange rate is fixed: one more
+bit per sample buys a factor of four in mean squared error and costs you rate.
+
+**Numbers.** $\rho = 0.10$ m, $B = 256$: RMS error
+$\rho/(B\sqrt{12}) \approx 1.1 \times 10^{-4}$ m, worst case $\rho/2B \approx 0.2$ mm.
+
+**Rate for a whole chunk.** $L = Hd$ tokens, so
+$R = Hd\log_2 B$. At $H=16$, $d=7$, $B=256$: 112 tokens, 896 bits.
+
+**The assumption doing the work** is that the value is uniform within its bin,
+which requires the bins to be placed where the data is. Uniform bins over a
+heavy-tailed action distribution violate it badly — most mass lands in a few
+central bins and the effective $B$ is far smaller than the nominal one. Quantile
+binning restores it approximately, and is nearly free.
+
+</Derivation>
+
+## Transform coding
+
+<Derivation title="Why an orthonormal transform lets you discard coefficients safely">
+
+Let $T$ be orthonormal ($T^\top T = I$) applied along the time axis, giving
+coefficients $C = Ta$. **Parseval's theorem** says energy is preserved:
+
+$$
+\|a\|^2 = \|C\|^2
+$$
+
+More useful, the same holds for the *error*. If $\hat C$ keeps some coefficients
+and zeroes others, and $\hat a = T^\top \hat C$:
+
+$$
+\|a - \hat a\|^2 = \|T^\top(C - \hat C)\|^2 = \|C - \hat C\|^2
+$$
+
+**So the time-domain reconstruction error equals the discarded energy**, computed
+without reconstructing anything. Two consequences.
+
+First, coefficient selection becomes a solved optimisation: keeping the $k$
+largest-magnitude coefficients provably minimises the error for that budget.
+
+Second, $k$ can be set from a *target error* rather than by trial — take the
+smallest $k$ whose discarded energy falls under your tolerance.
+
+**Why the DCT specifically.** Robot motion is band-limited: actuators have finite
+bandwidth and demonstrators do not command high frequencies. Measured on typical
+smooth 16-step chunks, the top 4 of 16 DCT coefficients carry about 99% of the
+energy, and the top 2 about 91%. So
+
+$$
+L: \ 112 \longrightarrow 28 \text{ tokens},
+\qquad
+R: \ 896 \longrightarrow 224 \text{ bits}
+$$
+
+at essentially unchanged distortion — a 4x reduction in decode steps.
+
+**The assumption is smoothness.** A chunk containing a genuine discontinuity — a
+contact event, a gripper snap — has energy spread across the spectrum, and
+truncation blurs exactly the transition that mattered. That is the failure mode
+to watch for, and it is task-dependent rather than universal.
+
+</Derivation>
+
+## Vector quantisation
+
+Rather than binning each component, learn a codebook
+$\mathcal{E} = \{e_1,\ldots,e_K\} \subset \mathbb{R}^{m}$ and encode by
+nearest neighbour:
+
+$$
+z_q = e_{k^*},
+\qquad
+k^* = \arg\min_k \|z_e - e_k\|_2
+$$
+
+where $z_e$ is an encoder output over a whole chunk (or a segment of one).
+
+<Derivation title="The two separate reasons VQ beats scalar quantisation">
+
+**The memory advantage.** Scalar quantisation treats components independently, so
+its cells are hypercubes aligned to the axes. If the components are correlated,
+most of those cells contain almost no probability mass — the data lies near a
+lower-dimensional manifold and the code is spending resolution on empty space.
+VQ places codewords where the data is, so this advantage grows with the strength
+of the dependence. For robot actions it is large: joints move together during a
+coordinated motion, and successive timesteps are near-duplicates.
+
+**The space-filling advantage.** Even with *independent* components, hypercubes
+are not the most efficient way to tile $\mathbb{R}^m$ for minimising mean squared
+error at a fixed cell count — better-shaped cells do better, and the gap grows
+with dimension. This is purely geometric and exists regardless of the
+distribution.
+
+**Keeping them apart matters** because they respond to different things. The
+memory advantage says "use VQ when your components are correlated"; the
+space-filling advantage says "use VQ in high dimensions". Robot action chunks
+are both, which is why the gains are substantial.
+
+</Derivation>
+
+## Training a codebook, and its failure mode
+
+The encoder-quantiser-decoder is trained with three terms:
+
+$$
+\mathcal{L} = \underbrace{\|a - D(z_q)\|^2}_{\text{reconstruction}}
++ \underbrace{\|\operatorname{sg}[z_e] - e\|^2}_{\text{codebook}}
++ \beta \underbrace{\|z_e - \operatorname{sg}[e]\|^2}_{\text{commitment}}
+$$
+
+with $\operatorname{sg}$ the stop-gradient. The quantisation step is not
+differentiable, so gradients are passed to the encoder by the **straight-through
+estimator**: copy $\partial\mathcal{L}/\partial z_q$ directly to $z_e$.
+
+<Warning>
+**Codebook collapse** is the characteristic failure and it is self-reinforcing. A
+codeword that is never the nearest neighbour receives no gradient from the
+codebook term, so it never moves toward the data, so it stays unused. Runs
+routinely end with a small fraction of a large codebook active — and the symptom
+is a reconstruction error that plateaus well above what the nominal codebook size
+should achieve, with no other sign of trouble.
+
+Three standard remedies. **EMA updates** move codewords toward the running mean
+of their assigned encodings rather than by gradient, which is more stable.
+**Dead-code restarts** reinitialise unused entries to randomly chosen encoder
+outputs, putting them back where data is. And the **commitment loss** $\beta$
+keeps encoder outputs from drifting away from the codebook faster than it can
+follow. Always log codebook utilisation; it is the diagnostic that makes this
+visible.
+</Warning>
+
+## Where the schemes sit
+
+<Steps>
+<Step title="Scalar quantile binning">
+Rate $Hd\log_2 B$. Exploits only the marginal distribution per dimension. No
+training, no failure modes, and a perfectly reasonable default.
+</Step>
+
+<Step title="DCT truncation plus scalar binning">
+Rate $kd\log_2 B$ with $k \ll H$. Exploits temporal smoothness, needs no
+training, and has an error you can compute in the transform domain before
+committing to $k$.
+</Step>
+
+<Step title="Vector quantisation">
+Rate $L\log_2 K$ with $L$ typically small. Exploits whatever structure the data
+has, including dependencies you did not anticipate — at the cost of a training
+procedure whose failure mode is quiet.
+</Step>
+
+<Step title="Continuous head">
+Rate is not defined; there is no code. Distortion is limited by the data rather
+than the representation, and multi-modality has to be supplied by the head's own
+machinery rather than falling out of a categorical distribution.
+</Step>
+</Steps>
+
+<KeyIdea>
+The reason to prefer a discrete code, beyond interface compatibility, is that a
+categorical distribution over bins represents multi-modality — mass on two
+separated actions with nothing between them — which an MSE regression cannot,
+since its minimiser is the conditional mean. Tokenising therefore buys the same
+property diffusion policies buy, by an entirely different route, and that is a
+substantive argument rather than a workaround for the transformer's interface.
+</KeyIdea>

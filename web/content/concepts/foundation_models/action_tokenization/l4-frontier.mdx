@@ -1,0 +1,207 @@
+---
+concept: action_tokenization
+level: 4
+status: final
+recall:
+  prompt: "Trace action tokenisation as a borrowed idea from generative modelling and codecs. What did each import buy?"
+  keyPoints:
+    - "VQ-VAE (2017) supplied the learned-codebook machinery — straight-through gradients, commitment loss — that every discrete action representation since reuses."
+    - "RT-1 and RT-2 (2022-23) used the simplest possible code, per-dimension binning into unused vocabulary slots, and established that it works."
+    - "Behavior Transformer (2022) is the hybrid: cluster for the multi-modality, regress a residual for the precision — the argument that you need not choose."
+    - "FAST (2025) imports transform coding explicitly, treating chunks as signals to compress, while $\\pi_0$ takes the opposite route and removes the code entirely with a flow-matching head."
+papers:
+  - key: oord2017vqvae
+    title: "Neural Discrete Representation Learning"
+    authors: "Aaron van den Oord, Oriol Vinyals, Koray Kavukcuoglu"
+    venue: NeurIPS
+    year: 2017
+    arxiv: "1711.00937"
+    takeaway: "Learns a discrete codebook end-to-end with a straight-through estimator and a commitment loss — the machinery every learned action tokeniser reuses, along with the codebook-collapse failure mode."
+  - key: zeghidour2021soundstream
+    title: "SoundStream: An End-to-End Neural Audio Codec"
+    authors: "Neil Zeghidour, Alejandro Luebs, Ahmed Omran, Jan Skoglund, Marco Tagliasacchi"
+    year: 2021
+    arxiv: "2107.03312"
+    takeaway: "Residual vector quantisation for a continuous time-series: successive codebooks encode what the previous stage missed, giving a scalable rate-distortion trade — the closest existing analogue to what an action codec needs."
+  - key: brohan2022rt1
+    title: "RT-1: Robotics Transformer for Real-World Control at Scale"
+    authors: "Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen Chebotar, Joseph Dabis, Chelsea Finn, Karol Hausman, et al."
+    venue: RSS
+    year: 2023
+    arxiv: "2212.06817"
+    takeaway: "Discretises each action dimension into 256 uniform bins and predicts them as tokens — establishing that the simplest possible code is adequate for real manipulation at scale."
+  - key: shafiullah2022bet
+    title: "Behavior Transformers: Cloning k modes with one stone"
+    authors: "Nur Muhammad Mahi Shafiullah, Zichen Jeff Cui, Ariuntuya Altanzaya, Lerrel Pinto"
+    venue: NeurIPS
+    year: 2022
+    arxiv: "2206.11251"
+    takeaway: "Splits the action into a discrete cluster index plus a continuous residual offset, so the categorical part carries multi-modality and the regression part carries precision — you need not choose between them."
+  - key: brohan2023rt2
+    title: "RT-2: Vision-Language-Action Models Transfer Web Knowledge to Robotic Control"
+    authors: "Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen Chebotar, Xi Chen, Krzysztof Choromanski, et al."
+    venue: CoRL
+    year: 2023
+    arxiv: "2307.15818"
+    takeaway: "Places action bins in the least-used slots of an existing language vocabulary, so the pretrained embedding table and output head transfer untouched — the detail that makes borrowing a VLM cheap."
+  - key: pertsch2025fast
+    title: "FAST: Efficient Action Tokenization for Vision-Language-Action Models"
+    authors: "Karl Pertsch, Kyle Stachowicz, Brian Ichter, Danny Driess, Suraj Nair, Quan Vuong, Oier Mees, Chelsea Finn, Sergey Levine"
+    year: 2025
+    arxiv: "2501.09747"
+    takeaway: "Treats action chunks as signals to be compressed — transform coding before quantisation — so a chunk costs far fewer tokens at the same fidelity, attacking the decode-length cost directly."
+  - key: black2024pi0
+    title: "π₀: A Vision-Language-Action Flow Model for General Robot Control"
+    authors: "Kevin Black, Noah Brown, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, et al."
+    venue: RSS
+    year: 2025
+    arxiv: "2410.24164"
+    takeaway: "Removes the code entirely: a flow-matching action expert emits continuous chunks, so there is no quantisation floor and no decode-length penalty — the other end of the design space."
+check:
+  - id: at_l4_c1
+    prompt: "RT-2 places action bins in the least-used slots of the language vocabulary rather than extending the vocabulary. Why does that detail matter?"
+    options:
+      - "It saves memory"
+      - "Because the pretrained embedding table and output head transfer untouched — extending the vocabulary would require new randomly-initialised parameters in exactly the layers the pretraining had already shaped"
+      - "Because language tokens and action tokens must share a distribution"
+      - "It makes decoding faster"
+    answer: 1
+    explanation: "The whole appeal of the discrete route is that actions become indistinguishable from language to the rest of the model, so no surgery is needed. Adding vocabulary entries means new rows in the embedding matrix and new columns in the output projection, both randomly initialised, both sitting in layers the pretraining spent enormous compute shaping. Overwriting rarely-used existing slots avoids that entirely — an implementation detail that carries a real chunk of why borrowing works cheaply."
+  - id: at_l4_c2
+    prompt: "Behavior Transformer predicts a discrete cluster plus a continuous residual. What does each part contribute?"
+    options:
+      - "The discrete part is for speed and the residual for accuracy"
+      - "The categorical distribution over clusters represents multi-modality, which regression structurally cannot; the residual restores the precision that clustering into a few dozen bins would otherwise cost"
+      - "The discrete part handles position and the residual handles orientation"
+      - "They are alternative heads and only one is used at inference"
+    answer: 1
+    explanation: "It is a clean decomposition of the two things people argue about. Discretisation's real benefit is that a categorical can put mass on separated actions with nothing between them, which an MSE minimiser at the conditional mean cannot; its real cost is resolution. Predicting the cluster *and* an offset within it gets both — and the offset is regressed conditionally on the chosen cluster, so the mode-averaging problem does not reappear inside the residual."
+  - id: at_l4_c3
+    prompt: "FAST and $\\pi_0$ both target the decode-length cost. How do their approaches differ in what they give up?"
+    options:
+      - "They are the same approach with different names"
+      - "FAST keeps the discrete code — so it keeps vocabulary reuse and free multi-modality from the softmax — and compresses the chunk into fewer tokens. $\\pi_0$ removes the code, giving up both of those in exchange for no quantisation floor and no sequential decode"
+      - "FAST is for manipulation and $\\pi_0$ for locomotion"
+      - "FAST requires training and $\\pi_0$ does not"
+    answer: 1
+    explanation: "Reading them as a pair maps the trade precisely. Staying discrete means the action modality remains indistinguishable from language, the pretrained output head keeps working, and multi-modality comes free from the categorical — and you attack latency by shortening the code. Going continuous removes the resolution floor and the sequential decode, and requires a separate generative head with its own training dynamics and its own way of representing modes. Neither dominates; they suit different precision and latency requirements."
+---
+
+## Borrowed machinery
+
+<PaperCard refKey="oord2017vqvae" />
+
+Every learned action tokeniser is a VQ-VAE with actions in place of images. The
+imports are the straight-through estimator that lets gradients cross a
+non-differentiable argmin, the commitment loss that keeps encoder outputs near
+the codebook, and — inseparably — the codebook-collapse failure mode that comes
+with them.
+
+<PaperCard refKey="zeghidour2021soundstream" />
+
+The closer analogy, because audio is a continuous time-series with the same
+structure as a trajectory. Residual vector quantisation is the idea worth
+carrying over: stack codebooks so each encodes what the previous stage missed,
+giving a rate-distortion trade you can move along by adding or dropping stages
+rather than by retraining.
+
+<KeyIdea>
+Action chunks are closer to audio than to images — smooth, band-limited, strongly
+autocorrelated in time. That is why the codec literature transfers so directly,
+and why "what would an audio codec do here?" is a productive question when
+designing an action representation.
+</KeyIdea>
+
+## The simplest code, and why it was enough
+
+<PaperGrid>
+<PaperCard refKey="brohan2022rt1" />
+<PaperCard refKey="brohan2023rt2" />
+</PaperGrid>
+
+RT-1 bins each action dimension into 256 values and predicts them as tokens. No
+transform, no codebook, no training — and it works for real manipulation at
+scale, which is the finding that made everything downstream possible.
+
+RT-2 adds the implementation detail that carries a surprising amount of weight:
+put the action bins in the **least-used slots of the existing language
+vocabulary** rather than extending it.
+
+<Warning>
+Extending the vocabulary means new rows in the embedding matrix and new columns
+in the output projection, randomly initialised, sitting in exactly the layers
+that pretraining spent enormous compute shaping. Overwriting rarely-used existing
+slots avoids that entirely, which is why actions become indistinguishable from
+language to the rest of the model and no surgery is needed. A small choice
+carrying a real fraction of why borrowing a VLM is cheap.
+</Warning>
+
+## Refusing to choose
+
+<PaperCard refKey="shafiullah2022bet" />
+
+The cleanest decomposition of the argument. Discretisation's real benefit is that
+a categorical distribution represents multi-modality — mass on separated actions
+with nothing between them — which an MSE regression structurally cannot. Its real
+cost is resolution.
+
+So predict both: a categorical over cluster centres, and a continuous residual
+offset *conditioned on the chosen cluster*. The categorical carries the modes,
+the residual restores the precision, and because the residual is conditional the
+averaging problem does not reappear inside it.
+
+## Attacking the decode length, from both ends
+
+<PaperGrid>
+<PaperCard refKey="pertsch2025fast" />
+<PaperCard refKey="black2024pi0" />
+</PaperGrid>
+
+Once the backbone is fixed, inference latency is dominated by the number of
+sequential decode steps, and $H \times d$ tokens per chunk is a lot. Two opposite
+responses.
+
+FAST imports transform coding: treat the chunk as a signal, move to a basis where
+energy concentrates, and quantise the significant coefficients. The chunk costs a
+fraction of the tokens at essentially unchanged fidelity, and everything about
+the discrete route is preserved — vocabulary reuse, free multi-modality from the
+softmax.
+
+$\pi_0$ removes the code. A flow-matching action expert emits continuous chunks,
+so there is no quantisation floor and no sequential decode at all — at the cost
+of a separate generative head with its own training dynamics, its own
+multi-modality machinery, and no reuse of the pretrained output head.
+
+<KeyIdea>
+Neither dominates, and the choice is determined by two questions with numbers
+attached. Does your task's precision requirement sit near the quantisation floor —
+about 0.2 mm at 256 bins over a 10 cm range? And is your latency budget tight
+enough that $Hd$ sequential decode steps do not fit? If both answers are no, the
+simplest code is the right one, and that is a defensible position rather than a
+lazy one.
+</KeyIdea>
+
+## What is settled and what is not
+
+<Steps>
+<Step title="Settled">
+That naive per-dimension binning is adequate for a wide range of manipulation,
+that its resolution floor is computable and usually irrelevant, and that
+discretisation buys multi-modality as a genuine benefit rather than a workaround.
+</Step>
+
+<Step title="Established recently">
+That action chunks have exploitable temporal structure, and that codes ignoring
+it spend most of their token budget on redundancy. This reframed tokenisation
+from a formatting decision into a compression problem.
+</Step>
+
+<Step title="Open">
+Whether a *learned* code beats a hand-designed transform once both are tuned —
+the comparison is rarely run at equal token budgets. And whether the discrete
+route survives at all, or whether continuous action experts make the question
+moot. The honest position is that the field is still measuring, and a
+rate-distortion comparison on held-out chunks costs almost nothing to run
+yourself before committing.
+</Step>
+</Steps>

@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 300" role="img"
+     aria-labelledby="att atd" font-family="system-ui, -apple-system, sans-serif">
+  <title id="att">Two codes for the same action chunk</title>
+  <desc id="atd">An action chunk is a smooth signal in time. Binning each
+    dimension at each timestep spends one token per sample regardless of how
+    predictable the signal is. Transforming into a frequency basis first
+    concentrates the energy into a few coefficients, so a small number of tokens
+    reconstructs the chunk to the same accuracy — the same trade a codec makes
+    between bits and distortion.</desc>
+
+  <!-- signal -->
+  <text x="24" y="28" fill="#e6edf3" font-size="12">one action dimension over a 16-step chunk</text>
+  <line x1="30" y1="104" x2="270" y2="104" stroke="#484f58" stroke-width="1"/>
+  <path d="M 34 128 C 60 128, 74 62, 106 58 C 140 54, 156 118, 190 124
+           C 222 130, 240 92, 266 78"
+        fill="none" stroke="#8b949e" stroke-width="2.2"/>
+  <g fill="#8b949e">
+    <circle cx="34" cy="128" r="2.6"/><circle cx="49" cy="106" r="2.6"/>
+    <circle cx="64" cy="82" r="2.6"/><circle cx="80" cy="66" r="2.6"/>
+    <circle cx="96" cy="59" r="2.6"/><circle cx="112" cy="60" r="2.6"/>
+    <circle cx="128" cy="72" r="2.6"/><circle cx="144" cy="92" r="2.6"/>
+    <circle cx="160" cy="110" r="2.6"/><circle cx="176" cy="121" r="2.6"/>
+    <circle cx="192" cy="125" r="2.6"/><circle cx="208" cy="122" r="2.6"/>
+    <circle cx="224" cy="113" r="2.6"/><circle cx="238" cy="101" r="2.6"/>
+    <circle cx="252" cy="88" r="2.6"/><circle cx="266" cy="78" r="2.6"/>
+  </g>
+  <text x="150" y="150" fill="#8b949e" font-size="10.5" text-anchor="middle">smooth: consecutive samples are highly correlated</text>
+
+  <line x1="300" y1="20" x2="300" y2="284" stroke="#30363d" stroke-width="1"/>
+
+  <!-- code A -->
+  <text x="322" y="46" fill="#f85149" font-size="11.5" font-weight="600">bin every sample</text>
+  <g fill="#30363d" stroke="#484f58">
+    <rect x="322" y="56" width="17" height="18" rx="3"/><rect x="341" y="56" width="17" height="18" rx="3"/>
+    <rect x="360" y="56" width="17" height="18" rx="3"/><rect x="379" y="56" width="17" height="18" rx="3"/>
+    <rect x="398" y="56" width="17" height="18" rx="3"/><rect x="417" y="56" width="17" height="18" rx="3"/>
+    <rect x="436" y="56" width="17" height="18" rx="3"/><rect x="455" y="56" width="17" height="18" rx="3"/>
+    <rect x="474" y="56" width="17" height="18" rx="3"/><rect x="493" y="56" width="17" height="18" rx="3"/>
+    <rect x="512" y="56" width="17" height="18" rx="3"/><rect x="531" y="56" width="17" height="18" rx="3"/>
+    <rect x="550" y="56" width="17" height="18" rx="3"/><rect x="569" y="56" width="17" height="18" rx="3"/>
+    <rect x="588" y="56" width="17" height="18" rx="3"/><rect x="607" y="56" width="9"  height="18" rx="3"/>
+  </g>
+  <text x="322" y="92" fill="#8b949e" font-size="10">16 tokens per dimension &#183; 112 for a 7-DoF chunk</text>
+  <text x="322" y="108" fill="#f85149" font-size="10">one token per sample, however predictable the sample was</text>
+
+  <!-- code B -->
+  <text x="322" y="150" fill="#3fb950" font-size="11.5" font-weight="600">transform, then bin</text>
+  <g fill="#30363d" stroke="#3fb950" stroke-opacity="0.6">
+    <rect x="322" y="160" width="17" height="18" rx="3"/><rect x="341" y="160" width="17" height="18" rx="3"/>
+    <rect x="360" y="160" width="17" height="18" rx="3"/><rect x="379" y="160" width="17" height="18" rx="3"/>
+  </g>
+  <g fill="#1c2128" stroke="#30363d" stroke-dasharray="2 2">
+    <rect x="400" y="160" width="17" height="18" rx="3"/><rect x="419" y="160" width="17" height="18" rx="3"/>
+    <rect x="438" y="160" width="17" height="18" rx="3"/><rect x="457" y="160" width="17" height="18" rx="3"/>
+  </g>
+  <text x="480" y="174" fill="#484f58" font-size="10">&#8230; discarded</text>
+  <text x="322" y="196" fill="#8b949e" font-size="10">4 tokens per dimension &#183; 28 for the same chunk</text>
+  <text x="322" y="212" fill="#3fb950" font-size="10">the first 4 DCT coefficients carry &#8776;99% of the energy</text>
+
+  <line x1="24" y1="234" x2="616" y2="234" stroke="#30363d" stroke-width="1"/>
+  <text x="24" y="256" fill="#e6edf3" font-size="11">Choosing a tokeniser is choosing a code: bits (sequence length) against distortion (control error).</text>
+  <text x="24" y="274" fill="#8b949e" font-size="10.5">A code that ignores the signal&#8217;s structure spends its budget on redundancy &#8212; and sequence length is what costs you at inference.</text>
+</svg>

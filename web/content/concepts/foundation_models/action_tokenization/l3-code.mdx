@@ -1,0 +1,251 @@
+---
+concept: action_tokenization
+level: 3
+status: final
+recall:
+  prompt: "Implement three action tokenisers and the harness that compares them. What do you measure, and what breaks?"
+  keyPoints:
+    - "Compare tokenisers on a rate-distortion curve: reconstruction error against token count, measured on held-out chunks before any policy is trained."
+    - "DCT truncation lets you pick $k$ from a target error, because Parseval means the discarded energy *is* the time-domain error."
+    - "VQ needs EMA codebook updates, a commitment loss, and dead-code restarts — and codebook utilisation logged, because collapse presents only as a plateaued reconstruction error."
+    - "Reconstruction error is necessary and not sufficient: a code can have low mean error and destroy the discontinuities that matter, so also check error at contact events."
+check:
+  - id: at_l3_c1
+    prompt: "How do you choose the number of DCT coefficients to keep, without training anything?"
+    options:
+      - "By trial: train policies at several values and compare success"
+      - "From the discarded energy — Parseval makes it equal to the time-domain reconstruction error, so pick the smallest $k$ whose discarded energy on held-out chunks falls under your error tolerance"
+      - "Always keep half the coefficients"
+      - "By cross-validating on the policy's validation loss"
+    answer: 1
+    explanation: "The orthonormality of the transform turns a hyperparameter search into a calculation. You compute the energy in the coefficients you would discard, that number *is* the mean squared reconstruction error, and you compare it against a tolerance derived from the task — typically some fraction of the actuator's own repeatability. Training policies to choose $k$ works and costs orders of magnitude more, and it conflates the code's quality with everything else in the pipeline."
+  - id: at_l3_c2
+    prompt: "Your VQ tokeniser's reconstruction error plateaus well above what the codebook size should support, and nothing else looks wrong. What do you check?"
+    options:
+      - "The learning rate of the decoder"
+      - "Codebook utilisation — collapse is self-reinforcing, since an unused codeword receives no gradient and therefore stays unused, and it presents exactly as a plateaued error with no other symptom"
+      - "Whether the actions are normalised"
+      - "The batch size"
+    answer: 1
+    explanation: "The plateau with no other symptom is the signature. A codeword that is never the nearest neighbour gets no gradient from the codebook term, so it never moves toward the data, so it is never chosen — and a run can end with a small fraction of a large codebook active while every loss curve looks healthy. Logging the fraction of codewords used per batch makes it visible immediately, and the fixes are EMA updates and dead-code restarts rather than anything about the optimiser."
+  - id: at_l3_c3
+    prompt: "Two tokenisers have the same mean reconstruction error on held-out chunks. What else would you measure before choosing?"
+    options:
+      - "Nothing; equal error means equal quality"
+      - "Error at discontinuities — contact events and gripper transitions — because a transform code with a smoothness prior can have low *average* error while blurring exactly the sharp transitions the task depends on"
+      - "The size of the codebook file"
+      - "Training time"
+    answer: 1
+    explanation: "Mean error is an average over a chunk and averages hide localised failures. Truncating high-frequency coefficients is precisely the operation that smooths a step, so a code can reconstruct 99% of the energy while turning a crisp gripper close into a ramp — and the mean barely moves because the discontinuity occupies few samples. Stratify the reconstruction error by whether the chunk contains a contact or gripper event; that is where the codes actually differ."
+---
+
+## A common interface, so they can be compared
+
+<CodeWalk title="Three codes behind one interface">
+
+```python title="tokenizers.py"
+import numpy as np
+from scipy.fft import dct, idct
+
+class Tokenizer:
+    def encode(self, chunk):   ...   # (H, d) float -> (L,) int
+    def decode(self, tokens):  ...   # (L,) int -> (H, d) float
+    @property
+    def n_tokens(self): ...          # L, the thing you pay for
+
+
+class ScalarQuantile(Tokenizer):
+    """Bins per dimension at dataset quantiles. Exploits only the marginal
+    distribution; L = H * d."""
+
+    def __init__(self, dataset_chunks, H, d, n_bins=256):
+        flat = dataset_chunks.reshape(-1, d)
+        self.lo = np.percentile(flat, 1, axis=0)     # quantiles, not min-max
+        self.hi = np.percentile(flat, 99, axis=0)
+        self.H, self.d, self.B = H, d, n_bins
+
+    def encode(self, chunk):
+        u = np.clip((chunk - self.lo) / (self.hi - self.lo + 1e-8), 0, 1)
+        return np.clip((u * self.B).astype(int), 0, self.B - 1).reshape(-1)
+
+    def decode(self, tokens):
+        idx = tokens.reshape(self.H, self.d)
+        u = (idx + 0.5) / self.B                     # bin CENTRE: halves the error
+        return self.lo + u * (self.hi - self.lo)
+
+    @property
+    def n_tokens(self):
+        return self.H * self.d
+```
+
+</CodeWalk>
+
+## Transform coding, with $k$ chosen by calculation
+
+<CodeWalk title="DCT truncation">
+
+```python title="dct_tokenizer.py"
+class DCTTruncate(Tokenizer):
+    """Orthonormal DCT along time, keep the first k coefficients per dimension.
+
+    Parseval means the discarded energy IS the time-domain reconstruction
+    error, so k can be computed from an error tolerance instead of searched.
+    """
+
+    def __init__(self, dataset_chunks, H, d, k, n_bins=256):
+        self.H, self.d, self.k, self.B = H, d, k, n_bins
+        C = dct(dataset_chunks, axis=1, norm="ortho")[:, :k, :]   # (N, k, d)
+        self.lo = np.percentile(C.reshape(-1, d), 1, axis=0)
+        self.hi = np.percentile(C.reshape(-1, d), 99, axis=0)
+
+    def encode(self, chunk):
+        C = dct(chunk, axis=0, norm="ortho")[: self.k]            # (k, d)
+        u = np.clip((C - self.lo) / (self.hi - self.lo + 1e-8), 0, 1)
+        return np.clip((u * self.B).astype(int), 0, self.B - 1).reshape(-1)
+
+    def decode(self, tokens):
+        u = (tokens.reshape(self.k, self.d) + 0.5) / self.B
+        C = np.zeros((self.H, self.d))
+        C[: self.k] = self.lo + u * (self.hi - self.lo)            # rest are zero
+        return idct(C, axis=0, norm="ortho")
+
+    @property
+    def n_tokens(self):
+        return self.k * self.d
+
+
+def choose_k(dataset_chunks, tolerance_rms):
+    """No training, no policy: the answer is in the transform domain."""
+    C = dct(dataset_chunks, axis=1, norm="ortho")
+    energy = (C ** 2).sum(axis=(0, 2))                 # per coefficient index
+    total = energy.sum()
+    for k in range(1, C.shape[1] + 1):
+        discarded = energy[k:].sum() / total
+        rms = np.sqrt(discarded * (C ** 2).mean())
+        if rms <= tolerance_rms:
+            return k, float(discarded)
+    return C.shape[1], 0.0
+```
+
+</CodeWalk>
+
+Set `tolerance_rms` from the hardware, not from taste — a sensible anchor is some
+fraction of the actuator's own repeatability, since a code more precise than the
+robot is spending tokens on noise.
+
+## Vector quantisation, with the collapse remedies built in
+
+<CodeWalk title="EMA codebook and dead-code restarts">
+
+```python title="vq.py"
+import torch, torch.nn as nn
+
+class VectorQuantizerEMA(nn.Module):
+    def __init__(self, K=512, dim=64, decay=0.99, eps=1e-5, restart_thresh=1.0):
+        super().__init__()
+        self.K, self.decay, self.eps = K, decay, eps
+        self.restart_thresh = restart_thresh
+        self.register_buffer("codebook", torch.randn(K, dim))
+        self.register_buffer("cluster_size", torch.zeros(K))
+        self.register_buffer("ema_sum", torch.randn(K, dim))
+
+    def forward(self, z_e):                            # (N, dim)
+        d = (z_e.pow(2).sum(1, keepdim=True)
+             - 2 * z_e @ self.codebook.t()
+             + self.codebook.pow(2).sum(1))
+        idx = d.argmin(1)
+        z_q = self.codebook[idx]
+
+        if self.training:
+            onehot = torch.zeros(z_e.shape[0], self.K, device=z_e.device)
+            onehot.scatter_(1, idx[:, None], 1)
+            # EMA rather than gradient: codewords move toward the running mean
+            # of what was assigned to them, which is far more stable.
+            self.cluster_size.mul_(self.decay).add_(onehot.sum(0), alpha=1 - self.decay)
+            self.ema_sum.mul_(self.decay).add_(onehot.t() @ z_e, alpha=1 - self.decay)
+            n = self.cluster_size.sum()
+            weights = (self.cluster_size + self.eps) / (n + self.K * self.eps) * n
+            self.codebook.copy_(self.ema_sum / weights[:, None])
+
+            # Dead-code restart. An unused codeword gets no gradient, so it
+            # stays unused — collapse is self-reinforcing unless you intervene.
+            dead = self.cluster_size < self.restart_thresh
+            if dead.any():
+                src = z_e[torch.randint(0, z_e.shape[0], (int(dead.sum()),))]
+                self.codebook[dead] = src
+                self.cluster_size[dead] = 1.0
+
+        commitment = (z_e - z_q.detach()).pow(2).mean()
+        z_q = z_e + (z_q - z_e).detach()               # straight-through
+        return z_q, commitment, idx
+
+    def utilisation(self):
+        """LOG THIS. Collapse presents only as a plateaued reconstruction
+        error, with every loss curve looking healthy."""
+        return float((self.cluster_size > self.restart_thresh).float().mean())
+```
+
+</CodeWalk>
+
+## The comparison that decides it
+
+```python title="compare.py"
+def rate_distortion(tokenizers, held_out_chunks, contact_mask):
+    """Compare codes BEFORE training any policy. Reconstruction error against
+    token count is the curve; the contact column is what stops you choosing a
+    code that is smooth on average and wrong where it matters."""
+    rows = []
+    for name, tok in tokenizers.items():
+        err = np.stack([
+            chunk - tok.decode(tok.encode(chunk)) for chunk in held_out_chunks
+        ])
+        rows.append({
+            "code": name,
+            "tokens": tok.n_tokens,
+            "rms_overall": float(np.sqrt((err ** 2).mean())),
+            # Truncating high frequencies smooths a step, and a discontinuity
+            # occupies few samples — so the mean barely moves while the
+            # gripper snap becomes a ramp.
+            "rms_at_contact": float(np.sqrt((err[contact_mask] ** 2).mean())),
+            "p99_abs": float(np.percentile(np.abs(err), 99)),
+        })
+    return rows
+```
+
+<Warning>
+Mean reconstruction error is necessary and not sufficient. A DCT code carries a
+smoothness prior, and truncating high-frequency coefficients is exactly the
+operation that blurs a step — so it can reconstruct 99% of the energy while
+turning a crisp gripper close into a ramp, with the mean barely moving because
+the discontinuity occupies few samples. Stratify by contact and gripper events;
+that column is where the codes actually differ.
+</Warning>
+
+## Checks worth running
+
+<Steps>
+<Step title="Histogram the emitted tokens">
+Mass piled at the extreme bins means the quantile range is too narrow and actions
+are being clipped; mass concentrated centrally means it is too wide and
+resolution is being wasted.
+</Step>
+
+<Step title="Log codebook utilisation every epoch">
+For VQ, this is the only visible symptom of collapse. A healthy run keeps most
+codewords active; a collapsed one plateaus with a small active fraction and
+otherwise normal curves.
+</Step>
+
+<Step title="Round-trip a demonstration and play it back">
+Encode and decode an entire episode, then execute the reconstruction on the
+robot. If the task still succeeds, the code is adequate; if it fails, no policy
+trained on those tokens can do better than the code allows.
+</Step>
+</Steps>
+
+<KeyIdea>
+That last check is the one worth doing first. It puts an upper bound on the whole
+pipeline: a policy cannot outperform the reconstruction of its own training
+targets, so if replaying the decoded demonstrations fails the task, you have
+found your ceiling before training anything.
+</KeyIdea>
