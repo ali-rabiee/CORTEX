@@ -1,24 +1,168 @@
 ---
 concept: vlm_models
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Vision-Language Models (VLMs) fail in practice, and how would
-    you present it in an interview?
+  prompt: "Give your interview answer on VLMs for robotics. What do you trust them with, and what interface do you actually build against?"
   keyPoints:
-    - "Spatial reasoning failures: VLMs can identify objects but struggle with
-      precise spatial relationships ('is the cup to the left or right of the
-      bowl?')."
-    - "Hallucination: confidently describe objects that aren't there."
-    - "Symptoms: robot reaches for nonexistent objects or wrong locations."
-check: []
-papers: []
+    - "Distinguish the two families by their interface: contrastive gives a similarity score, generative gives text. That determines what you can build with each."
+    - "Trust semantics — open-vocabulary identification, categories, affordances. Do not trust metric or relational geometry, and note the failure is fluent rather than a refusal."
+    - "Explain both gaps by the objective: random negatives make bag-of-words optimal, and captions never state distances. Neither is a capacity limit."
+    - "The interface robotics builds against is open-vocabulary detection or grounded segmentation — text in, boxes or masks out — with depth and calibration supplying the metric part."
+interview:
+  answer: >-
+    VLM covers two fairly different things and it's worth separating them
+    because they give you different interfaces. Contrastive models, CLIP and its
+    descendants, have separate image and text encoders trained so matching pairs
+    land close in a shared embedding space. The output is a similarity score, so
+    you supply the candidate texts and it becomes a zero-shot classifier or a
+    retrieval engine. Generative models — Flamingo, BLIP-2, LLaVA — feed a
+    vision encoder's output into a language model through an adapter, so the
+    output is text: open-ended questions, descriptions, reasoning. For robotics
+    the thing I'd emphasise is what to trust them with. They're genuinely
+    reliable at semantics — naming objects, recognising categories they were
+    never explicitly trained on, judging affordances like which of these would
+    break if dropped. They're unreliable at metric and relational spatial
+    reasoning: distances, whether A is nearer the edge than B, whether the
+    gripper can reach behind something. And the reason is the training
+    objective, not capacity. Web captions say what's in an image far more often
+    than they encode precise geometry, so nothing ever forced the model to
+    represent it. There's a sharper version of that worth knowing: contrastive
+    models often behave like bags of words. They score "the mug left of the box"
+    and "the box left of the mug" almost identically, because random in-batch
+    negatives essentially never differ from the true caption only by word order,
+    so ordering was never punished. For language-conditioned manipulation, where
+    relational instructions are the normal case, that's a direct hazard. What
+    makes both of these dangerous rather than merely limiting is that the model
+    doesn't decline — it answers fluently and confidently, and in a robot stack a
+    plausible wrong number flows straight into a motion command. So the
+    interface I'd actually build against is open-vocabulary detection or
+    grounded segmentation: text query in, boxes or masks out. That's what a
+    grasp planner can consume, and it gives me the open-vocabulary
+    generalisation I adopted a VLM for without asking it to do geometry. Depth
+    and camera calibration supply the metric part, where they're reliable. The
+    division of labour is the whole design: the VLM decides what to interact
+    with, the sensors decide where it is.
+  followUps:
+    - q: "How would you test whether a VLM is safe for your relational instructions?"
+      a: >-
+        Directly, on my own inputs. I'd take a set of scenes and query each
+        relation in both orders — "the mug left of the box" and "the box left of
+        the mug" — and compare the outputs. If they're nearly identical, the
+        model is bag-of-words on this input distribution and any relational
+        instruction is unsafe. The second test is a decoy: run the query on a
+        scene where the target isn't present, because the softmax is over my
+        candidate list and there's no "none of these" unless I add one. A
+        confident answer on an absent object is the difference between doing
+        nothing and grasping the wrong thing. If either test fails, I'd either
+        use a model trained with order-permuted hard negatives, or take relations
+        out of the VLM entirely and compute them from the detected boxes, where
+        I can verify the geometry.
+    - q: "When would you use a generative VLM rather than a detector?"
+      a: >-
+        At the planning layer, where fluency is the asset and metric precision
+        isn't the question. Decomposing "clear the table" into a sequence of
+        object-level subgoals, deciding which of several objects satisfies a
+        vague description, or answering whether a precondition looks satisfied —
+        those play to what the model is good at. What I wouldn't do is ask it
+        for coordinates and parse them out of prose, because that reintroduces
+        the grounding problem with a failure mode that reads as confident. So
+        the layering I'd argue for is a generative VLM proposing what to do next,
+        an open-vocabulary detector turning each object reference into pixels,
+        and geometry handling everything metric.
+    - q: "Why does batch size matter so much for CLIP training specifically?"
+      a: >-
+        Because the batch is the negative set. The softmax denominator ranges
+        over the texts in the batch, so batch size sets the difficulty of the
+        discrimination task rather than just the gradient noise. At batch 8 the
+        model beats seven random distractors, which coarse subject-level
+        features achieve; at batch 32k it has to separate this caption from
+        thousands of plausible alternatives. That's why the training runs use
+        very large batches gathered across devices — and it's also a real bug
+        source, because if you skip the cross-device all-gather each device
+        solves its own small problem and the loss curve looks completely
+        healthy. SigLIP's per-pair sigmoid is the fix that decouples the
+        objective from batch size entirely.
+    - q: "Is the spatial reasoning gap fundamental?"
+      a: >-
+        The evidence says no, it's a supervision gap. SpatialVLM synthesised
+        metric question-answer data by lifting internet images into 3-D,
+        computing true distances and relations, and turning them into training
+        pairs — and the capability appeared. If the architecture were incapable,
+        manufacturing the data wouldn't have helped. That's a more useful
+        diagnosis than "VLMs are bad at spatial reasoning", and it generalises:
+        the right question about any self-supervised model is what its objective
+        *forced* it to learn, not what it could in principle represent. Captions
+        never state distances, so distances aren't there. That said, for a real
+        system today I'd still get metric answers from depth rather than from a
+        language-supervised model, because I can characterise the error of a
+        depth sensor and I can't characterise the error of a fluent guess.
+  traps:
+    - "Treating 'VLM' as one thing. Contrastive and generative models give different interfaces — a score versus text — and that determines what you can build."
+    - "Trusting a VLM with distances or relations. The failure is fluent and unflagged, which is worse than a refusal in a stack that acts on the output."
+    - "Explaining the spatial gap as a capacity limit. It is a supervision gap: captions never encoded geometry, and supplying that supervision closes it."
+    - "Parsing coordinates out of a generative VLM's prose. Open-vocabulary detection returns coordinates directly and is the interface the rest of the stack needs."
+check:
+  - id: vlm_l5_c1
+    prompt: "A team's language-conditioned policy sometimes puts the object on the wrong side. They propose a larger VLM. What is the better first step?"
+    options:
+      - "Agree — larger models handle relations better"
+      - "Test the relational failure directly: query both orderings of the relation on the same scene. If the model scores them almost identically it is bag-of-words on this input, and the fix is hard negatives or computing the relation from detected boxes — not more parameters"
+      - "Add more demonstrations of the correct side"
+      - "Switch to a generative VLM"
+    answer: 1
+    explanation: "The symptom matches a known and specific failure with a cheap test, so run the test before spending. Scale is not the mechanism here: the objective never punished ignoring word order, so a bigger model trained the same way has the same incentive. And the fix that follows from the diagnosis is much cheaper than retraining — either use a model trained with order-permuted negatives, or detect both objects and compute the relation geometrically, where it is verifiable."
+  - id: vlm_l5_c2
+    prompt: "You need the 3-D position of a user-named object. Which pipeline would you defend?"
+    options:
+      - "Ask a generative VLM for the object's coordinates in the image"
+      - "Open-vocabulary detector for the box, median depth within the box, and camera intrinsics to unproject — semantics from the model, metric geometry from the sensor"
+      - "CLIP-embed image crops on a sliding window and take the argmax"
+      - "Fine-tune a pose estimator on the expected object set"
+    answer: 1
+    explanation: "The division of labour is the defensible part: the model contributes what it was actually trained for, and the metric answer comes from a sensor whose error you can characterise. The median depth rather than the mean matters too, since depth images have holes and outliers at object boundaries. Option 4 works and gives up the open-vocabulary generalisation that motivated the VLM; option 3 is the expensive precursor to open-vocabulary detection and has much worse localisation."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Spatial reasoning failures: VLMs can identify objects but struggle with precise spatial relationships ('is the cup to the left or right of the bowl?'). Hallucination: confidently describe objects that aren't there. Symptoms: robot reaches for nonexistent objects or wrong locations. Fix: validate VLM outputs with detection/segmentation, use VLMs for high-level planning only (not precise spatial commands).
+<Steps>
+<Step title="Wrong side, wrong relation → bag-of-words">
+Query both orderings of the relation. Near-identical scores mean word order was
+never encoded. Fix with hard negatives, or compute relations from detected boxes
+where geometry is verifiable.
+</Step>
 
-## Interview-ready answer
+<Step title="Confidently identifies an absent object → no null option">
+The softmax is over your candidate list. Add a background prompt or calibrate an
+absolute similarity threshold before this reaches an actuator.
+</Step>
 
-VLMs bring common-sense reasoning and language understanding to robot perception. The practical pattern: use VLMs for high-level scene understanding and task planning, then hand off to specialized modules for precise spatial reasoning and control. Key insight: VLMs are excellent at semantic understanding ('this is a cluttered kitchen with dishes to clean') but poor at precise spatial reasoning ('the mug handle is 2cm to the left'). In production, I combine VLM-based task planning with classical perception (pose estimation, point clouds) for execution.
+<Step title="Fluent but wrong distances → asking the wrong component">
+Metric geometry was never supervised. Get it from depth and calibration; use the
+VLM to decide *which* object, not *where* it is.
+</Step>
+
+<Step title="Coarse localisation from a strong model → the adapter bottleneck">
+A query-bottleneck architecture with 32 learned queries over hundreds of patches
+discards fine spatial detail while remaining fluent. Check localisation
+explicitly rather than inferring it from answer quality.
+</Step>
+
+<Step title="Weak features despite a huge nominal batch → missing all-gather">
+Contrastive loss is not separable across devices. Without gathering embeddings,
+each device solves a much easier problem and the loss curve looks fine.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The thing that separates a strong answer here is explaining the limits by the
+*objective* rather than listing them. "VLMs are bad at spatial reasoning" is a
+fact anyone can repeat. "Random in-batch negatives almost never differ only by
+word order, so bag-of-words matching already wins the contrastive game, and
+captions rarely encode distances so metric geometry was never supervised" is a
+diagnosis — and it predicts both the fixes that worked, hard negatives and
+synthesised spatial data. It also tells the interviewer you read objectives for
+what they force rather than for what they allow.
+</Warning>

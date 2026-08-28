@@ -1,24 +1,148 @@
 ---
 concept: vlm_models
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Vision-Language Models (VLMs) in plain language: what is it,
-    and why does it matter?"
+  prompt: "Explain what a VLM is and the two main families. For robotics, what are they reliably good at and what should you not trust them with?"
   keyPoints:
-    - A VLM can 'see' and 'talk' about what it sees.
-    - Show it a robot workspace photo and ask 'what objects are graspable?' and
-      it can reason about the scene.
-    - It's the eyes and reasoning brain, but not the hands — it can plan but not
-      act (that's what VLAs add).
-check: []
-papers: []
+    - "Two families. **Contrastive** (CLIP-style): separate image and text encoders trained to align matching pairs in one embedding space — gives you a similarity score, not a sentence."
+    - "**Generative** (LLaVA, Flamingo, BLIP-2): a vision encoder feeding an LLM through an adapter, so the model produces text conditioned on an image."
+    - "Reliable at semantics: naming objects, categories, affordances, open-vocabulary recognition. This is what the pretraining objective actually rewarded."
+    - "Unreliable at metric and relational spatial reasoning — distances, 'is A nearer the edge than B', reachability. Nothing in the training objective required metric grounding, and the model will still answer fluently."
+media:
+  - kind: video
+    title: "OpenAI CLIP: Connecting Text and Images (Paper Explained)"
+    url: https://www.youtube.com/watch?v=T9XSU0pKX2E
+    source: "Yannic Kilcher"
+    minutes: 48
+    note: "Careful walk through the contrastive objective and the zero-shot classification trick. The part worth internalising is *how* the prompt becomes a classifier — it is what makes open-vocabulary detection possible downstream."
+  - kind: article
+    title: "When and why vision-language models behave like bags-of-words, and what to do about it?"
+    url: https://arxiv.org/abs/2210.01936
+    source: "Yuksekgonul, Bianchi, Kalluri, Jurafsky, Zou"
+    note: "Read this before trusting a VLM with a relational instruction. It shows contrastive models often cannot distinguish 'the mug left of the box' from 'the box left of the mug' — a direct hazard for language-conditioned robotics."
+  - kind: article
+    title: "Generalized Visual Language Models"
+    url: https://lilianweng.github.io/posts/2022-06-09-vlm/
+    source: "Lilian Weng"
+    note: "A clean taxonomy of how vision gets attached to a language model — frozen encoders, adapters, cross-attention. Useful for placing any new VLM you meet into one of a few buckets."
+check:
+  - id: vlm_l1_c1
+    prompt: "What is the essential difference between a CLIP-style model and a LLaVA-style model?"
+    options:
+      - "CLIP is larger and trained on more data"
+      - "CLIP has two encoders trained to align image and text in one embedding space, so it produces a *similarity score*; LLaVA feeds a vision encoder's output into an LLM through an adapter, so it produces *text*"
+      - "CLIP handles video and LLaVA handles images"
+      - "CLIP is supervised and LLaVA is self-supervised"
+    answer: 1
+    explanation: "The distinction determines what you can ask. CLIP answers 'how well does this image match this text?', which makes it a zero-shot classifier and a retrieval engine — you supply the candidate texts. A generative VLM answers open questions and produces sentences, which is more flexible and much slower, and it can be wrong in fluent, confident prose. For robotics you often want CLIP-style scoring inside a loop and a generative VLM at the planning layer."
+  - id: vlm_l1_c2
+    prompt: "Why should you be cautious asking a VLM 'is the mug closer to the table edge than the box?'"
+    options:
+      - "VLMs cannot process spatial relationships at all"
+      - "Metric and relational spatial reasoning is weakly supervised by contrastive and captioning objectives — captions rarely encode precise geometry — so the model answers fluently without the grounding to be right, and errors are not flagged"
+      - "The question requires depth, which VLMs cannot perceive"
+      - "The question is ambiguous and would be rejected"
+    answer: 1
+    explanation: "The failure mode is confident fluency, not refusal, which is what makes it dangerous in a robot stack. Web alt-text and captions describe *what* is in an image far more often than precise relative geometry, so the objective never forced the model to represent it. Relational language fares particularly badly: contrastive models frequently score 'mug left of box' and 'box left of mug' almost identically, because bag-of-words matching already satisfies the training objective."
+  - id: vlm_l1_c3
+    prompt: "You need to locate an arbitrary user-named object for grasping. What is the right tool?"
+    options:
+      - "Ask a generative VLM to describe the scene and parse the description"
+      - "An open-vocabulary detector or grounded segmentation model, which returns actual pixel coordinates or masks for a text query — the interface a manipulation stack can consume"
+      - "A CLIP image embedding, thresholded"
+      - "Fine-tune a closed-set detector on the objects you expect"
+    answer: 1
+    explanation: "The question to ask is what interface the downstream stack needs, and grasping needs coordinates. A caption gives you words, and parsing 'a red mug on the left' back into pixels is exactly the problem you were trying to solve. A whole-image CLIP embedding has no localisation at all. Open-vocabulary detection and grounded segmentation output boxes or masks for a text query, which is why they are the workhorse perception interface in language-conditioned manipulation."
 ---
 
-## Intuition
+## Two families, two interfaces
 
-A VLM can 'see' and 'talk' about what it sees. Show it a robot workspace photo and ask 'what objects are graspable?' and it can reason about the scene. It's the eyes and reasoning brain, but not the hands — it can plan but not act (that's what VLAs add).
+"VLM" covers two quite different things, and knowing which you are holding
+determines what you can ask it.
 
-## In practice
+<Steps>
+<Step title="Contrastive: CLIP and its descendants">
+Two encoders — one for images, one for text — trained so that matching pairs
+land close together in a shared embedding space and mismatched pairs land far
+apart. The output is a **similarity score**. You supply the candidate texts,
+which turns it into a zero-shot classifier: embed "a photo of a mug", "a photo of
+a stapler", and see which is closer.
+</Step>
 
-Using GPT-4V for robotic task planning: capture workspace image $\rightarrow$ prompt: 'Given this scene, plan the steps to sort objects by color. Output as numbered actions.' $\rightarrow$ parse structured output $\rightarrow$ execute with low-level controller. Works for long-horizon tasks where classical planning fails due to perception complexity.
+<Step title="Generative: Flamingo, BLIP-2, LLaVA">
+A vision encoder whose output is projected into a language model's token space
+through an adapter, so the LLM can attend over image tokens alongside text ones.
+The output is **text**. Open-ended questions, descriptions, and reasoning — much
+more flexible, much slower, and capable of being wrong in confident prose.
+</Step>
+</Steps>
+
+<Intuition>
+The contrastive model is a very good librarian who can tell you how well a
+caption matches a photograph but cannot write one. The generative model is
+someone who will happily describe the photograph at length — including the parts
+they did not look at carefully.
+</Intuition>
+
+## What they are actually good at
+
+<Figure src="/figures/vlm-semantic-vs-spatial.svg"
+        alt="One scene with two boxes of questions. The green box lists naming and categorisation questions marked reliable. The red box lists distance, relative position, and reachability questions marked unreliable."
+        caption="The split follows the training objective. Web captions say what is in an image far more often than they say how far apart things are — so semantics is supervised and metric geometry is not." />
+
+The reliable capability is **semantic**: naming objects, recognising categories
+they were never explicitly trained on, judging affordances ("which of these
+would break if dropped"), and matching an open-vocabulary description to an
+image. This is what internet-scale image-text pretraining actually contains, and
+it is genuinely remarkable.
+
+<Warning>
+The unreliable capability is **metric and relational spatial reasoning**. How
+many centimetres apart two objects are, whether A is nearer the edge than B,
+whether a gripper could reach behind something. Captions describe what is in an
+image; they rarely encode precise geometry, so nothing in the objective forced
+the model to represent it.
+
+The dangerous part is that the model does not decline. It answers fluently and
+confidently, which in a robot stack means a plausible-sounding wrong answer
+flows straight into a motion command.
+</Warning>
+
+There is a sharper version of this failure worth knowing. Contrastive models
+often behave like **bags of words**: they score "the mug to the left of the box"
+and "the box to the left of the mug" almost identically, because word-matching
+already satisfies the contrastive objective and word *order* was never forced to
+matter. For language-conditioned manipulation, where relational instructions are
+the whole point, that is a direct hazard.
+
+## The interface that actually gets used in robotics
+
+A caption is the wrong output for a manipulation stack. If you need to grasp the
+object a user named, you need pixels — a box or a mask — not a sentence you then
+have to parse back into coordinates.
+
+<KeyIdea>
+The workhorse perception interface for language-conditioned robotics is
+**open-vocabulary detection and grounded segmentation**: text query in, boxes or
+masks out. It gives the semantic generalisation you adopted a VLM for, in a form
+a motion planner or a grasp predictor can consume. A generative VLM sits above
+that, at the planning layer, where its fluency is an asset and its metric
+weakness matters less.
+</KeyIdea>
+
+<Steps>
+<Step title="Use a VLM for">
+Deciding *what* to interact with. Open-vocabulary identification, affordance
+judgements, high-level task decomposition, and recognising objects your training
+set never contained.
+</Step>
+
+<Step title="Use classical perception for">
+Deciding *where* it is, precisely. Depth, pose, and metric geometry come from
+sensors and geometry, not from a language-supervised model — and mixing the two
+correctly is most of the engineering in a modern manipulation stack.
+</Step>
+</Steps>
+
+<WatchThis />

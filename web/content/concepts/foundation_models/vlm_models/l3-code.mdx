@@ -1,0 +1,205 @@
+---
+concept: vlm_models
+level: 3
+status: final
+recall:
+  prompt: "Implement CLIP-style contrastive training and an open-vocabulary grounding call. What are the practical traps?"
+  keyPoints:
+    - "Normalise both embeddings, scale by a learned temperature stored as $\\log \\tau$ and clamped, and take the symmetric cross-entropy against the diagonal."
+    - "Negatives come from the batch, so distributed training must all-gather embeddings — without it each device only sees its local batch and the effective difficulty collapses."
+    - "Prompt ensembling is not a trick: CLIP was trained on captions, so 'a photo of a {label}' is closer to the training distribution than a bare noun, and averaging several templates measurably helps."
+    - "For robotics, call an open-vocabulary detector to get boxes or masks. Do not parse coordinates out of a generative VLM's prose."
+check:
+  - id: vlm_l3_c1
+    prompt: "You train CLIP-style on 8 GPUs with a per-device batch of 256 but no cross-device gather. What have you actually trained?"
+    options:
+      - "A model with an effective batch of 2048"
+      - "Eight independent contrastive problems with 256 negatives each — the discrimination task is eight times easier than intended, and the model learns coarser features than the nominal batch size suggests"
+      - "Nothing; the loss will not converge"
+      - "The same model, more slowly"
+    answer: 1
+    explanation: "In supervised training, per-device losses averaged across devices are equivalent to one large batch. Contrastive training breaks that equivalence, because the denominator ranges over whatever embeddings a device can see. Without an all-gather, each device solves a 256-way problem and the gradients are averaged — the model never faces the 2048-way discrimination you intended. The bug is silent: loss curves look healthy and the resulting features are simply weaker."
+  - id: vlm_l3_c2
+    prompt: "Why store the temperature as $\\log\\tau$ and clamp it, rather than optimising $\\tau$ directly?"
+    options:
+      - "It makes the gradient larger"
+      - "The logit scale must stay positive, and parameterising the log guarantees that under unconstrained gradient descent; clamping caps it because the loss can be reduced by driving the scale up indefinitely, which sharpens the softmax into saturation"
+      - "Because $\\tau$ appears inside an exponential"
+      - "To make the loss scale-invariant"
+    answer: 1
+    explanation: "Two problems solved by one parameterisation. Positivity: a negative temperature would invert the similarity ordering, and the log parameterisation makes it structurally impossible. And runaway growth: increasing the logit scale always reduces the training loss by making the softmax more confident, so it drifts upward until the gradient vanishes. CLIP clamps it to a maximum of 100, which reads as an arbitrary constant and is a real stability requirement."
+  - id: vlm_l3_c3
+    prompt: "Your robot must grasp 'the blue mug'. Which pipeline is right?"
+    options:
+      - "Generative VLM describes the scene; parse the description for the mug's position"
+      - "Open-vocabulary detector or grounded segmenter with the text query, giving a box or mask; then depth and a grasp predictor for the metric part"
+      - "CLIP-embed the whole image and compare against 'a blue mug'"
+      - "Fine-tune a closed-set detector on blue mugs"
+    answer: 1
+    explanation: "Match the interface to what the next stage consumes. Grasping needs coordinates, so the perception stage should output coordinates. A caption gives you words, and parsing 'a blue mug on the left' back into pixels is the problem you started with. A whole-image CLIP embedding has no localisation. And a closed-set detector gives up the open-vocabulary generalisation that motivated using a VLM. The division of labour is the point: the VLM decides *what*, geometry decides *where*."
+---
+
+## Contrastive training, end to end
+
+<CodeWalk title="The CLIP objective">
+
+```python title="clip_loss.py"
+import torch, torch.nn as nn, torch.nn.functional as F
+import torch.distributed as dist
+
+class CLIPLoss(nn.Module):
+    def __init__(self, init_temp=0.07, max_logit_scale=100.0):
+        super().__init__()
+        # Store the LOG: keeps the scale positive under unconstrained SGD.
+        self.log_scale = nn.Parameter(torch.tensor(1.0 / init_temp).log())
+        self.max_logit_scale = max_logit_scale
+
+    def forward(self, img_emb, txt_emb):
+        img_emb = F.normalize(img_emb, dim=-1)
+        txt_emb = F.normalize(txt_emb, dim=-1)
+
+        if dist.is_initialized():
+            # The batch IS the negative set. Without this gather each device
+            # solves a much easier problem than the nominal batch size implies,
+            # and the loss curve looks perfectly healthy while doing so.
+            img_emb = torch.cat(all_gather_with_grad(img_emb), dim=0)
+            txt_emb = torch.cat(all_gather_with_grad(txt_emb), dim=0)
+
+        # Clamp: the loss always falls as the scale rises, so it drifts upward
+        # until the softmax saturates and gradients vanish.
+        scale = self.log_scale.exp().clamp(max=self.max_logit_scale)
+        logits = scale * img_emb @ txt_emb.t()          # (N, N)
+
+        labels = torch.arange(logits.shape[0], device=logits.device)
+        return 0.5 * (F.cross_entropy(logits, labels)
+                      + F.cross_entropy(logits.t(), labels))
+```
+
+</CodeWalk>
+
+The all-gather is the line people omit, and it is the one that decides what you
+trained. Contrastive loss is not separable across devices the way a supervised
+loss is: the denominator ranges over whatever embeddings the device can see, so
+without gathering, eight devices solve eight easy problems instead of one hard
+one.
+
+## Hard negatives, if you need compositionality
+
+```python title="hard_negatives.py"
+import random
+
+def order_negative(caption):
+    """Same words, different order — the negative random batching never gives you.
+
+    The contrastive objective is satisfied by matching content words, so
+    ordering is only forced to matter when a negative differs ONLY in order.
+    """
+    words = caption.split()
+    if len(words) < 4:
+        return None
+    i, j = random.sample(range(len(words)), 2)
+    words[i], words[j] = words[j], words[i]
+    return " ".join(words)
+
+
+# Append to the batch's negatives so the model must encode structure to win.
+```
+
+## Zero-shot classification, done properly
+
+```python title="zeroshot.py"
+TEMPLATES = [
+    "a photo of a {}.",
+    "a close-up photo of a {}.",
+    "a photo of the {} on a table.",
+    "a cropped photo of a {}.",
+]
+
+@torch.no_grad()
+def build_classifier(model, tokenizer, class_names, device):
+    """CLIP was trained on captions, not bare nouns. Embedding several
+    caption-shaped templates and averaging puts the query closer to the
+    training distribution — a measurable gain, not a superstition."""
+    weights = []
+    for name in class_names:
+        prompts = [t.format(name) for t in TEMPLATES]
+        emb = model.encode_text(tokenizer(prompts).to(device))
+        emb = F.normalize(emb, dim=-1).mean(0)
+        weights.append(F.normalize(emb, dim=0))
+    return torch.stack(weights, dim=1)                  # (d, n_classes)
+
+
+@torch.no_grad()
+def classify(model, images, classifier):
+    emb = F.normalize(model.encode_image(images), dim=-1)
+    return (emb @ classifier).softmax(dim=-1)
+```
+
+<Warning>
+The softmax here is over *your* candidate list, so the model always returns a
+confident answer even when the true object is absent. There is no "none of
+these" option unless you add one — a background prompt, or an absolute
+similarity threshold calibrated on held-out data. In a robot stack this is the
+difference between "no target found, do nothing" and confidently grasping the
+wrong object.
+</Warning>
+
+## The interface robotics actually uses
+
+<CodeWalk title="Text query in, coordinates out">
+
+```python title="ground.py"
+@torch.no_grad()
+def locate(detector, image, text_query, box_threshold=0.35):
+    """Open-vocabulary detection: the output a manipulation stack can consume.
+
+    Do NOT ask a generative VLM to describe the scene and parse coordinates
+    out of prose — that is the problem you were trying to solve, reintroduced
+    with a fluent-but-wrong failure mode.
+    """
+    outputs = detector(images=image, text=[[text_query]])
+    boxes, scores = outputs["boxes"], outputs["scores"]
+    keep = scores > box_threshold
+    return boxes[keep], scores[keep]
+
+
+def target_point(rgb, depth, intrinsics, box):
+    """Semantics from the VLM, geometry from the sensor. The VLM decides WHAT;
+    depth and camera intrinsics decide WHERE."""
+    cx, cy = int((box[0] + box[2]) / 2), int((box[1] + box[3]) / 2)
+    z = median_depth_in_box(depth, box)              # median: robust to holes
+    fx, fy, px, py = intrinsics
+    return ((cx - px) * z / fx, (cy - py) * z / fy, z)
+```
+
+</CodeWalk>
+
+<KeyIdea>
+That last function is the division of labour that makes VLMs useful in robotics.
+The model contributes open-vocabulary semantics — which pixels are "the blue
+mug" — and the metric answer comes from depth and calibration, where it is
+actually reliable. Asking the VLM for the distance instead gets you a fluent
+number with no grounding behind it.
+</KeyIdea>
+
+## Checks worth running
+
+<Steps>
+<Step title="Test relational instructions in both orders">
+Query "the mug left of the box" and "the box left of the mug" on the same image.
+If the outputs are nearly identical, your model is bag-of-words on this input and
+any relational instruction is unsafe.
+</Step>
+
+<Step title="Include a decoy">
+Run zero-shot classification on an image containing none of your classes. If it
+returns a confident answer, you need a background prompt or a threshold before
+this goes near an actuator.
+</Step>
+
+<Step title="Check localisation actually survives">
+For query-bottleneck architectures, verify fine spatial discrimination directly.
+Thirty-two learned queries over a 576-patch image discard a great deal, and the
+prose stays fluent regardless.
+</Step>
+</Steps>

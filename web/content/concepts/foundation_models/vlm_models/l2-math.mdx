@@ -1,21 +1,216 @@
 ---
 concept: vlm_models
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Vision-Language Models (VLMs), including
-    the key equations.
+  prompt: "Write the CLIP contrastive objective and explain what it does and does not force the model to learn. Then explain how a generative VLM attaches vision to a language model."
   keyPoints:
-    - Models that jointly process images and text, enabling tasks like visual
-      question answering, image captioning, and visual reasoning.
-    - "Architecture: vision encoder $f_\\text{vis}$ (ViT/CLIP) $\\rightarrow$
-      projection layer $W_p$ $\\rightarrow$ language model $f_\\text{LM}$."
-    - The visual tokens $\mathbf{z} = W_p \cdot f_\text{vis}(I)$ are
-      concatenated with text tokens and processed autoregressively.
-check: []
-papers: []
+    - "InfoNCE over a batch: a symmetric cross-entropy on the $N\\times N$ image-text similarity matrix, scaled by a learned temperature. The batch supplies the negatives, which is why batch size is a capability parameter."
+    - "The objective only requires that the correct pair outscore the other $N-1$ in the batch. If bag-of-words matching achieves that, word order is never forced to matter."
+    - "SigLIP replaces the softmax with an independent sigmoid per pair, decoupling the loss from batch size and removing the all-gather."
+    - "Generative VLMs project vision-encoder outputs into the LLM's token space — a linear or MLP adapter (LLaVA), learned query tokens (BLIP-2's Q-Former), or gated cross-attention (Flamingo)."
+check:
+  - id: vlm_l2_c1
+    prompt: "Why is batch size unusually important when training a CLIP-style model?"
+    options:
+      - "Larger batches reduce gradient noise, as in any model"
+      - "The batch *is* the negative set: the softmax is over the $N$ texts in the batch, so a larger $N$ poses a harder discrimination problem and forces finer distinctions — batch size directly sets the difficulty of the task"
+      - "Because the temperature must be recomputed per batch"
+      - "Because image and text encoders must be synchronised"
+    answer: 1
+    explanation: "In supervised training, batch size affects gradient variance and nothing about the objective. In contrastive training it defines the task: with $N = 8$ the model only has to beat seven distractors, which coarse features achieve; with $N = 32{,}768$ it must separate a caption from thousands of plausible alternatives. This is why CLIP-family training uses very large batches gathered across many devices, and why SigLIP's decoupling of loss from batch size was a practically significant change."
+  - id: vlm_l2_c2
+    prompt: "What does the contrastive objective fail to force the model to learn, and why?"
+    options:
+      - "Object categories, since captions are noisy"
+      - "Compositional structure — word order and relations — because the correct pair only has to outscore the in-batch negatives, and bag-of-words matching usually suffices for that, so nothing penalises confusing 'A left of B' with 'B left of A'"
+      - "Colour, since it varies with lighting"
+      - "Anything about text, since the text encoder is frozen"
+    answer: 1
+    explanation: "The objective is a discrimination task, so the model learns exactly enough structure to win it. Random in-batch negatives almost never differ from the correct caption only by word order, so the cheapest solution — match the content words — is already optimal. The remedy in the bag-of-words paper is to add hard negatives constructed by shuffling the caption's word order, which makes ordering the *only* discriminating signal and therefore forces the model to encode it."
+  - id: vlm_l2_c3
+    prompt: "In a LLaVA-style VLM, what does the adapter between the vision encoder and the LLM actually have to accomplish?"
+    options:
+      - "Compress the image into a single embedding"
+      - "Map vision features into the LLM's *token embedding space*, so that the projected patches behave like word embeddings the frozen language model can already attend over and reason about"
+      - "Translate image features into English"
+      - "Normalise the image features to unit norm"
+    answer: 1
+    explanation: "The LLM is a fixed function over sequences of $d$-dimensional token embeddings and knows nothing about pixels. The adapter's job is a change of coordinates into that space, and the surprising empirical finding behind LLaVA is that a small MLP suffices — the language model's existing machinery does the reasoning once the vision features are expressed in a form it can read. Option 1 describes the bottleneck this design specifically avoids; keeping many patch tokens is what preserves spatial detail."
 ---
 
-## Formal definition
+## The contrastive objective
 
-Models that jointly process images and text, enabling tasks like visual question answering, image captioning, and visual reasoning. Architecture: vision encoder $f_\text{vis}$ (ViT/CLIP) $\rightarrow$ projection layer $W_p$ $\rightarrow$ language model $f_\text{LM}$. The visual tokens $\mathbf{z} = W_p \cdot f_\text{vis}(I)$ are concatenated with text tokens and processed autoregressively. Examples: GPT-4V, Claude Vision, LLaVA, Gemini. Training: often a two-stage approach — (1) pre-train projection on image-caption pairs, (2) instruction-tune end-to-end.
+Given a batch of $N$ image-text pairs, encode both sides and $\ell_2$-normalise:
+
+$$
+u_i = \frac{f_{\text{img}}(x_i)}{\|f_{\text{img}}(x_i)\|},
+\qquad
+v_j = \frac{f_{\text{txt}}(t_j)}{\|f_{\text{txt}}(t_j)\|}
+$$
+
+Form the $N\times N$ similarity matrix $S_{ij} = u_i^\top v_j / \tau$ with a
+learned temperature $\tau$, and treat each row and each column as an
+$N$-way classification whose correct answer is the diagonal:
+
+$$
+\mathcal{L} = \tfrac{1}{2}\Big(
+\underbrace{\tfrac{1}{N}\textstyle\sum_i -\log\frac{\exp S_{ii}}{\sum_j \exp S_{ij}}}_{\text{image}\to\text{text}}
++
+\underbrace{\tfrac{1}{N}\textstyle\sum_j -\log\frac{\exp S_{jj}}{\sum_i \exp S_{ij}}}_{\text{text}\to\text{image}}
+\Big)
+$$
+
+<Derivation title="Why the batch size is a capability parameter">
+
+The denominator ranges over the batch, so the batch *supplies the negatives*.
+With batch size $N$, the model must make the true caption outscore $N-1$
+alternatives.
+
+**At $N = 8$**, seven random distractors are almost always about a completely
+different subject. Separating "a dog on a beach" from seven unrelated captions
+needs only coarse subject-level features.
+
+**At $N = 32{,}768$**, thousands of captions describe similar scenes, and
+winning requires distinguishing this dog on this beach from many others.
+
+So $N$ sets the *difficulty of the task*, not merely the gradient noise. This is
+qualitatively unlike supervised training, and it is why CLIP-family runs use
+very large batches gathered across devices.
+
+**The assumption doing the work is that in-batch negatives are informative.**
+They are drawn at random, so they are almost never a near-miss — which sets up
+exactly the failure in the next derivation.
+
+</Derivation>
+
+## What the objective does *not* require
+
+<Derivation title="Where compositionality is lost">
+
+The loss is satisfied when
+
+$$
+u_i^\top v_i \;>\; u_i^\top v_j \quad \text{for all } j \ne i \text{ in the batch}
+$$
+
+Consider the true caption "the mug to the left of the box" and a random
+in-batch negative, "a bicycle leaning on a fence". A representation that encodes
+only the *content words* — mug, box — already separates them by a wide margin.
+
+Now consider the hypothetical negative "the box to the left of the mug". It has
+the identical content words and differs only in order. Under random batching,
+such a negative essentially never appears — so the objective never applies
+pressure to distinguish them, and a bag-of-words representation remains optimal.
+
+**Consequence.** The model can score "A left of B" and "B left of A" almost
+identically, and this is not a capacity failure — it is the objective getting
+exactly what it asked for. For a language-conditioned policy, where relational
+instructions are the point, it is a direct hazard.
+
+**The fix follows from the derivation.** Construct hard negatives by permuting
+the caption's word order and include them explicitly, so ordering becomes the
+*only* discriminating signal for that pair.
+
+</Derivation>
+
+<KeyIdea>
+Read every self-supervised objective this way: not "what could the model learn?"
+but "what is the cheapest representation that wins this game?" Contrastive
+learning with random negatives makes bag-of-words optimal, so that is what you
+get. The same reasoning explains why metric geometry is absent — no caption
+pairing ever required it.
+</KeyIdea>
+
+## The sigmoid alternative
+
+SigLIP replaces the row-and-column softmax with an independent binary
+classification per pair:
+
+$$
+\mathcal{L} = -\frac{1}{N}\sum_{i}\sum_{j}
+\log \sigma\!\Big(z_{ij}\big(t\, u_i^\top v_j + b\big)\Big),
+\qquad z_{ij} = \begin{cases} +1 & i = j\\ -1 & i \ne j\end{cases}
+$$
+
+with learnable scale $t$ and bias $b$.
+
+<Steps>
+<Step title="What it changes">
+No normalisation across the batch, so the loss decomposes pair by pair. Training
+no longer needs a global all-gather of every embedding, and the objective is no
+longer coupled to $N$.
+</Step>
+
+<Step title="Why the bias term is needed">
+With $N^2$ pairs of which only $N$ are positive, the labels are heavily
+imbalanced — at $N = 16{,}384$ that is roughly 16,000:1. Initialising $b$
+strongly negative starts the model near the correct prior instead of letting the
+negatives dominate the early gradient.
+</Step>
+</Steps>
+
+## Attaching vision to a language model
+
+A generative VLM must express image content in a form a language model can read.
+The LLM is a fixed function over sequences of $d$-dimensional token embeddings,
+so the whole problem is a change of coordinates into that space.
+
+$$
+\text{tokens} = \big[\,g_\phi(f_{\text{img}}(x))\,;\; \text{embed}(t)\,\big]
+\qquad
+g_\phi: \mathbb{R}^{n_p \times d_v} \to \mathbb{R}^{n_p \times d}
+$$
+
+<Steps>
+<Step title="Linear or MLP projection (LLaVA)">
+$g_\phi$ is a two-layer MLP applied per patch. The striking empirical result is
+that this is enough: the language model's existing machinery does the reasoning
+once the vision features are expressed in its coordinates. Cost is $n_p$ extra
+tokens, and attention is quadratic in the total.
+</Step>
+
+<Step title="Learned query tokens (BLIP-2's Q-Former)">
+A small transformer with $k \ll n_p$ learned queries cross-attends over the
+patches and emits $k$ tokens. Fixed cost regardless of image resolution, at the
+price of a bottleneck — anything the $k$ queries did not retrieve is gone.
+</Step>
+<Step title="Gated cross-attention (Flamingo)">
+Insert cross-attention layers into a frozen LLM, gated by a `tanh` initialised
+at zero so the model starts exactly as the original language model and learns
+its way into using vision. The text stream never lengthens, so long contexts stay
+affordable.
+</Step>
+</Steps>
+
+<Warning>
+The three differ in where the information bottleneck sits, and that determines
+what survives. Per-patch projection keeps the most spatial detail and costs the
+most tokens; a query bottleneck is cheap and discards whatever the queries did
+not ask for. If your downstream task needs fine spatial discrimination, a
+$k = 32$ query bottleneck over a 576-patch image is throwing away precisely what
+you need — and it will still produce fluent answers.
+</Warning>
+
+## Turning a scorer into a detector
+
+Open-vocabulary detection is what makes any of this usable for manipulation, and
+the construction is simple: keep per-patch features rather than pooling, and
+score each candidate region against the text embedding.
+
+$$
+\text{score}(\text{box}_r, \text{text}) = \frac{\phi(z_r)^\top v_{\text{text}}}
+{\|\phi(z_r)\|\,\|v_{\text{text}}\|}
+$$
+
+where $z_r$ is the ViT output token for region $r$ and $\phi$ a learned
+projection into the text space. Each token also predicts a box offset, so the
+model outputs coordinates with an open-vocabulary label.
+
+<KeyIdea>
+The move is to keep the alignment CLIP learned but *not* pool it away. Pooling
+to one embedding per image discards localisation; keeping per-token embeddings
+retains it, and the same contrastive alignment then works per region. That one
+change is what converts a similarity score into an interface a grasp planner can
+consume.
+</KeyIdea>
