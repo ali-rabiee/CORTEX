@@ -1,0 +1,217 @@
+---
+concept: cross_entropy_loss
+level: 3
+status: final
+recall:
+  prompt: "Implement stable cross-entropy, label smoothing, and calibration measurement. What are the API traps?"
+  keyPoints:
+    - "`F.cross_entropy` takes **logits**, not probabilities. Passing softmax output double-applies it and discards the stabilisation — it trains, badly."
+    - "Implement the loss with log-sum-exp: subtract the row maximum, and never form the probability vector."
+    - "Measure calibration with expected calibration error, and fix it with a single temperature fitted on held-out data — it cannot change the argmax, so accuracy is untouched."
+    - "For imbalance, distinguish class weighting (rare classes matter more) from difficulty weighting (easy examples matter less); they address different problems."
+check:
+  - id: ce_l3_c1
+    prompt: "You pass `softmax(logits)` into `F.cross_entropy`. What happens?"
+    options:
+      - "A shape error"
+      - "It trains, badly: the softmax is applied twice, so the effective logits are compressed into $[0,1]$ and the resulting distribution is nearly uniform — gradients are tiny and the model learns very slowly with no error raised"
+      - "The loss becomes negative"
+      - "Nothing; the function detects probabilities automatically"
+    answer: 1
+    explanation: "The silence is what makes it expensive. Probabilities in $[0,1]$ are valid inputs to a softmax, so nothing errors — but logits spanning a unit interval produce a near-uniform distribution, so the loss sits near $\\log K$ and barely moves. The symptom is a model that trains suspiciously slowly with a loss stuck near its initial value, and the fix is one line. This is why the API takes logits by name and why fused implementations exist."
+  - id: ce_l3_c2
+    prompt: "Why can temperature scaling improve calibration without changing accuracy?"
+    options:
+      - "Because it is fitted on the test set"
+      - "Because dividing all logits by a positive constant preserves their ordering, so the argmax is unchanged — only the spread of the probabilities moves"
+      - "Because it only affects low-confidence predictions"
+      - "Because it changes the loss but not the model"
+    answer: 1
+    explanation: "Monotonicity is the whole reason it is safe to apply. $z_i/T > z_j/T$ if and only if $z_i > z_j$ for $T > 0$, so every prediction is identical and only the confidence changes. That also bounds what it can do: it is one global parameter, so it corrects a systematic over- or under-confidence and cannot fix miscalibration that varies across the input space. It must be fitted on held-out data — fitting it on the test set is measuring your own correction."
+  - id: ce_l3_c3
+    prompt: "In a detection problem with 99% easy background, would you use class weighting or difficulty down-weighting?"
+    options:
+      - "Class weighting, since the imbalance is by class"
+      - "Difficulty down-weighting is usually closer to the problem: the loss is dominated by easy negatives the model already handles, and $(1-p)^\\gamma$ suppresses those by orders of magnitude while leaving hard examples of either class intact"
+      - "Neither; resample the dataset instead"
+      - "Both together, always"
+    answer: 1
+    explanation: "The distinction is what the imbalance actually is. Class weighting says rare classes matter more, and does nothing about the fact that most background examples are trivially easy — you would still be summing millions of near-zero-loss terms. Difficulty weighting attacks that directly: at $\\gamma = 2$, an example predicted at $p = 0.99$ contributes $10^{-4}$ of its usual weight. Applying both without thought produces a loss dominated by rare *and* hard examples, which in practice is often the label noise."
+---
+
+## The loss, computed stably
+
+<CodeWalk title="Log-sum-exp, and never forming the probabilities">
+
+```python title="cross_entropy.py"
+import torch
+
+def cross_entropy_from_logits(logits, targets, label_smoothing=0.0):
+    """logits: (B, K). targets: (B,) integer class indices.
+
+    Never forms the probability vector: exponentiating large logits overflows,
+    and taking the log of an underflowed probability gives -inf. The softmax
+    is shift-invariant, so subtracting the row max is free and makes every
+    exponent non-positive.
+    """
+    z_max = logits.max(dim=-1, keepdim=True).values
+    shifted = logits - z_max                              # exponents now <= 0
+    logsumexp = shifted.exp().sum(dim=-1).log() + z_max.squeeze(-1)
+    log_probs = logits - logsumexp.unsqueeze(-1)          # (B, K)
+
+    K = logits.shape[-1]
+    nll = -log_probs.gather(1, targets.unsqueeze(1)).squeeze(1)
+    if label_smoothing == 0.0:
+        return nll.mean()
+
+    # Smoothed target: (1-eps) on the true class, eps/K spread over all.
+    smooth = -log_probs.mean(dim=-1)
+    return ((1 - label_smoothing) * nll + label_smoothing * smooth).mean()
+```
+
+</CodeWalk>
+
+<Warning>
+`F.cross_entropy` takes **logits**. Passing `softmax(logits)` applies it twice:
+probabilities in $[0,1]$ are valid softmax inputs, so nothing errors, but logits
+spanning a unit interval produce a near-uniform distribution. The loss sits near
+$\log K$ and barely moves, and the symptom is a model that trains suspiciously
+slowly with no indication of why.
+</Warning>
+
+## Class weighting versus difficulty weighting
+
+```python title="imbalance.py"
+def weighted_ce(logits, targets, class_weights):
+    """Rare classes matter more. Does nothing about easy vs hard WITHIN a
+    class, which with extreme imbalance is usually the larger problem —
+    millions of trivially-easy negatives still dominate the sum."""
+    return torch.nn.functional.cross_entropy(logits, targets, weight=class_weights)
+
+
+def focal_ce(logits, targets, gamma=2.0, alpha=None):
+    """Easy examples matter less. An example already predicted at p=0.99
+    contributes (1-0.99)^2 = 1e-4 of its usual weight; a hard one at p=0.1
+    keeps 0.81 of it.
+
+    Different problem from class weighting — combining both without thought
+    gives a loss dominated by rare AND hard examples, which is often the
+    label noise.
+    """
+    logp = torch.nn.functional.log_softmax(logits, dim=-1)
+    logp_t = logp.gather(1, targets.unsqueeze(1)).squeeze(1)
+    p_t = logp_t.exp()
+
+    loss = -((1 - p_t) ** gamma) * logp_t
+    if alpha is not None:
+        loss = alpha[targets] * loss
+    return loss.mean()
+```
+
+## Measuring and fixing calibration
+
+<CodeWalk title="Expected calibration error, and temperature scaling">
+
+```python title="calibration.py"
+@torch.no_grad()
+def expected_calibration_error(logits, targets, n_bins=15):
+    """Bin by confidence, compare accuracy against confidence within each bin.
+    A well-trained modern network is systematically overconfident, and the gap
+    is invisible in the accuracy number."""
+    probs = logits.softmax(dim=-1)
+    conf, pred = probs.max(dim=-1)
+    correct = pred.eq(targets).float()
+
+    edges = torch.linspace(0, 1, n_bins + 1, device=logits.device)
+    ece, rows = 0.0, []
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        m = (conf > lo) & (conf <= hi)
+        if m.sum() == 0:
+            continue
+        acc_b, conf_b, frac = correct[m].mean(), conf[m].mean(), m.float().mean()
+        ece += (frac * (acc_b - conf_b).abs()).item()
+        rows.append({"bin": (lo.item(), hi.item()), "n": int(m.sum()),
+                     "acc": acc_b.item(), "conf": conf_b.item()})
+    return ece, rows
+
+
+class TemperatureScaler(torch.nn.Module):
+    """One parameter, fitted on HELD-OUT data. Dividing all logits by T > 0
+    preserves their ordering, so the argmax and therefore the accuracy are
+    unchanged — only the spread of the probabilities moves.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.log_T = torch.nn.Parameter(torch.zeros(()))
+
+    def forward(self, logits):
+        return logits / self.log_T.exp()
+
+    def fit(self, val_logits, val_targets, steps=200):
+        opt = torch.optim.LBFGS([self.log_T], lr=0.1, max_iter=steps)
+        def closure():
+            opt.zero_grad()
+            loss = torch.nn.functional.cross_entropy(self(val_logits), val_targets)
+            loss.backward()
+            return loss
+        opt.step(closure)
+        return self.log_T.exp().item()
+```
+
+</CodeWalk>
+
+<KeyIdea>
+Fit the temperature on a validation split, never on test. And note what it cannot
+do: one global parameter corrects a systematic over- or under-confidence and
+cannot fix miscalibration that varies across the input space. That it works as
+well as it does tells you the problem is a uniform scale issue rather than a
+per-example one.
+</KeyIdea>
+
+## Sanity checks
+
+```python title="checks.py"
+def sanity(logits, targets, n_classes):
+    """Three checks that catch most loss-layer bugs in one function."""
+    ce = torch.nn.functional.cross_entropy(logits, targets)
+    out = {}
+
+    # 1. Initial loss should be ~log(K) for a random model. Much lower means
+    #    something is leaking; much higher means the logits are mis-scaled.
+    out["loss"] = ce.item()
+    out["expected_at_init"] = math.log(n_classes)
+
+    # 2. Gradient w.r.t. logits should be exactly p - y.
+    z = logits.detach().requires_grad_(True)
+    torch.nn.functional.cross_entropy(z, targets).backward()
+    p = z.softmax(-1)
+    y = torch.nn.functional.one_hot(targets, n_classes).float()
+    out["grad_matches_p_minus_y"] = torch.allclose(
+        z.grad * len(targets), p - y, atol=1e-5)
+
+    # 3. Logit magnitude. Very large means overconfidence is setting in —
+    #    the loss is minimised only as the correct logit goes to infinity.
+    out["max_abs_logit"] = logits.abs().max().item()
+    return out
+```
+
+<Steps>
+<Step title="Loss stuck near $\log K$ → the model is not learning, or you double-softmaxed">
+$\log 1000 = 6.9$. A loss sitting there after real training usually means
+probabilities were passed where logits were expected.
+</Step>
+
+<Step title="Loss far below $\log K$ at step zero → label leakage or a shape bug">
+A randomly initialised model cannot beat chance. Check the target alignment.
+</Step>
+
+<Step title="Accuracy fine, downstream decisions poor → calibration">
+Measure ECE, not accuracy. Fit a temperature on held-out data.
+</Step>
+
+<Step title="Logits growing without bound → expected, and label smoothing caps it">
+The unsmoothed optimum is at infinity. If the probabilities are used
+downstream, that matters.
+</Step>
+</Steps>

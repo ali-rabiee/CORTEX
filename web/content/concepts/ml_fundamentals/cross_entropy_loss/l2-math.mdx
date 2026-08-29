@@ -1,27 +1,243 @@
 ---
 concept: cross_entropy_loss
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Cross-Entropy Loss —
-    Information-Theoretic Classification Objective, including the key equations.
+  prompt: "Derive $\\partial\\mathcal{L}/\\partial z = p - y$, the log-sum-exp stabilisation, and what label smoothing does to the optimal logits."
   keyPoints:
-    - "Cross-entropy between true distribution $y$ and predicted distribution
-      $\\hat{y}$ measures the expected number of extra bits needed when using
-      $\\hat{y}$ instead of $y$: $$H(y, \\hat{y}) = -\\sum_{i=1}^{C} y_i \\log
-      \\hat{y}_i$$ For classification with one-hot labels, this reduces to $L =
-      -\\log \\hat{y}_c$ where $c$ is the true class."
-    - "When combined with softmax: $\\hat{y}_i = e^{z_i} / \\sum_j e^{z_j}$, the
-      gradient with respect to logits is simply $\\frac{\\partial L}{\\partial
-      z_i} = \\hat{y}_i - y_i$ — numerically stable and efficient."
-    - "Cross-entropy equals KL divergence plus the entropy of $y$: $H(y,
-      \\hat{y}) = D_{\\text{KL}}(y \\| \\hat{y}) + H(y)$, so minimizing
-      cross-entropy is equivalent to minimizing KL divergence when $H(y)$ is
-      constant."
-check: []
-papers: []
+    - "The softmax Jacobian is $\\partial p_i/\\partial z_j = p_i(\\delta_{ij} - p_j)$; composed with $-\\log p_{y}$ it collapses to $p - y$, and the cancellation is why the two are paired."
+    - "$\\log\\sum_j e^{z_j} = c + \\log\\sum_j e^{z_j - c}$ for any $c$; taking $c = \\max_j z_j$ makes every exponent non-positive, so nothing overflows."
+    - "Without smoothing the loss is minimised only as the correct logit tends to infinity — the optimum is at the boundary, which is the mechanism behind overconfidence."
+    - "With smoothing $\\varepsilon$, the optimum is finite: the correct logit exceeds the others by $\\log\\frac{(1-\\varepsilon)(K-1)}{\\varepsilon}$."
+check:
+  - id: ce_l2_c1
+    prompt: "Where does the simplicity of $\\partial\\mathcal{L}/\\partial z = p - y$ come from?"
+    options:
+      - "It is an approximation valid near the optimum"
+      - "The softmax Jacobian $p_i(\\delta_{ij} - p_j)$ contains a factor of $p_i$, and the derivative of $-\\log p_{y}$ contributes $-1/p_{y}$ — the two cancel exactly, leaving only the $\\delta_{ij} - p_j$ structure"
+      - "It holds only for two classes"
+      - "Because the softmax is its own derivative"
+    answer: 1
+    explanation: "The $1/p$ from the logarithm and the $p$ from the softmax Jacobian annihilate, and what survives is $p_j - y_j$. It is exact for any number of classes and any logits — not an approximation. This is also why the pairing is not arbitrary: a softmax with squared error keeps the $p_i$ factor and inherits saturation, while a logarithm with a different output nonlinearity leaves a $1/p$ that blows up. Each fixes the other's pathology."
+  - id: ce_l2_c2
+    prompt: "Why does subtracting the maximum logit before exponentiating leave the result unchanged?"
+    options:
+      - "It changes the result slightly but improves stability"
+      - "Because softmax is invariant to adding a constant to every logit: $e^{z_i - c}/\\sum_j e^{z_j - c} = e^{z_i}/\\sum_j e^{z_j}$, the $e^{-c}$ cancelling top and bottom — so choosing $c = \\max z$ is free and makes every exponent non-positive"
+      - "Because the maximum logit dominates the sum anyway"
+      - "Because the logits are normalised beforehand"
+    answer: 1
+    explanation: "Shift invariance is a genuine property of the softmax, not an approximation, so the stabilisation costs nothing in accuracy. With $c = \\max_j z_j$ every exponent is at most zero, so $e^{z_i - c} \\in (0, 1]$ and overflow is impossible; the largest term is exactly 1, so the sum cannot underflow either. It is worth knowing because it means numerical failures in a softmax are always an implementation error rather than an inherent difficulty."
+  - id: ce_l2_c3
+    prompt: "What does label smoothing change about the loss's optimum?"
+    options:
+      - "It adds a penalty on the weights"
+      - "It moves the optimum from the boundary to the interior: without smoothing the loss decreases monotonically as the correct logit grows, so the optimum is at infinity; with smoothing the target is non-degenerate and the optimal logit gap is finite"
+      - "It reduces the learning rate for confident predictions"
+      - "It changes the gradient's direction"
+    answer: 1
+    explanation: "This is the mechanism, and it explains both effects people observe. A one-hot target can only be matched exactly in the limit, so a well-fitted model keeps pushing logits apart indefinitely, which produces the overconfidence. Smoothing sets a finite target ratio, so there is a finite optimal logit gap of $\\log\\frac{(1-\\varepsilon)(K-1)}{\\varepsilon}$ and the model stops. Better calibration follows directly; the tighter class clusters that hurt distillation follow from the same fixed target geometry."
 ---
 
-## Formal definition
+## The loss
 
-Cross-entropy between true distribution $y$ and predicted distribution $\hat{y}$ measures the expected number of extra bits needed when using $\hat{y}$ instead of $y$: $$H(y, \hat{y}) = -\sum_{i=1}^{C} y_i \log \hat{y}_i$$ For classification with one-hot labels, this reduces to $L = -\log \hat{y}_c$ where $c$ is the true class. When combined with softmax: $\hat{y}_i = e^{z_i} / \sum_j e^{z_j}$, the gradient with respect to logits is simply $\frac{\partial L}{\partial z_i} = \hat{y}_i - y_i$ — numerically stable and efficient. Cross-entropy equals KL divergence plus the entropy of $y$: $H(y, \hat{y}) = D_{\text{KL}}(y \| \hat{y}) + H(y)$, so minimizing cross-entropy is equivalent to minimizing KL divergence when $H(y)$ is constant.
+For logits $z \in \mathbb{R}^K$, softmax probabilities $p$, and a target
+distribution $q$:
+
+$$
+p_i = \frac{e^{z_i}}{\sum_j e^{z_j}},
+\qquad
+\mathcal{L} = -\sum_i q_i \log p_i
+$$
+
+With a one-hot $q$ this is $-\log p_{y^\star}$.
+
+<Derivation title="The gradient, and why the pairing is not arbitrary">
+
+**Step 1 — the softmax Jacobian.** Differentiate
+$p_i = e^{z_i}/\sum_j e^{z_j}$:
+
+$$
+\frac{\partial p_i}{\partial z_j} = p_i\big(\delta_{ij} - p_j\big)
+$$
+
+**Step 2 — the loss derivative.** With $\mathcal{L} = -\sum_i q_i\log p_i$:
+
+$$
+\frac{\partial\mathcal{L}}{\partial z_j}
+= -\sum_i \frac{q_i}{p_i}\,\frac{\partial p_i}{\partial z_j}
+= -\sum_i \frac{q_i}{p_i}\,p_i\big(\delta_{ij} - p_j\big)
+$$
+
+**Step 3 — watch the cancellation.** The $p_i$ from the Jacobian annihilates the
+$1/p_i$ from the logarithm:
+
+$$
+= -\sum_i q_i\big(\delta_{ij} - p_j\big)
+= -q_j + p_j\sum_i q_i
+= p_j - q_j
+$$
+
+using $\sum_i q_i = 1$. So
+
+$$
+\boxed{\;\frac{\partial\mathcal{L}}{\partial z} = p - q\;}
+$$
+
+**Why this makes the pairing necessary.** Each function has a pathology the other
+removes. A softmax with squared error keeps the $p_i(1-p_i)$ factor and inherits
+saturation. A logarithm with a different output nonlinearity leaves a $1/p$ that
+diverges as the prediction gets small. Composed, they produce something bounded
+by 1, exactly zero when correct, and maximal when maximally wrong.
+
+</Derivation>
+
+<Derivation title="What squared error would give, with numbers">
+
+For a binary problem with $\hat p = \sigma(z)$ and target $y$:
+
+$$
+\mathcal{L}_{\text{MSE}} = (\sigma(z) - y)^2,
+\qquad
+\frac{\partial\mathcal{L}}{\partial z} = 2(\sigma(z)-y)\,\underbrace{\sigma(z)\big(1-\sigma(z)\big)}_{\sigma'(z)}
+$$
+
+The extra factor $\sigma'$ vanishes exponentially in $|z|$. For $y = 1$ and a
+confidently wrong prediction:
+
+| $z$ | $\sigma(z)$ | CE gradient | MSE gradient | ratio |
+| --- | --- | --- | --- | --- |
+| $-2$ | $1.2\times10^{-1}$ | $-0.881$ | $-1.9\times10^{-1}$ | 4.8x |
+| $-4$ | $1.8\times10^{-2}$ | $-0.982$ | $-3.5\times10^{-2}$ | 28x |
+| $-6$ | $2.5\times10^{-3}$ | $-0.998$ | $-4.9\times10^{-3}$ | 203x |
+| $-10$ | $4.5\times10^{-5}$ | $-1.000$ | $-9.1\times10^{-5}$ | 11,014x |
+
+**The direction of the failure is what disqualifies it.** Squared error corrects
+a confidently wrong prediction *least*, and the effect grows with how wrong the
+model is. A model that has committed to a wrong answer is nearly stuck.
+
+</Derivation>
+
+## Numerical stability
+
+<Derivation title="Log-sum-exp, and why it is free">
+
+The softmax is invariant to a constant shift of all logits:
+
+$$
+\frac{e^{z_i - c}}{\sum_j e^{z_j - c}} = \frac{e^{-c}e^{z_i}}{e^{-c}\sum_j e^{z_j}} = \frac{e^{z_i}}{\sum_j e^{z_j}}
+$$
+
+so subtracting any $c$ costs nothing. Taking $c = \max_j z_j$:
+
+$$
+\log\sum_j e^{z_j} = c + \log\sum_j e^{z_j - c}
+$$
+
+Every exponent is now at most zero, so each term is in $(0,1]$ and overflow is
+impossible; the largest is exactly 1, so the sum cannot underflow either.
+
+**The fused loss.** Combining with the definition,
+
+$$
+\mathcal{L} = -z_{y} + \log\sum_j e^{z_j} = -z_{y} + c + \log\sum_j e^{z_j - c}
+$$
+
+which never forms $p$ at all.
+
+**Practical consequence.** A numerical failure in a softmax is always an
+implementation error, never an inherent difficulty — and passing already-softmaxed
+probabilities into a function expecting logits both double-applies the softmax
+and discards this stabilisation.
+
+</Derivation>
+
+## Label smoothing
+
+Replace the one-hot target with
+
+$$
+q_i = (1-\varepsilon)\,\delta_{i,y^\star} + \frac{\varepsilon}{K}
+$$
+
+<Derivation title="Why the optimum moves off the boundary">
+
+**Without smoothing.** $\mathcal{L} = -\log p_{y^\star}$ decreases monotonically
+as $p_{y^\star} \to 1$, which requires $z_{y^\star} - z_j \to \infty$. The
+infimum is not attained: the optimum is at the boundary, so a well-fitted model
+keeps pushing logits apart without limit.
+
+**That is the overconfidence mechanism.** Nothing in the objective ever says
+"confident enough".
+
+**With smoothing.** Set $\partial\mathcal{L}/\partial z = p - q = 0$, so the
+optimum is $p = q$ exactly. For the correct class and any other:
+
+$$
+\frac{p_{y^\star}}{p_j} = \frac{1-\varepsilon + \varepsilon/K}{\varepsilon/K}
+\quad\Longrightarrow\quad
+z_{y^\star} - z_j = \log\frac{(1-\varepsilon)(K-1)}{\varepsilon}
+$$
+
+approximating for small $\varepsilon$. A **finite** optimal gap — at
+$\varepsilon = 0.1$ and $K = 1000$, about $\log 8991 \approx 9.1$.
+
+**Both observed effects follow.** Calibration improves because logits stop
+growing without bound. And representations form tighter class clusters, because
+every example of a class is pulled toward the *same* finite logit configuration
+rather than being pushed outward indefinitely — which is also why smoothing hurts
+distillation, since the compressed clusters carry less of the inter-class
+similarity information a student learns from.
+
+</Derivation>
+
+## Imbalance
+
+With $99\%$ negatives, the summed loss is dominated by easy examples. Two
+standard responses, targeting different things.
+
+<Steps>
+<Step title="Class weighting">
+$\mathcal{L} = -\sum_i w_{y_i}\log p_{y_i}$ with $w$ inversely proportional to
+frequency. Rebalances by *class*, and does nothing about easy versus hard within
+a class.
+</Step>
+
+<Step title="Down-weighting confident examples">
+Multiply each term by $(1 - p_{y})^\gamma$. An example already predicted at
+$p = 0.99$ contributes $10^{-4}$ of its usual weight at $\gamma = 2$, while a
+hard one at $p = 0.1$ keeps most of it. Rebalances by *difficulty*, which is
+usually the more direct problem in dense detection.
+</Step>
+</Steps>
+
+<Warning>
+These are not interchangeable. Class weighting says "rare classes matter more";
+difficulty weighting says "examples I already get right matter less". With
+extreme imbalance the second is usually closer to the real problem, because the
+overwhelming majority of easy negatives is what drowns the signal — and combining
+both without thinking produces a loss dominated by rare *and* hard examples,
+which is often just the label noise.
+</Warning>
+
+## Calibration
+
+Minimising cross-entropy well does not produce calibrated probabilities. A
+network can be highly accurate and systematically overconfident, and the gap
+widened as networks grew.
+
+$$
+\text{ECE} = \sum_{b} \frac{|B_b|}{n}\,\Big|\operatorname{acc}(B_b) - \operatorname{conf}(B_b)\Big|
+$$
+
+bins predictions by confidence and measures the average gap between confidence
+and accuracy within each bin.
+
+<KeyIdea>
+The standard fix is a single parameter: divide the logits by a temperature $T$
+fitted on held-out data. It cannot change the argmax — dividing all logits by a
+positive constant preserves their order — so accuracy is untouched and only the
+probabilities move. That a one-parameter post-hoc rescaling fixes most of the
+miscalibration says the problem is a systematic scale issue rather than a
+per-example one, which is itself informative about what training does to logits.
+</KeyIdea>

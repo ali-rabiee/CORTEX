@@ -1,0 +1,198 @@
+---
+concept: cross_entropy_loss
+level: 4
+status: final
+recall:
+  prompt: "What has been learned about cross-entropy's shortcomings, and which fixes address which?"
+  keyPoints:
+    - "Label smoothing (2016) was introduced as a regulariser; its mechanism is moving the optimum off the boundary, and the effects on calibration and representation geometry were characterised later."
+    - "Guo et al. (2017) showed modern networks are systematically overconfident and that the gap grew with capacity — accuracy and calibration diverged."
+    - "Focal loss (2017) reweights by difficulty rather than by class, which is the right axis when the imbalance is dominated by easy negatives."
+    - "Müller et al. (2019) found label smoothing helps calibration and *hurts* distillation, because the tighter class clusters discard the inter-class similarity a student learns from."
+papers:
+  - key: szegedy2016labelsmoothing
+    title: "Rethinking the Inception Architecture for Computer Vision"
+    authors: "Christian Szegedy, Vincent Vanhoucke, Sergey Ioffe, Jonathon Shlens, Zbigniew Wojna"
+    venue: CVPR
+    year: 2016
+    arxiv: "1512.00567"
+    takeaway: "Introduces label smoothing as a regulariser against overconfidence, on the observation that a one-hot target can only be matched as the logits diverge — the mechanism that later work characterised."
+  - key: guo2017calibration
+    title: "On Calibration of Modern Neural Networks"
+    authors: "Chuan Guo, Geoff Pleiss, Yu Sun, Kilian Q. Weinberger"
+    venue: ICML
+    year: 2017
+    arxiv: "1706.04599"
+    takeaway: "Documents that modern networks are far more miscalibrated than earlier ones despite being more accurate, and that a single temperature parameter fitted on held-out data removes most of the gap without touching accuracy."
+  - key: lin2017focal
+    title: "Focal Loss for Dense Object Detection"
+    authors: "Tsung-Yi Lin, Priya Goyal, Ross Girshick, Kaiming He, Piotr Dollár"
+    venue: ICCV
+    year: 2017
+    arxiv: "1708.02002"
+    takeaway: "Down-weights well-classified examples by $(1-p_t)^\\gamma$, addressing an imbalance dominated by easy negatives rather than by class frequency — and making a one-stage detector competitive with two-stage ones."
+  - key: muller2019labelsmoothing
+    title: "When Does Label Smoothing Help?"
+    authors: "Rafael Müller, Simon Kornblith, Geoffrey Hinton"
+    venue: NeurIPS
+    year: 2019
+    arxiv: "1906.02629"
+    takeaway: "Shows label smoothing improves accuracy and calibration while degrading a model's usefulness as a distillation teacher, tracing both to the tighter, more equidistant class clusters it produces in the penultimate layer."
+check:
+  - id: ce_l4_c1
+    prompt: "Guo et al. found calibration worsened as networks got more accurate. Why is that surprising rather than expected?"
+    options:
+      - "It is not surprising; more accurate models are more confident"
+      - "Because accuracy and calibration are logically independent — a model can be accurate and well-calibrated — so a *systematic* divergence indicates something about how modern training pushes logits, rather than an inherent trade-off"
+      - "Because cross-entropy is a proper scoring rule and should give calibrated outputs"
+      - "Because older networks were better regularised"
+    answer: 1
+    explanation: "Cross-entropy is a proper scoring rule, so a model minimising it on infinite data *would* be calibrated — which makes the observed divergence a finite-data and optimisation phenomenon rather than a property of the objective. The mechanism traces to the optimum being at the boundary: nothing in the loss ever says 'confident enough', so a model with capacity to fit the training data keeps pushing logits apart. Option 3 states a true fact that makes the finding more surprising, not less."
+  - id: ce_l4_c2
+    prompt: "Why does focal loss suit dense detection where class weighting does not?"
+    options:
+      - "It converges faster"
+      - "Because the imbalance is dominated by *easy* negatives rather than by class frequency alone — millions of trivially-classified background anchors, each contributing a small loss that sums to overwhelm the foreground signal"
+      - "Because it handles multiple classes better"
+      - "Because it removes the need for anchor boxes"
+    answer: 1
+    explanation: "The distinction is what the imbalance consists of. Class weighting would up-weight foreground, and the background terms — however small individually — still number in the tens of thousands per image and sum to dominate. Down-weighting by $(1-p_t)^\\gamma$ removes the easy background specifically, since those are exactly the ones with $p_t$ near 1, while leaving hard negatives near the decision boundary intact. Getting the axis right is what made a one-stage detector competitive."
+  - id: ce_l4_c3
+    prompt: "Label smoothing improves calibration and hurts distillation. What single mechanism explains both?"
+    options:
+      - "It adds noise to the labels"
+      - "It fixes a finite optimal logit configuration, so every example of a class is pulled toward the same target geometry — which caps confidence (better calibration) and collapses the inter-class similarity structure a student would have learned from (worse distillation)"
+      - "It reduces the effective learning rate"
+      - "They are unrelated effects"
+    answer: 1
+    explanation: "That one mechanism explains two opposite-signed effects is what makes the result interesting. Without smoothing, logits keep spreading and retain information about *how* similar each example is to the wrong classes — the 'dark knowledge' distillation exploits. Smoothing sets a fixed finite target, so examples cluster tightly and equidistantly, discarding that structure. Better probabilities, less transferable representation — and it is a good example of a technique whose costs only appear once you use the model differently."
+---
+
+## A regulariser, and what it was actually doing
+
+<PaperCard refKey="szegedy2016labelsmoothing" />
+
+Label smoothing arrives as one item in an architecture paper, motivated by the
+observation that a one-hot target can only be matched as the logits diverge — so
+the model is being asked for something attainable only in a limit.
+
+<KeyIdea>
+Stated formally, the loss's infimum is not attained: the optimum is at the
+boundary. Smoothing sets a non-degenerate target, so there is a *finite* optimal
+logit gap of $\log\frac{(1-\varepsilon)(K-1)}{\varepsilon}$ — about 9.1 at
+$\varepsilon = 0.1$ with 1000 classes. That is the whole mechanism, and both its
+benefits and its costs follow from it.
+</KeyIdea>
+
+## Accuracy and calibration came apart
+
+<PaperCard refKey="guo2017calibration" />
+
+Modern networks are substantially more miscalibrated than earlier, less accurate
+ones — confidence systematically exceeds accuracy, and the gap widened with
+capacity.
+
+<Warning>
+This is more surprising than it sounds. Cross-entropy is a *proper scoring rule*:
+a model minimising it on infinite data would be calibrated. So the divergence is
+a finite-data and optimisation phenomenon rather than a property of the
+objective, and it traces to the same boundary optimum — nothing in the loss ever
+says "confident enough", so a model with the capacity to fit its training data
+keeps pushing logits apart on the examples it already gets right.
+</Warning>
+
+The fix is one parameter. Divide logits by a temperature fitted on held-out data;
+because that preserves their ordering, accuracy is untouched and only the spread
+moves.
+
+<Steps>
+<Step title="What temperature scaling can do">
+Correct a systematic, uniform over- or under-confidence. That it works so well
+tells you the miscalibration is largely a global scale issue.
+</Step>
+
+<Step title="What it cannot">
+Fix miscalibration that varies across the input space — a model overconfident on
+one region and underconfident on another. One parameter cannot represent that,
+and the residual after temperature scaling is where the harder problem lives.
+</Step>
+
+<Step title="Why it matters beyond benchmarks">
+Any decision that consumes the probability rather than the argmax: a
+perception module gating a robot action, an ensemble weighting members, a
+threshold for abstention. Accuracy is silent about all of them.
+</Step>
+</Steps>
+
+## Getting the imbalance axis right
+
+<PaperCard refKey="lin2017focal" />
+
+Dense detection has tens of thousands of background anchors per image, and almost
+all of them are trivially classified. Each contributes a small loss; summed, they
+overwhelm the foreground signal.
+
+<KeyIdea>
+Class weighting is the obvious response and the wrong axis. Up-weighting
+foreground leaves the background terms as numerous as before, and their sum still
+dominates. Down-weighting by $(1-p_t)^\gamma$ targets *easy* examples specifically
+— at $\gamma = 2$ an example predicted at $p = 0.99$ contributes $10^{-4}$ of its
+weight — while hard negatives near the decision boundary keep theirs. Diagnosing
+whether an imbalance is by class or by difficulty is what decides between them.
+</KeyIdea>
+
+## One mechanism, two opposite effects
+
+<PaperCard refKey="muller2019labelsmoothing" />
+
+Label smoothing improves accuracy and calibration, and makes the model a *worse*
+teacher for distillation. Both trace to the same cause.
+
+<Steps>
+<Step title="What it does to the representation">
+Every example of a class is pulled toward the same finite logit configuration, so
+penultimate-layer representations form tight, roughly equidistant clusters rather
+than spreading.
+</Step>
+
+<Step title="Why calibration improves">
+Logits stop growing without bound, so confidence is capped at something the data
+supports.
+</Step>
+
+<Step title="Why distillation degrades">
+The information a student learns from is precisely the *relative* similarity to
+wrong classes — how much a particular dog looks like a cat. Tight equidistant
+clusters discard that structure, so the teacher's soft targets carry less than
+they would have.
+</Step>
+</Steps>
+
+<Warning>
+This is a good general lesson about defaults. Label smoothing is applied almost
+universally because it improves the headline metric, and its cost only appears
+when the model is used differently — as a teacher, or wherever the geometry of the
+representation matters rather than the argmax. A technique's downsides are often
+invisible in the metric it was adopted to improve.
+</Warning>
+
+## What to take away
+
+<Steps>
+<Step title="Settled">
+The gradient identity and why softmax and cross-entropy are paired. Log-sum-exp
+stabilisation. That cross-entropy is KL divergence up to a constant.
+</Step>
+
+<Step title="Well-characterised">
+Overconfidence and its boundary-optimum mechanism; temperature scaling as a
+cheap, accuracy-preserving fix; the difficulty-versus-class distinction in
+imbalance.
+</Step>
+
+<Step title="Worth being careful about">
+Label smoothing's cost to representation geometry, and the fact that
+miscalibration varying across the input space is not addressed by a single
+temperature — which is where the open problem sits.
+</Step>
+</Steps>

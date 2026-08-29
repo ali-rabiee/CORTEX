@@ -1,23 +1,175 @@
 ---
 concept: cross_entropy_loss
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Cross-Entropy Loss — Information-Theoretic Classification
-    Objective in plain language: what is it, and why does it matter?"
+  prompt: "Why cross-entropy rather than squared error for classification? What is its gradient, and what does that explain?"
   keyPoints:
-    - Cross-entropy penalizes confident wrong predictions exponentially.
-    - If the true class has predicted probability 0.9, loss is $-\log(0.9) =
-      0.105$.
-    - At 0.1, it is $-\log(0.1) = 2.303$.
-check: []
-papers: []
+    - "Cross-entropy is maximum likelihood: minimising it maximises the log-probability the model assigns to the observed labels."
+    - "Its gradient with respect to the logits is exactly $p - y$ — the softmax derivative cancels against the log's. Squared error keeps that factor."
+    - "So a confidently wrong prediction gets a full-strength gradient under cross-entropy and almost none under squared error: at logit $-10$ with true label 1, the ratio is about 11,000."
+    - "Minimising cross-entropy is minimising the KL divergence to the data distribution, since the two differ by the data's entropy, which does not depend on the model."
+media:
+  - kind: article
+    title: "On Calibration of Modern Neural Networks"
+    url: https://arxiv.org/abs/1706.04599
+    source: "Guo, Pleiss, Sun, Weinberger"
+    note: "Modern networks minimise cross-entropy well and end up badly overconfident. Read it for the finding that accuracy and calibration diverged as networks got larger, and for temperature scaling as the one-parameter fix."
+  - kind: article
+    title: "When Does Label Smoothing Help?"
+    url: https://arxiv.org/abs/1906.02629
+    source: "Müller, Kornblith, Hinton"
+    note: "Careful treatment of a technique everyone uses by default, including the finding that it improves calibration and *hurts* distillation. The mechanism — tightening class clusters — is the useful part."
+  - kind: video
+    title: "Backpropagation calculus"
+    url: https://www.youtube.com/watch?v=tIeHLnjs5U8
+    source: "3Blue1Brown"
+    minutes: 10
+    note: "For the gradient mechanics underneath. The $p - y$ cancellation is much easier to appreciate once the chain-rule bookkeeping is concrete."
+check:
+  - id: ce_l1_c1
+    prompt: "Your model predicts logit $-10$ for the true class. How do cross-entropy and squared error compare in how hard they push back?"
+    options:
+      - "Similarly — both penalise a wrong prediction heavily"
+      - "Cross-entropy gives a gradient of magnitude 1; squared error gives about $9\\times10^{-5}$, roughly 11,000 times smaller, because it retains a factor of the sigmoid's derivative which has vanished at that logit"
+      - "Squared error pushes harder, since the error is squared"
+      - "Both give near-zero gradient, since the prediction is saturated"
+    answer: 1
+    explanation: "This is the practical reason cross-entropy is used, and it is worth being able to quote. Squared error's gradient through a sigmoid is $2(\\sigma(z)-y)\\sigma'(z)$, and $\\sigma'$ vanishes exponentially as $|z|$ grows — so the more confidently wrong the model is, the *less* squared error corrects it, which is exactly backwards. Cross-entropy's log cancels that factor exactly, leaving $p - y$, so a maximally wrong prediction gets a maximum-strength gradient."
+  - id: ce_l1_c2
+    prompt: "What is cross-entropy's gradient with respect to the logits, and why is that expression notable?"
+    options:
+      - "$-y/p$, which diverges as $p \\to 0$"
+      - "$p - y$ — prediction minus label — because the softmax's derivative cancels exactly against the logarithm's, leaving something simple, bounded, and never saturating"
+      - "$p(1-p)(y - p)$"
+      - "It has no closed form and must be computed numerically"
+    answer: 1
+    explanation: "The cancellation is the reason softmax and cross-entropy are paired rather than chosen independently. Each has an awkward derivative alone; composed, they produce prediction minus target — bounded by 1 in magnitude, zero exactly when the prediction is right, and never vanishing when it is wrong. That is also why frameworks provide a fused `cross_entropy` on logits rather than expecting you to apply softmax first: the fused version computes this directly and is both faster and numerically stable."
+  - id: ce_l1_c3
+    prompt: "In what sense does minimising cross-entropy fit the data distribution?"
+    options:
+      - "It does not; it only maximises accuracy"
+      - "Cross-entropy equals the KL divergence from the model to the data distribution plus the data's own entropy — and the entropy does not depend on the model, so minimising one minimises the other"
+      - "It minimises the Euclidean distance between distributions"
+      - "Only when the classes are balanced"
+    answer: 1
+    explanation: "$H(q, p) = H(q) + D_{\\mathrm{KL}}(q \\,\\|\\, p)$, and $H(q)$ is a property of the labels alone. So the model is being fitted by KL divergence, with the constant absorbed. That framing is what connects classification to density estimation, to variational inference, and to the distillation objective — and it tells you what the loss's floor is, since the loss cannot go below the data's own entropy when labels are ambiguous."
 ---
 
-## Intuition
+## It is maximum likelihood
 
-Cross-entropy penalizes confident wrong predictions exponentially. If the true class has predicted probability 0.9, loss is $-\log(0.9) = 0.105$. At 0.1, it is $-\log(0.1) = 2.303$. At 0.01, it is $-\log(0.01) = 4.605$. This heavy penalty for confident mistakes drives the model to calibrate — aligning predicted probabilities with true frequencies. The connection to KL divergence tells you: minimizing cross-entropy is literally making your model's distribution as close as possible to the true distribution.
+For a model producing a distribution $p_\theta(y \mid x)$ over classes, the
+cross-entropy loss on a labelled example is
 
-## In practice
+$$
+\mathcal{L} = -\log p_\theta(y^\star \mid x)
+$$
 
-Object classification for a robotic pick-and-place system: 20 object classes, softmax output from a CNN backbone. Cross-entropy loss with label smoothing ($\alpha = 0.1$): $y_i^{\text{smooth}} = (1 - \alpha) \cdot y_i + \alpha / C$. This prevents the network from becoming overconfident, which is critical for safety — a robot should not be 99.9% confident about a novel object. For imbalanced datasets (e.g., 80% common objects, 20% rare), use focal loss: $L = -(1 - \hat{y}_c)^\gamma \log \hat{y}_c$ with $\gamma = 2$ to down-weight easy examples.
+Minimising it maximises the log-probability the model assigns to the label that
+was actually observed. Nothing more exotic than that — it is maximum likelihood
+with a sign flip.
+
+<KeyIdea>
+Written against the full label distribution, $H(q,p) = H(q) + D_{\mathrm{KL}}(q\|p)$
+— the data's own entropy plus the divergence from the model to it. Since the
+entropy is a property of the labels and not of $\theta$, **minimising
+cross-entropy is minimising KL divergence**. That is what connects classification
+to density estimation, variational inference, and distillation, and it tells you
+the loss has a floor: with genuinely ambiguous labels, it cannot go below $H(q)$.
+</KeyIdea>
+
+## The gradient is the whole story
+
+$$
+\frac{\partial \mathcal{L}}{\partial z} = p - y
+$$
+
+Prediction minus one-hot target. That is remarkably simple, and it is not an
+accident: the softmax's derivative cancels *exactly* against the logarithm's.
+Each is awkward alone, and composed they produce something bounded, zero when
+correct, and maximal when maximally wrong.
+
+<Figure src="/figures/ce-vs-mse-gradient.svg"
+        alt="Two curves against increasingly negative logit for a true label of 1. Cross-entropy's gradient magnitude stays near 1; squared error's collapses to near zero, with a callout showing 1.000 versus 9.1e-5 at logit -10."
+        caption="Squared error retains a factor of the sigmoid's derivative, which vanishes when saturated. So the more confidently wrong the model is, the less squared error corrects it — precisely backwards." />
+
+<Steps>
+<Step title="Cross-entropy through a softmax">
+$\partial\mathcal{L}/\partial z = p - y$. At a confidently wrong prediction,
+$p \approx 0$ for the true class, so the gradient is $\approx -1$: full strength.
+</Step>
+
+<Step title="Squared error through a sigmoid">
+$\partial\mathcal{L}/\partial z = 2(\sigma(z)-y)\,\sigma'(z)$, and
+$\sigma'(z) = \sigma(1-\sigma)$ vanishes exponentially as $|z|$ grows. At
+$z = -10$ with $y = 1$ that is about $9\times10^{-5}$ — eleven thousand times
+smaller.
+</Step>
+</Steps>
+
+<Warning>
+The direction of the failure is what makes it disqualifying. Squared error
+corrects a *confidently wrong* prediction least, which is the case you most need
+corrected. A model that has committed to a wrong answer under squared error is
+nearly stuck there — the gradient that would rescue it has been multiplied by a
+saturated derivative.
+</Warning>
+
+<Intuition>
+Two teachers marking a confidently wrong answer. One says "no, the answer is
+this" with the same force regardless of how sure you were. The other becomes
+quieter the more confidently you were wrong — until, at total conviction, they
+say nothing at all.
+</Intuition>
+
+## Why frameworks fuse it
+
+You will see `cross_entropy(logits, target)` rather than
+`nll_loss(log(softmax(logits)), target)`. Two reasons, both practical.
+
+<Steps>
+<Step title="Numerical stability">
+Computing the softmax then its log means exponentiating logits that may be large
+— overflowing — or taking the log of something that underflowed to zero. The
+fused version uses the log-sum-exp identity to compute the same quantity without
+ever forming the intermediate.
+</Step>
+
+<Step title="It computes $p - y$ directly">
+The backward rule for the fused operation is the simple expression, rather than
+composing two awkward ones and relying on the cancellation to happen numerically.
+</Step>
+</Steps>
+
+## Where it needs help
+
+<Steps>
+<Step title="Class imbalance">
+With 99% negatives, the loss is dominated by examples the model already gets
+right. Reweighting by inverse frequency, or down-weighting easy examples by their
+confidence, restores the signal from the rare class.
+</Step>
+
+<Step title="Overconfidence">
+Cross-entropy is minimised by pushing the correct logit to infinity, so a model
+that fits well becomes confidently wrong on the examples it gets wrong. Label
+smoothing caps that by making the target distribution non-degenerate.
+</Step>
+
+<Step title="Calibration">
+A well-trained modern network's confidence systematically exceeds its accuracy —
+and the gap grew as networks got larger. If a downstream decision uses the
+probability rather than the argmax, this matters, and a single temperature
+parameter fitted on held-out data fixes most of it.
+</Step>
+</Steps>
+
+<KeyIdea>
+That last one is the practically important caveat. Cross-entropy trains an
+excellent *classifier* and does not by itself produce trustworthy
+*probabilities*. If a robot decides whether to act on a perception module's
+output, or an ensemble weights members by confidence, the calibration question is
+the one that matters — and it is separate from accuracy.
+</KeyIdea>
+
+<WatchThis />

@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 300" role="img"
+     aria-labelledby="cet ced" font-family="system-ui, -apple-system, sans-serif">
+  <title id="cet">Why cross-entropy and not squared error, for classification</title>
+  <desc id="ced">For a confidently wrong prediction — true label one, logit
+    strongly negative — cross-entropy's gradient with respect to the logit is
+    the prediction minus the label, which approaches minus one. Squared error
+    multiplies that by the sigmoid's derivative, which vanishes when saturated,
+    so at a logit of minus ten the squared-error gradient is about nine times ten
+    to the minus five: eleven thousand times smaller. The more wrong the model
+    is, the less squared error pushes it back.</desc>
+
+  <text x="24" y="26" fill="#e6edf3" font-size="12">gradient magnitude at a confidently wrong prediction (true label = 1)</text>
+
+  <line x1="70" y1="212" x2="560" y2="212" stroke="#484f58" stroke-width="1.2"/>
+  <line x1="70" y1="212" x2="70" y2="52" stroke="#484f58" stroke-width="1.2"/>
+  <g fill="#8b949e" font-size="9.5" text-anchor="middle">
+    <text x="70"  y="228">z = &#8722;2</text>
+    <text x="192" y="228">&#8722;4</text>
+    <text x="315" y="228">&#8722;6</text>
+    <text x="437" y="228">&#8722;8</text>
+    <text x="560" y="228">&#8722;10</text>
+  </g>
+  <text x="315" y="248" fill="#8b949e" font-size="10.5" text-anchor="middle">more confidently wrong &#8594;</text>
+
+  <text x="62" y="58" fill="#8b949e" font-size="9.5" text-anchor="end">1.0</text>
+  <text x="62" y="216" fill="#8b949e" font-size="9.5" text-anchor="end">0</text>
+
+  <!-- CE: flat near 1 -->
+  <path d="M 70 71 L 192 60 L 315 57 L 437 56 L 560 56"
+        fill="none" stroke="#3fb950" stroke-width="2.6"/>
+  <g fill="#3fb950">
+    <circle cx="70" cy="71" r="3.5"/><circle cx="192" cy="60" r="3.5"/>
+    <circle cx="315" cy="57" r="3.5"/><circle cx="437" cy="56" r="3.5"/>
+    <circle cx="560" cy="56" r="3.5"/>
+  </g>
+  <text x="330" y="46" fill="#3fb950" font-size="11">cross-entropy: |p &#8722; y| &#8594; 1</text>
+
+  <!-- MSE: collapses -->
+  <path d="M 70 183 L 192 207 L 315 211 L 437 212 L 560 212"
+        fill="none" stroke="#f85149" stroke-width="2.6"/>
+  <g fill="#f85149">
+    <circle cx="70" cy="183" r="3.5"/><circle cx="192" cy="207" r="3.5"/>
+    <circle cx="315" cy="211" r="3.5"/><circle cx="437" cy="212" r="3.5"/>
+    <circle cx="560" cy="212" r="3.5"/>
+  </g>
+  <text x="200" y="176" fill="#f85149" font-size="11">squared error: extra factor &#963;&#8242;(z) &#8594; 0</text>
+
+  <!-- ratio callout -->
+  <rect x="380" y="120" width="212" height="66" rx="6" fill="#1c2128" stroke="#30363d"/>
+  <text x="486" y="142" fill="#e6edf3" font-size="11" text-anchor="middle">at z = &#8722;10</text>
+  <text x="486" y="160" fill="#3fb950" font-size="10.5" text-anchor="middle">CE: 1.000</text>
+  <text x="486" y="176" fill="#f85149" font-size="10.5" text-anchor="middle">MSE: 9.1 &#215; 10&#8315;&#8309;  &#8212; 11,000&#215; smaller</text>
+
+  <line x1="24" y1="262" x2="616" y2="262" stroke="#30363d" stroke-width="1"/>
+  <text x="24" y="282" fill="#e6edf3" font-size="11">The softmax derivative cancels exactly against cross-entropy&#8217;s, leaving &#8706;L/&#8706;z = p &#8722; y.</text>
+  <text x="24" y="296" fill="#8b949e" font-size="10.5">Squared error keeps it &#8212; so the more wrong the model is, the less it is pushed back.</text>
+</svg>

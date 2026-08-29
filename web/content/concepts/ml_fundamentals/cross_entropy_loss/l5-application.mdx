@@ -1,27 +1,169 @@
 ---
 concept: cross_entropy_loss
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Cross-Entropy Loss — Information-Theoretic Classification
-    Objective fail in practice, and how would you present it in an interview?
+  prompt: "Give your interview answer on cross-entropy. What is the derivation you lead with, and what caveat do you volunteer?"
   keyPoints:
-    - Numerical instability when computing $\log(\hat{y}_i)$ with very small
-      $\hat{y}_i$, resulting in NaN or Inf loss.
-    - "Root cause: computing softmax and log separately instead of using the
-      numerically stable log-softmax formulation $\\log \\hat{y}_i = z_i - \\log
-      \\sum_j e^{z_j}$ (with max-subtraction trick)."
-    - "Also: cross-entropy assumes mutually exclusive classes — using it for
-      multi-label classification (where multiple labels can be true) is
-      incorrect; use binary cross-entropy per class instead."
-check: []
-papers: []
+    - "Lead with $\\partial\\mathcal{L}/\\partial z = p - y$ and the cancellation that produces it — that is why softmax and cross-entropy are paired rather than chosen independently."
+    - "Give the MSE comparison with numbers: at logit $-10$ for the true class, the gradient ratio is about 11,000, and the direction of the failure is what disqualifies squared error."
+    - "Note it is maximum likelihood, and equals KL divergence up to the data's entropy — which also tells you the loss has a floor."
+    - "Volunteer the caveat: minimising it produces an excellent classifier and *not* calibrated probabilities, and the two matter for different downstream uses."
+interview:
+  answer: >-
+    Cross-entropy is maximum likelihood — minimising it maximises the
+    log-probability the model assigns to the observed label. Written against a
+    full target distribution it decomposes into the data's entropy plus the KL
+    divergence from the model to the data, and since the entropy doesn't depend
+    on the parameters, you're fitting by KL divergence with a constant absorbed.
+    That also tells you the loss has a floor: with genuinely ambiguous labels it
+    can't go below the data's own entropy. The derivation I'd lead with is the
+    gradient. Differentiate through the softmax and you get a Jacobian with a
+    factor of p-i in it; differentiate the log and you get one over p-i. They
+    cancel exactly, and what's left is p minus y — prediction minus one-hot
+    target. That cancellation is why softmax and cross-entropy are paired rather
+    than chosen independently: each has a pathology the other removes. And it
+    explains the practical question of why not squared error. Squared error
+    through a sigmoid gives two times p minus y times sigma-prime, and
+    sigma-prime vanishes exponentially when saturated. So for a confidently
+    wrong prediction — true label one, logit minus ten — cross-entropy gives a
+    gradient of magnitude one and squared error gives about nine times ten to
+    the minus five. Eleven thousand times smaller. What disqualifies squared
+    error isn't the size of the difference but its direction: it corrects a
+    confidently wrong prediction *least*, which is exactly the case you most
+    need corrected, so a model that's committed to a wrong answer is nearly
+    stuck there. The caveat I'd volunteer is that cross-entropy trains an
+    excellent classifier and does not by itself give you calibrated
+    probabilities. The loss is minimised only as the correct logit goes to
+    infinity — the optimum is at the boundary — so nothing ever says "confident
+    enough", and modern networks are systematically overconfident with the gap
+    growing as they got more accurate. If a downstream decision uses the
+    probability rather than the argmax, that matters, and it's fixed by a single
+    temperature fitted on held-out data, which can't change the argmax because
+    dividing all logits by a positive constant preserves their ordering.
+  followUps:
+    - q: "How does label smoothing fit into that picture?"
+      a: >-
+        It moves the optimum off the boundary. Without smoothing the target is
+        one-hot, which can only be matched as the logits diverge, so a
+        well-fitted model keeps pushing them apart indefinitely. With smoothing
+        the target is non-degenerate, and setting p equals q gives a finite
+        optimal logit gap — log of one minus epsilon times K minus one, over
+        epsilon, which is about 9.1 at epsilon 0.1 with a thousand classes. So
+        calibration improves for a structural reason rather than empirically.
+        The cost, which is less well known, is that it makes the model a worse
+        distillation teacher: fixing a finite target means every example of a
+        class is pulled to the same configuration, so representations form tight
+        equidistant clusters and lose the inter-class similarity structure a
+        student learns from. Same mechanism, opposite-signed effects — which is a
+        good example of a default whose downside only appears when you use the
+        model differently.
+    - q: "You have 99% background in a detection problem. Class weights or focal loss?"
+      a: >-
+        Focal, usually, and the reason is what the imbalance actually consists
+        of. Class weighting says rare classes matter more, and it leaves the
+        background terms as numerous as before — tens of thousands of trivially
+        classified anchors per image, each contributing a small loss that still
+        sums to dominate. Focal loss down-weights by one minus p to the gamma,
+        which targets *easy* examples specifically: at gamma two, something
+        predicted at 0.99 contributes ten to the minus four of its weight, while
+        a hard negative near the boundary keeps most of its. So the question I'd
+        ask first is whether the imbalance is by class frequency or by
+        difficulty, because they need different axes. And I'd be careful about
+        combining both without thinking, since that produces a loss dominated by
+        rare and hard examples, which in practice is often the label noise.
+    - q: "How would you know whether your model's probabilities are trustworthy?"
+      a: >-
+        Measure expected calibration error, not accuracy. Bin the predictions by
+        confidence and compare the accuracy within each bin against the average
+        confidence in it — a well-trained modern network will typically be
+        confident at 0.95 in a bin where it's right 0.85 of the time, and that
+        gap is completely invisible in the accuracy number. Then fit a
+        temperature on a validation split, never on test, and re-measure. What
+        I'd also flag is what temperature scaling can't do: it's one global
+        parameter, so it corrects a systematic uniform over-confidence and
+        cannot fix miscalibration that varies across the input space. If the
+        residual after scaling is still large, the problem is per-region and
+        needs something else — which for a robot perception module gating an
+        action is exactly the case you care about.
+    - q: "Why do frameworks fuse softmax and cross-entropy into one function?"
+      a: >-
+        Two reasons and both are practical. Numerical stability: computing the
+        softmax then its log means exponentiating logits that might overflow, or
+        taking the log of something that underflowed to zero. The fused version
+        uses log-sum-exp — subtract the row maximum, which is free because the
+        softmax is shift-invariant — so every exponent is non-positive and
+        nothing overflows. And the backward rule can be the simple p minus y
+        directly rather than composing two awkward derivatives and relying on
+        the cancellation to happen in floating point. The trap that follows is
+        that the fused function takes logits, and passing softmax output into it
+        applies the softmax twice — probabilities are valid softmax inputs so
+        nothing errors, but logits confined to zero-one give a near-uniform
+        distribution and the loss sits near log K barely moving. It trains
+        badly and silently, which makes it expensive to find.
+  traps:
+    - "Saying cross-entropy is used 'because it works better' without the gradient argument. The $p - y$ cancellation and the saturation comparison are the content."
+    - "Presenting the MSE comparison as being about magnitude. The disqualifying part is the direction: squared error corrects a confidently wrong prediction least."
+    - "Claiming a well-trained network gives calibrated probabilities. Cross-entropy is a proper scoring rule and modern networks are still systematically overconfident."
+    - "Passing probabilities to a function expecting logits. It double-applies the softmax and trains badly with no error."
+check:
+  - id: ce_l5_c1
+    prompt: "A candidate says squared error is a valid choice for classification, just slower to converge. What is the sharper objection?"
+    options:
+      - "It is correct; the difference is only speed"
+      - "The failure is directional, not a constant factor: squared error's gradient retains $\\sigma'(z)$, which vanishes when saturated — so a confidently *wrong* prediction receives almost no gradient, and the ratio to cross-entropy grows to about 11,000 at logit $-10$"
+      - "Squared error cannot be used with more than two classes"
+      - "Squared error is not differentiable at zero"
+    answer: 1
+    explanation: "Framing it as slowness misses that the deficit is worst exactly where you need the gradient most. A constant factor could be absorbed into the learning rate; a factor that shrinks exponentially with how wrong the model is cannot, because the model that has committed to a wrong answer is the one that most needs rescuing and gets the least help. Being able to give the number, and say which direction it fails in, is what makes the objection concrete."
+  - id: ce_l5_c2
+    prompt: "Your classifier is 94% accurate and a downstream system that acts on predictions above 0.9 confidence is behaving badly. What do you investigate?"
+    options:
+      - "Retrain with more data"
+      - "Calibration: measure ECE, since a 94%-accurate network is typically overconfident — predictions it reports at 0.95 may be right 0.85 of the time, so a 0.9 threshold admits far more errors than intended. Fit a temperature on held-out data and re-threshold"
+      - "Lower the confidence threshold"
+      - "Switch to a different architecture"
+    answer: 1
+    explanation: "The symptom is specifically about a *probability threshold*, which is the case where calibration rather than accuracy is the relevant property — and the two are routinely conflated because accuracy is what gets reported. Lowering the threshold treats the symptom without knowing the mapping between confidence and correctness. Measuring ECE and fitting a temperature costs almost nothing, preserves accuracy exactly, and makes the threshold mean what the downstream system assumes it means."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Numerical instability when computing $\log(\hat{y}_i)$ with very small $\hat{y}_i$, resulting in NaN or Inf loss. Root cause: computing softmax and log separately instead of using the numerically stable log-softmax formulation $\log \hat{y}_i = z_i - \log \sum_j e^{z_j}$ (with max-subtraction trick). Also: cross-entropy assumes mutually exclusive classes — using it for multi-label classification (where multiple labels can be true) is incorrect; use binary cross-entropy per class instead. Symptoms: loss spikes, NaN gradients, or poor multi-label performance.
+<Steps>
+<Step title="Loss stuck near $\log K$ → probabilities passed where logits were expected">
+$\log 1000 = 6.9$. The softmax gets applied twice, the distribution goes
+near-uniform, and nothing errors.
+</Step>
 
-## Interview-ready answer
+<Step title="Loss below $\log K$ at step zero → leakage or a shape bug">
+A random model cannot beat chance. Check target alignment before anything else.
+</Step>
 
-Cross-entropy $H(y, \hat{y}) = -\sum y_i \log \hat{y}_i$ is the standard classification loss, equivalent to minimizing KL divergence from the model distribution to the true distribution. The softmax + cross-entropy combination has the elegant gradient $\hat{y} - y$ which is both stable and efficient. Practical considerations: always use log-softmax with NLL loss (or combined cross-entropy loss) for numerical stability, apply label smoothing ($\alpha = 0.1$) to improve calibration, and use focal loss for class-imbalanced problems common in robotics perception. For distillation (e.g., compressing a ViT teacher to a smaller student for real-time robot inference), cross-entropy with soft targets and temperature $\tau$ is key: $L = H(\text{softmax}(z_T / \tau), \text{softmax}(z_S / \tau))$.
+<Step title="Accuracy fine, threshold-based decisions poor → calibration">
+Measure ECE. Fit a temperature on held-out data; it cannot change the argmax.
+</Step>
+
+<Step title="Model ignores the rare class → wrong imbalance axis">
+Class weighting for class frequency, difficulty down-weighting when easy
+negatives dominate. Diagnose which before choosing.
+</Step>
+
+<Step title="Good teacher became a bad one after adding label smoothing → representation geometry">
+Smoothing fixes a finite target, collapsing the inter-class similarity structure
+distillation relies on. Expected, and it will not show in the teacher's accuracy.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The derivation carries this answer, so lead with it: the softmax's derivative
+cancels the logarithm's, leaving prediction minus target. That single line
+explains why the two are paired, why the gradient never saturates, and — by
+contrast with squared error, which keeps the factor — why the alternative fails
+in the specific direction that disqualifies it. Then volunteer the caveat that
+minimising cross-entropy gives you an excellent classifier and not calibrated
+probabilities. Candidates who add that unprompted are signalling they have used a
+model's confidence for something downstream rather than only reported its
+accuracy.
+</Warning>
