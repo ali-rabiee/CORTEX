@@ -1,24 +1,181 @@
 ---
 concept: depth_estimation
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Depth Estimation for Robotics in plain language: what is it,
-    and why does it matter?"
+  prompt: "What are the ways to get depth, and what is the failure mode of each? What is monocular depth's fundamental limitation?"
   keyPoints:
-    - A robot needs to know how far away things are to interact with them.
-    - Stereo vision works like human eyes — two slightly offset views let you
-      triangulate distance.
-    - Structured light cheats by projecting a known pattern and seeing how it
-      warps on surfaces.
-check: []
-papers: []
+    - "A single image cannot determine metric scale: a small object near and a large one far project identically, so monocular depth needs a learned prior about object sizes, and that prior is a guess."
+    - "Stereo gives metric scale from a known baseline, and its error grows with the *square* of distance — sub-centimetre at 1 m, tens of centimetres at 5 m."
+    - "So 'accurate to a centimetre' is not a specification. It is a specification at one distance, and the range matters more than the sensor."
+    - "Every sensor fails on a specific material: stereo on textureless surfaces, structured light on anything shiny or transparent, time-of-flight on absorbers and at corners."
+media:
+  - kind: article
+    title: "Towards Robust Monocular Depth Estimation: Mixing Datasets for Zero-shot Cross-dataset Transfer"
+    url: https://arxiv.org/abs/1907.01341
+    source: "Ranftl, Lasinger, Hafner, Schindler, Koltun"
+    note: "MiDaS. Read it for the training objective — scale-and-shift-invariant loss — because it is an explicit acknowledgement that monocular depth cannot recover metric scale, and everything about how to use the output follows from that."
+  - kind: article
+    title: "ZoeDepth: Zero-shot Transfer by Combining Relative and Metric Depth"
+    url: https://arxiv.org/abs/2302.12288
+    source: "Bhat, Birkl, Wofk, Wonka, Müller"
+    note: "The attempt to recover metric scale on top of a relative-depth backbone. Worth reading to see exactly what has to be assumed to get metric numbers out of one image."
+  - kind: article
+    title: "Digging Into Self-Supervised Monocular Depth Estimation"
+    url: https://arxiv.org/abs/1806.01260
+    source: "Godard, Mac Aodha, Firman, Brostow"
+    note: "Monodepth2. The photometric-reprojection training signal is the clearest illustration of where depth information actually comes from when there are no depth labels — and of the occlusion and moving-object failures it inherits."
+check:
+  - id: de_l1_c1
+    prompt: "Why can a single image not determine metric depth?"
+    options:
+      - "Because cameras have limited resolution"
+      - "Because projection loses scale: a small object nearby and a large one far away produce the identical image, so metric depth requires an assumption about object size that the image cannot supply"
+      - "Because monocular networks are not accurate enough"
+      - "Because a single image lacks texture"
+    answer: 1
+    explanation: "It is a geometric fact rather than an engineering limitation, which is why more capable networks do not fix it. Perspective projection maps a 3-D point to a ray, and every point along that ray produces the same pixel — so a doll's house and a real house are indistinguishable without a prior about how large houses are. Monocular networks recover *relative* depth well and get metric scale only by learning typical object sizes, which is a guess that fails whenever the scene contains something atypically sized."
+  - id: de_l1_c2
+    prompt: "A stereo rig is accurate to about 0.7 cm at 1 m. Roughly what is its error at 5 m?"
+    options:
+      - "About 3.5 cm — error grows linearly"
+      - "About 17 cm — error grows with the *square* of depth, since $z = fB/d$ gives $\\delta z \\propto z^2\\,\\delta d/(fB)$"
+      - "About 0.7 cm — the error is a property of the sensor, not the distance"
+      - "It cannot be determined without knowing the object"
+    answer: 1
+    explanation: "Differentiating $z = fB/d$ with respect to disparity gives $|\\delta z| = z^2\\delta d/(fB)$, so a five-fold increase in distance is a twenty-five-fold increase in error. That is why the same rig is excellent for tabletop manipulation and unusable for navigation, and why a depth sensor's specification is meaningless without the distance it applies at. The practical consequence is that you should quote your accuracy at the range your task actually operates in."
+  - id: de_l1_c3
+    prompt: "Your RGB-D camera returns holes on a glass beaker and a polished metal tool. Why?"
+    options:
+      - "The camera is faulty"
+      - "Active depth sensors assume light returns diffusely from the surface it hit; transparent objects transmit it and specular ones reflect it elsewhere, so the sensor receives nothing usable and correctly reports no measurement"
+      - "The objects are too small"
+      - "The exposure is wrong"
+    answer: 1
+    explanation: "The holes are the sensor working correctly — it cannot measure what it cannot see, and reporting nothing is better than reporting a wrong number. The assumption being violated is diffuse reflection: structured light needs its pattern to come back from the surface, and time-of-flight needs the pulse to return along the path it left. Both fail on glass, mirrors, and polished metal, which is unfortunate because those are common in exactly the kitchens and workshops robots are asked to work in."
 ---
 
-## Intuition
+## Three ways to get depth, and one impossibility
 
-A robot needs to know how far away things are to interact with them. Stereo vision works like human eyes — two slightly offset views let you triangulate distance. Structured light cheats by projecting a known pattern and seeing how it warps on surfaces. Monocular depth is the hardest: estimating 3D from a single 2D image, relying on learned cues like perspective, occlusion, and texture gradients — the same cues humans use when closing one eye.
+<Steps>
+<Step title="Stereo — triangulate from two views">
+Two cameras a known distance apart. Find the same point in both images, measure
+how far it shifted, and geometry gives the distance. Metric, because the baseline
+is known.
+</Step>
 
-## In practice
+<Step title="Active — send light out and measure what returns">
+Structured light projects a known pattern and measures its deformation;
+time-of-flight measures how long a pulse takes to come back. Metric, and
+dependent on the light actually returning.
+</Step>
 
-Depth pipeline for tabletop manipulation: Intel RealSense D435 (structured light, $1280 \times 720$ at 30 fps, range $0.3$-$3\,\text{m}$) for primary depth. For transparent objects where structured light fails, run Depth Anything V2 on the RGB image to get monocular depth, then fuse: $d_{\text{fused}}(u,v) = w \cdot d_{\text{sensor}}(u,v) + (1-w) \cdot \alpha \cdot d_{\text{mono}}(u,v) + \beta$, where $\alpha, \beta$ are scale/shift alignment parameters and $w$ is a confidence weight from the sensor validity mask.
+<Step title="Monocular — infer it from one image">
+A network predicts depth from appearance. It works remarkably well, and it
+cannot recover metric scale.
+</Step>
+</Steps>
+
+<KeyIdea>
+The last point is geometric rather than a limitation of current models.
+Perspective projection maps a 3-D point to a *ray*, and every point along that
+ray produces the same pixel — so a doll's house and a real house are
+indistinguishable. Metric monocular depth requires an assumption about how large
+things are, which the image cannot supply and the network has to have learned.
+</KeyIdea>
+
+<Intuition>
+Someone holds up a photograph of a room and asks how wide it is. You answer by
+recognising a door and knowing doors are about 80 cm — not by looking harder at
+the photograph.
+
+That is exactly what a monocular depth network does, and it explains its failure
+mode: show it a scale model, or an unusually sized object, and it will confidently
+give you the wrong number, because the recognition succeeded and the assumption
+was wrong.
+</Intuition>
+
+## The error grows with the square of distance
+
+For a stereo pair with focal length $f$, baseline $B$, and measured disparity
+$d$, the depth is $z = fB/d$. Differentiating:
+
+$$
+|\delta z| = \frac{z^2}{fB}\,\delta d
+$$
+
+<Figure src="/figures/depth-error-growth.svg"
+        alt="A curve of depth error against true depth rising sharply, with a table showing 0.2 cm error at 0.5 m rising to 69 cm at 10 m for a 6 cm baseline rig."
+        caption="Quadratic growth. The same rig is sub-centimetre for tabletop work and useless for navigation, which is why a depth accuracy figure means nothing without the range it applies at." />
+
+| depth | error | relative |
+| --- | --- | --- |
+| 0.5 m | 0.2 cm | 0.3% |
+| 1 m | 0.7 cm | 0.7% |
+| 3 m | 6.2 cm | 2.1% |
+| 5 m | 17 cm | 3.5% |
+| 10 m | 69 cm | 6.9% |
+
+<Warning>
+"Accurate to a centimetre" is not a specification — it is a specification *at one
+distance*. A sensor quoted at 1 m has twenty-five times that error at 5 m, and
+this is the most common way a depth sensor gets chosen for the wrong task.
+
+Two levers change the curve: a longer baseline $B$ and a longer focal length $f$
+both reduce the error proportionally. That is why long-range stereo rigs are
+physically wide, and why a compact RGB-D camera cannot be made accurate at range
+by improving its software.
+</Warning>
+
+## Every sensor has a material it cannot see
+
+<Steps>
+<Step title="Stereo fails on textureless surfaces">
+It works by matching, and a blank white wall has nothing to match. The failure is
+a *wrong* disparity from a spurious match rather than a missing one, which is
+worse — it returns a confident number.
+</Step>
+
+<Step title="Structured light fails on shiny and transparent things">
+The projected pattern must return diffusely. Glass transmits it; polished metal
+reflects it somewhere else. Usually returns a hole, which is honest.
+</Step>
+
+<Step title="Time-of-flight fails on absorbers and at corners">
+Dark matte surfaces return too little light. Concave corners produce multi-path,
+where the pulse bounces twice and reports a distance that is too far — a
+systematic error rather than noise.
+</Step>
+</Steps>
+
+<KeyIdea>
+Notice which failures are *loud* and which are *quiet*. A hole in a depth image
+announces itself and can be handled. A spurious stereo match on a repetitive
+texture, or a multi-path reading in a corner, returns a plausible number that is
+wrong — and downstream code cannot tell. Knowing which of your sensor's failures
+are silent is more useful than knowing its quoted accuracy.
+</KeyIdea>
+
+## What this means for a robot
+
+<Steps>
+<Step title="Use monocular depth for structure, not for measurements">
+Relative depth — what is in front of what — transfers well. Metric numbers from a
+single image should not be used to command a gripper without an independent
+scale reference.
+</Step>
+
+<Step title="Match the sensor to the range">
+Tabletop manipulation at 0.5-1 m is where consumer RGB-D is genuinely
+sub-centimetre. Navigation at 5-10 m needs a longer baseline, and no amount of
+processing substitutes for it.
+</Step>
+
+<Step title="Treat holes as information, not as noise to fill">
+An inpainted hole is a guess presented as a measurement. Where the guess matters
+— a grasp point — propagating the fact that the value is unknown is better than
+interpolating over it.
+</Step>
+</Steps>
+
+<WatchThis />

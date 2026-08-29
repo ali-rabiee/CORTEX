@@ -1,26 +1,208 @@
 ---
 concept: depth_estimation
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Depth Estimation for Robotics, including
-    the key equations.
+  prompt: "Derive the stereo depth relation and its error, state monocular's scale ambiguity formally, and give the unprojection to a point cloud."
   keyPoints:
-    - Recovering per-pixel depth $d(u,v)$ from visual sensors.
-    - "Three paradigms: (1) Stereo vision — triangulation from two cameras with
-      baseline $b$: $d = \\frac{f \\cdot b}{\\text{disparity}}$; (2) Structured
-      light — project known IR pattern (e.g., RealSense D400), recover depth
-      from pattern deformation; (3) Monocular depth estimation — learn $d =
-      f_\\theta(I)$ from a single RGB image using scale-invariant losses like
-      $\\mathcal{L} = \\frac{1}{n}\\sum_i (\\log d_i - \\log \\hat{d}_i)^2 -
-      \\frac{\\lambda}{n^2}\\left(\\sum_i \\log d_i - \\log
-      \\hat{d}_i\\right)^2$."
-    - Recent foundation models (Depth Anything, ZoeDepth, MiDaS) produce
-      high-quality metric or relative depth from a single image.
-check: []
-papers: []
+    - "Similar triangles give $z = fB/d$ from a rectified pair; differentiating gives $|\\delta z| = z^2\\delta d/(fB)$, quadratic in depth."
+    - "Monocular ambiguity is a gauge freedom: scaling the whole scene by $\\alpha$ and the translation by $\\alpha$ leaves every image unchanged, so no single-view method can fix $\\alpha$."
+    - "Unprojection needs intrinsics: $X = (u - c_x)z/f_x$. Getting the principal point or focal length wrong tilts and scales the entire point cloud systematically."
+    - "Self-supervised depth is trained by photometric reprojection, which inherits two structural failures: occluded pixels have no correspondence, and moving objects violate the static-scene assumption."
+check:
+  - id: de_l2_c1
+    prompt: "Why is monocular scale ambiguity described as a *gauge freedom* rather than an accuracy problem?"
+    options:
+      - "Because the network is not accurate enough yet"
+      - "Because scaling the scene geometry and the camera translation by the same factor produces pixel-identical images — so the scale is not underdetermined by noise, it is unobservable in principle from single-view projection"
+      - "Because focal length is unknown"
+      - "Because depth is nonlinear in disparity"
+    answer: 1
+    explanation: "The distinction matters because it says what could possibly fix it. An accuracy problem improves with a better sensor or model; an unobservable quantity does not, because the data contains no information about it. Under $(X, Y, Z) \\mapsto (\\alpha X, \\alpha Y, \\alpha Z)$ the projection $u = f X/Z + c_x$ is unchanged, so every image in the world is consistent with every scale. Recovering $\\alpha$ therefore requires information from outside the image: a known object size, a baseline, or a metric sensor."
+  - id: de_l2_c2
+    prompt: "Your point cloud is systematically tilted, though the depth values look correct. What is the likely cause?"
+    options:
+      - "The depth sensor is miscalibrated in range"
+      - "The intrinsics are wrong — in particular the principal point $(c_x, c_y)$. Unprojection uses $X = (u-c_x)z/f_x$, so an offset principal point shears the cloud by an amount proportional to depth, producing a tilt rather than a scale error"
+      - "The extrinsics between colour and depth cameras are wrong"
+      - "The point cloud is being rendered incorrectly"
+    answer: 1
+    explanation: "The signature separates the causes: a range error scales the cloud along the optical axis, an extrinsic error rigidly transforms it, and a principal-point error produces a depth-dependent lateral shift — which reads as a tilt or shear. Because the offset is multiplied by $z$, the effect grows with distance, so a plane that looks flat close up bends away at range. Checking that a known flat surface unprojects to a plane is the fastest test."
+  - id: de_l2_c3
+    prompt: "Self-supervised monocular depth is trained by warping one frame into another using predicted depth and pose. Which failures does that objective structurally inherit?"
+    options:
+      - "Only sensor noise"
+      - "Occlusion — pixels visible in one frame and not the other have no valid correspondence, so their photometric error is meaningless — and moving objects, which violate the assumption that all apparent motion comes from camera motion"
+      - "Only calibration error"
+      - "It has no structural failures; it is fully self-supervised"
+    answer: 1
+    explanation: "The supervision comes from assuming a static scene observed from two poses, and both failures are violations of that assumption rather than noise. Occluded pixels get a large photometric error no depth can reduce, which is why per-pixel minimum-over-frames and auto-masking exist. A moving object can be explained by *either* motion or wrong depth, and the objective cannot distinguish them — so an object moving with the camera is typically assigned infinite depth, which is the classic artefact."
 ---
 
-## Formal definition
+## Stereo, from similar triangles
 
-Recovering per-pixel depth $d(u,v)$ from visual sensors. Three paradigms: (1) Stereo vision — triangulation from two cameras with baseline $b$: $d = \frac{f \cdot b}{\text{disparity}}$; (2) Structured light — project known IR pattern (e.g., RealSense D400), recover depth from pattern deformation; (3) Monocular depth estimation — learn $d = f_\theta(I)$ from a single RGB image using scale-invariant losses like $\mathcal{L} = \frac{1}{n}\sum_i (\log d_i - \log \hat{d}_i)^2 - \frac{\lambda}{n^2}\left(\sum_i \log d_i - \log \hat{d}_i\right)^2$. Recent foundation models (Depth Anything, ZoeDepth, MiDaS) produce high-quality metric or relative depth from a single image.
+Two rectified cameras separated by baseline $B$, focal length $f$ in pixels. A
+world point at depth $z$ projects to $u_L$ and $u_R$, and the **disparity** is
+$d = u_L - u_R$.
+
+<Derivation title="$z = fB/d$, and why the error is quadratic">
+
+Place the point at $(X, Z)$ relative to the left camera. Perspective projection
+gives
+
+$$
+u_L = f\frac{X}{Z} + c_x,
+\qquad
+u_R = f\frac{X - B}{Z} + c_x
+$$
+
+Subtracting:
+
+$$
+d = u_L - u_R = f\frac{B}{Z}
+\qquad\Longrightarrow\qquad
+\boxed{\,z = \frac{fB}{d}\,}
+$$
+
+**Now the error.** Differentiating with respect to disparity:
+
+$$
+\frac{\mathrm{d}z}{\mathrm{d}d} = -\frac{fB}{d^2} = -\frac{z^2}{fB}
+\qquad\Longrightarrow\qquad
+|\delta z| = \frac{z^2}{fB}\,\delta d
+$$
+
+**Read the three levers.** Error grows with $z^2$ — a five-fold distance is a
+twenty-five-fold error. It falls with $f$ and with $B$, both proportionally. And
+it falls with better sub-pixel matching $\delta d$, which is the only one that is
+a software problem.
+
+**Numbers.** $f = 600$ px, $B = 6$ cm, $\delta d = 0.25$ px:
+
+| $z$ | disparity | $\delta z$ | relative |
+| --- | --- | --- | --- |
+| 0.5 m | 72 px | 0.2 cm | 0.3% |
+| 1 m | 36 px | 0.7 cm | 0.7% |
+| 3 m | 12 px | 6.2 cm | 2.1% |
+| 5 m | 7.2 px | 17 cm | 3.5% |
+| 10 m | 3.6 px | 69 cm | 6.9% |
+
+**The design consequence.** At 10 m the disparity is under 4 pixels, so a
+quarter-pixel matching error is 7% of the signal. Long-range stereo needs a
+physically wide baseline, and no amount of processing substitutes for geometry.
+
+</Derivation>
+
+## Monocular ambiguity, stated properly
+
+<Derivation title="Scale is a gauge freedom, not a measurement error">
+
+Perspective projection of a point $(X, Y, Z)$:
+
+$$
+u = f_x\frac{X}{Z} + c_x,
+\qquad
+v = f_y\frac{Y}{Z} + c_y
+$$
+
+Apply a global scaling $(X, Y, Z) \mapsto (\alpha X, \alpha Y, \alpha Z)$:
+
+$$
+u' = f_x\frac{\alpha X}{\alpha Z} + c_x = u
+$$
+
+**The image is bit-identical for every $\alpha > 0$.** So the scale is not
+poorly estimated — it is *unobservable*. No amount of resolution, model capacity,
+or training data changes this, because the information is not in the data.
+
+**What breaks the tie.** A second view with a known baseline; a known object
+size; a metric range sensor; or a learned prior over object sizes, which is what
+a metric monocular network uses. The last one is a *guess*, and it fails exactly
+when the scene contains something atypically sized.
+
+**Why the scale-invariant loss exists.** Relative-depth methods train with a loss
+invariant to scale and shift, which is an explicit acknowledgement of this: they
+fit the part of the problem that is determined and decline the part that is not.
+Using their output for a metric measurement is using it outside what it claims.
+
+</Derivation>
+
+## From a depth image to a point cloud
+
+$$
+X = \frac{(u - c_x)\,z}{f_x},
+\qquad
+Y = \frac{(v - c_y)\,z}{f_y},
+\qquad
+Z = z
+$$
+
+<Warning>
+Every intrinsic error has a distinct geometric signature, and knowing them turns
+a vague "the cloud looks wrong" into a diagnosis.
+
+**Wrong focal length** scales $X$ and $Y$ but not $Z$, so the cloud is stretched
+or squashed laterally — a sphere becomes an ellipsoid.
+
+**Wrong principal point** adds a lateral offset proportional to $z$, which shears
+the cloud. A flat wall bends away with distance, and this reads as a tilt.
+
+**Wrong extrinsics** between the colour and depth cameras rigidly transform one
+relative to the other, so points get the wrong colour — most visible at object
+boundaries, where colour bleeds onto the background.
+
+Unproject a known flat surface and check it is planar. It is a two-minute test
+that catches all three.
+</Warning>
+
+## Where self-supervised depth gets its signal
+
+With no depth labels, train by predicting depth $\hat z$ and relative pose $T$,
+warping a source frame into the target, and minimising photometric error:
+
+$$
+\mathcal{L} = \sum_{p} \Big\| I_t(p) - I_{s}\big(\pi(T \cdot \pi^{-1}(p, \hat z_p))\big) \Big\|
+$$
+
+<Derivation title="The two failures this objective structurally inherits">
+
+The supervision assumes a **static scene** observed from two camera poses. Both
+failures are violations of that assumption, not noise.
+
+**Occlusion.** A pixel visible in the target and hidden in the source has no
+valid correspondence. Its photometric error is large for *every* depth, so the
+gradient it produces is meaningless. The standard remedies are a per-pixel
+minimum over several source frames — a pixel occluded in one is often visible in
+another — rather than an average, which would let the occluded frame dominate.
+
+**Moving objects.** Apparent motion can be explained by camera motion with
+correct depth, *or* by wrong depth. The objective cannot distinguish them. The
+characteristic artefact is an object moving with the camera — a car ahead at the
+same speed — being assigned near-infinite depth, because that makes it stationary
+in the warp. Auto-masking, which discards pixels whose photometric error does not
+improve over the no-motion baseline, addresses exactly this.
+
+**The general point.** A self-supervised objective encodes assumptions, and the
+model's failures are those assumptions failing rather than the model being bad.
+Reading the objective tells you where it will break before you test it.
+
+</Derivation>
+
+## Combining sources
+
+Depth from different sensors has different error structure, so fusing them means
+weighting by that structure rather than averaging.
+
+$$
+\hat z = \frac{\sum_i z_i/\sigma_i^2}{\sum_i 1/\sigma_i^2},
+\qquad
+\sigma_{\text{stereo}}^2 \propto z^4
+$$
+
+<KeyIdea>
+The $z^4$ is the variance corresponding to a $z^2$ standard deviation, and it has
+a strong practical consequence: stereo's weight in a fusion falls very fast with
+distance. A naive average of a stereo and a monocular estimate at 8 m is
+dominated by a stereo measurement that is nearly worthless there. Inverse-variance
+weighting with a depth-dependent $\sigma$ is the minimum honest treatment.
+</KeyIdea>

@@ -1,26 +1,165 @@
 ---
 concept: depth_estimation
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Depth Estimation for Robotics fail in practice, and how would
-    you present it in an interview?
+  prompt: "Give your interview answer on depth estimation for robotics. What is the fundamental limitation, and how do you choose a sensor?"
   keyPoints:
-    - "Structured light fails on: transparent objects (IR passes through),
-      specular surfaces (IR reflects away), outdoor scenes (IR sunlight
-      interference), thin objects (insufficient pattern coverage)."
-    - "Stereo fails on: textureless regions (no features to match), repetitive
-      patterns (ambiguous matching)."
-    - "Monocular fails on: metric scale (inherent ambiguity without known
-      reference), unusual viewpoints not in training data."
-check: []
-papers: []
+    - "Monocular metric depth is unobservable in principle — scaling the scene and the translation together leaves the image identical — so metric monocular output is a learned size prior, not a measurement."
+    - "Stereo error grows as $z^2$: $\\delta z = z^2\\delta d/(fB)$. Quote accuracy at your working range, because a 1 m specification is 25 times worse at 5 m."
+    - "Each sensor fails on a specific material, and what matters is whether the failure is loud (a hole) or quiet (a spurious match, multi-path in a corner)."
+    - "Carry validity and uncertainty through the pipeline. An inpainted hole is a guess presented as a measurement, on exactly the objects where being wrong is expensive."
+interview:
+  answer: >-
+    The thing I'd lead with is that monocular metric depth is unobservable in
+    principle rather than just hard. If you scale the whole scene and the camera
+    translation by the same factor, every image is bit-identical — perspective
+    projection maps a point to a ray and every point on that ray gives the same
+    pixel. So a doll's house and a real house are indistinguishable. That means
+    no amount of resolution, model capacity, or training data recovers metric
+    scale from one image; what a metric monocular network actually does is
+    recognise objects and apply learned size priors. It works well because most
+    scenes contain familiar things, and it fails specifically and confidently
+    when they don't — a scale model, a macro shot, an unusually proportioned
+    room. Which is why MiDaS trains with a scale-and-shift-invariant loss: that's
+    an explicit decision to fit the observable part of the problem and decline
+    the rest, and it's also why it generalises. For metric depth you need
+    geometry. Stereo gives it from a known baseline, and the number I'd carry is
+    that the error grows with the square of distance — differentiating z equals
+    fB over d gives delta-z equal to z-squared times the disparity error over fB.
+    For a typical rig, six-centimetre baseline and quarter-pixel matching, that's
+    about seven millimetres at one metre and about seventy centimetres at ten. A
+    hundredfold over a tenfold distance. So "accurate to a centimetre" isn't a
+    specification, it's a specification at one distance, and that's the most
+    common way a depth sensor gets picked for the wrong task. The three levers
+    are baseline, focal length, and sub-pixel matching accuracy, and only the
+    last is a software problem. The other thing I'd raise is that every sensor
+    has a material it can't see, and what matters operationally is whether the
+    failure is loud or quiet. Structured light on glass gives you a hole, which
+    is honest — the sensor is telling you it couldn't measure. Stereo on a
+    repetitive texture gives you a confident wrong disparity from a spurious
+    match, and time-of-flight in a concave corner gives a systematically too-far
+    reading from multi-path. Those are the dangerous ones, because downstream
+    code can't distinguish them from good data.
+  followUps:
+    - q: "How would you use a monocular depth network in a real robot stack?"
+      a: >-
+        For structure rather than for measurements. Relative depth — what's in
+        front of what — transfers extremely well and is genuinely useful as a
+        collision-avoidance prior, as a segmentation cue, or for ordering
+        objects. What I wouldn't do is take metres out of it and command a
+        gripper, because its failure mode is a confident wrong number rather
+        than a wide error bar. If I did need metric output from it, I'd align
+        it: fit a scale and shift by least squares against a handful of metric
+        anchors from stereo, a range sensor, or a known object dimension. That
+        turns it into an interpolator between measurements you trust, which is
+        a defensible use, rather than a measurement in its own right.
+    - q: "You need centimetre accuracy at three metres. What do you specify?"
+      a: >-
+        I'd work backwards from delta-z equals z-squared delta-d over fB. At
+        three metres wanting one centimetre, with a quarter-pixel disparity
+        accuracy, fB needs to be about 225 pixel-metres — so with a 600-pixel
+        focal length that's a baseline of roughly 37 centimetres, six times
+        wider than a typical compact RGB-D camera. That's the useful thing about
+        the formula: it tells you immediately that this is a mechanical
+        requirement rather than a processing one, and that no consumer depth
+        camera will do it however good its software. The alternatives are a
+        longer focal length, which trades field of view, or a different sensing
+        modality entirely — lidar doesn't have the quadratic term because it
+        measures time of flight rather than triangulating.
+    - q: "Your depth-based grasping fails on a specific set of objects. How do you diagnose it?"
+      a: >-
+        I'd look at the depth image on those objects first, before anything about
+        the policy. If there are holes, it's a material problem — glass,
+        polished metal, or dark matte surfaces defeat active sensors physically,
+        and that's a sensor choice rather than a bug. If there are values but the
+        grasp point is behind the object, I'd suspect boundary outliers: pixels
+        straddling an edge interpolate between foreground and background, and a
+        patch *mean* including a few of those lands centimetres off. Median over
+        the patch fixes it. And I'd check whether anything upstream is
+        inpainting, because a filled hole is indistinguishable from a
+        measurement downstream, and holes cluster on exactly the objects where a
+        wrong depth drives the gripper into something.
+    - q: "How would you check a depth camera is calibrated?"
+      a: >-
+        Point it at a flat wall or table and unproject to a point cloud, then fit
+        a plane and look at the residual pattern. A tape measure checks the range
+        calibration and is blind to the intrinsics, which govern the lateral
+        unprojection — and each intrinsic error has a distinct signature. A wrong
+        focal length scales x and y but not z, so the cloud is stretched
+        laterally. A wrong principal point adds an offset proportional to z,
+        which shears the cloud, so a flat wall bends away with distance and
+        reads as a tilt. Wrong extrinsics between the colour and depth cameras
+        show up as colour bleeding across object boundaries. It's one image and
+        it catches the class of error that otherwise gets chased for days as
+        "the point cloud looks slightly off".
+  traps:
+    - "Describing monocular scale ambiguity as an accuracy problem. It is unobservable in principle, so more data and larger models do not address it."
+    - "Quoting a depth accuracy without a range. Stereo error is quadratic in distance, so the two are inseparable."
+    - "Treating holes as noise to be filled. They are the sensor reporting honestly, and they cluster on the objects where a wrong value is most expensive."
+    - "Using a patch mean for a grasp point. Boundary pixels interpolate between foreground and background; the median is robust and costs nothing."
+check:
+  - id: de_l5_c1
+    prompt: "A colleague proposes replacing a stereo rig with a monocular depth network to save cost and weight, for a task requiring 2 cm accuracy at 2 m. What is your response?"
+    options:
+      - "Reasonable — modern monocular networks are accurate enough"
+      - "The metric scale would come from a learned size prior rather than geometry, so the accuracy is not characterisable and the failure mode is a confident wrong number. If the weight budget is real, use monocular for structure and keep a metric reference — a small baseline, a range sensor, or a known fiducial — to anchor the scale"
+      - "Agree, provided the network is fine-tuned on the task"
+      - "Disagree — monocular depth is not useful in robotics"
+    answer: 1
+    explanation: "The objection is about the *kind* of quantity being produced, not its current quality. Scale is unobservable from a single view, so the network's metres come from recognising objects and knowing typical sizes — which has no error bar you can specify and fails hard on atypical scenes. Fine-tuning improves the prior for that domain without changing what the prior is. The constructive answer keeps monocular where it excels and supplies the scale from something geometric, which is usually cheaper than the full stereo rig."
+  - id: de_l5_c2
+    prompt: "Your point cloud shows a flat table bending away from the camera at the edges. What do you check?"
+    options:
+      - "The depth range calibration"
+      - "The principal point in the intrinsics — unprojection uses $(u - c_x)z/f_x$, so an offset $c_x$ adds a lateral shift proportional to $z$, which shears the cloud and makes a plane appear curved"
+      - "The exposure settings"
+      - "The stereo baseline"
+    answer: 1
+    explanation: "The depth-dependent shape of the distortion is the tell: a range calibration error would move the whole surface toward or away without bending it, and a baseline error would scale depths uniformly. Because the principal-point offset is multiplied by $z$, its effect grows with distance, so a surface that looks flat close up curves at range. Fitting a plane and examining whether residuals grow with distance from the image centre confirms it in one image."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Structured light fails on: transparent objects (IR passes through), specular surfaces (IR reflects away), outdoor scenes (IR sunlight interference), thin objects (insufficient pattern coverage). Stereo fails on: textureless regions (no features to match), repetitive patterns (ambiguous matching). Monocular fails on: metric scale (inherent ambiguity without known reference), unusual viewpoints not in training data. Symptoms: holes in depth maps, flying pixels at edges. Fix: multi-modal fusion (structured light + monocular), temporal filtering, confidence-weighted depth completion.
+<Steps>
+<Step title="Flat surface bends with distance → principal point">
+The unprojection offset scales with $z$. Fit a plane and check whether residuals
+grow from the image centre.
+</Step>
 
-## Interview-ready answer
+<Step title="Cloud stretched laterally but depths correct → focal length">
+$f$ scales $X$ and $Y$ and not $Z$, so a sphere becomes an ellipsoid.
+</Step>
 
-Depth estimation is the bridge between 2D perception and 3D robot interaction. In practice, I use a layered approach: structured light sensors (RealSense) provide reliable metric depth for most surfaces. For failure cases (transparent, specular), I fuse with monocular depth estimation (Depth Anything V2) after scale-shift alignment. The key engineering decision is sensor selection: structured light for indoor manipulation ($0.3$-$3\,\text{m}$), stereo for longer range, time-of-flight for outdoor. Monocular models have gotten remarkably good but still lack metric scale without calibration — I use them as a complement to active sensors, not a replacement. For production systems, always monitor depth validity masks and have fallback behaviors for low-confidence regions.
+<Step title="Colour bleeds across object edges → extrinsics">
+The colour-to-depth transform is wrong. Most visible at boundaries.
+</Step>
+
+<Step title="Grasp point lands behind the object → boundary outliers">
+Flying pixels interpolate foreground and background. Use the median over the
+patch, not the mean.
+</Step>
+
+<Step title="Holes on specific objects → material, not a bug">
+Glass, polished metal, dark matte. The sensor is reporting honestly, and this is
+a sensor-choice question.
+</Step>
+
+<Step title="Accuracy fine in the lab, poor at range → the $z^2$ term">
+Quote and test at your actual working distance, not at the datasheet's.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+Two things distinguish this answer. Stating monocular scale ambiguity as
+*unobservable in principle* — with the one-line argument that scaling the scene
+and the translation together leaves the image identical — because that determines
+what could ever fix it, and rules out "wait for a better model". And carrying the
+$z^2$ error relation with real numbers, since it converts sensor selection from a
+datasheet comparison into a calculation you can do in the interview. Adding that
+the operationally important question is whether a sensor's failures are loud or
+quiet is what signals you have debugged a perception stack rather than read about
+one.
+</Warning>

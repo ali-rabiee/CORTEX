@@ -1,0 +1,213 @@
+---
+concept: depth_estimation
+level: 3
+status: final
+recall:
+  prompt: "Implement unprojection, depth-error propagation, and the checks that catch a miscalibrated or misused depth sensor."
+  keyPoints:
+    - "Unproject with the intrinsics and validate against a known flat surface — every intrinsic error has a distinct geometric signature."
+    - "Propagate the depth uncertainty rather than discarding it: $\\sigma_z = z^2\\sigma_d/(fB)$, and carry it into whatever consumes the point."
+    - "Never inpaint holes silently. A filled hole is a guess presented as a measurement, and downstream code cannot tell the difference."
+    - "For a grasp point use a robust statistic over a patch — the median, not the mean — because depth images have outliers at object boundaries."
+check:
+  - id: de_l3_c1
+    prompt: "Why take the median rather than the mean depth over a patch when computing a grasp point?"
+    options:
+      - "The median is faster"
+      - "Depth images have outliers at object boundaries — flying pixels that interpolate between foreground and background — and a single such pixel can shift a mean by centimetres, while the median ignores it"
+      - "The mean is biased toward the camera"
+      - "Because depth is not normally distributed"
+    answer: 1
+    explanation: "Boundary pixels are the specific problem: a pixel straddling an object edge gets a depth somewhere between the object and whatever is behind it, which may be a metre away. A patch mean including a few of those is pulled far off, and the resulting grasp point is behind the object. The median is unaffected until more than half the patch is bad, which for a patch centred on the object it is not. The general form of the rule is that depth statistics should be robust because depth outliers are structured, not Gaussian."
+  - id: de_l3_c2
+    prompt: "You inpaint holes in a depth image before passing it to a grasp planner. What is the risk?"
+    options:
+      - "Inpainting is slow"
+      - "The filled values are indistinguishable from measurements downstream, so the planner treats a guess as data — and the holes are usually on transparent or specular objects, which is exactly where a wrong depth causes a collision"
+      - "Inpainting introduces high-frequency noise"
+      - "It changes the intrinsics"
+    answer: 1
+    explanation: "The problem is the loss of the *validity* signal, not the quality of the interpolation. A hole is honest information — the sensor is telling you it could not measure — and filling it converts that into a confident number. It is worse than it sounds because holes are not randomly located: they cluster on glass, polished metal, and dark surfaces, which are precisely the objects where a wrong depth estimate leads the gripper into something. Carry a validity mask alongside the depth and let the consumer decide."
+  - id: de_l3_c3
+    prompt: "How would you check whether a depth camera's intrinsics are right?"
+    options:
+      - "Compare the depth values against a tape measure"
+      - "Unproject a known planar surface — a wall or table — and fit a plane. Residuals that grow with distance from the image centre indicate a principal-point error; a systematic lateral scale error indicates the focal length"
+      - "Check the manufacturer's datasheet"
+      - "Measure the baseline"
+    answer: 1
+    explanation: "A tape measure checks the range calibration and is blind to the intrinsics, which govern the *lateral* unprojection. Because the principal-point error contributes a lateral offset proportional to $z$, a wall imaged at an angle unprojects to a curved surface rather than a plane — and the residual pattern identifies which parameter is wrong. It takes one image of a flat surface and catches the class of error that makes a point cloud look subtly wrong in a way people otherwise chase for days."
+---
+
+## Unprojection, with the validity carried through
+
+<CodeWalk title="Depth image to point cloud">
+
+```python title="unproject.py"
+import numpy as np
+
+def unproject(depth, K, valid_mask=None):
+    """depth: (H, W) metres, 0 or NaN where invalid. K: 3x3 intrinsics.
+
+    Returns points AND a validity mask. Carrying validity separately is the
+    whole point — a filled hole is a guess, and downstream code cannot tell
+    it from a measurement.
+    """
+    H, W = depth.shape
+    fx, fy, cx, cy = K[0, 0], K[1, 1], K[0, 2], K[1, 2]
+
+    v, u = np.meshgrid(np.arange(H), np.arange(W), indexing="ij")
+    z = depth
+    x = (u - cx) * z / fx        # a wrong cx shears the cloud by an amount
+    y = (v - cy) * z / fy        # proportional to z — reads as a tilt
+
+    pts = np.stack([x, y, z], axis=-1)
+    valid = np.isfinite(z) & (z > 0)
+    if valid_mask is not None:
+        valid &= valid_mask
+    return pts, valid
+```
+
+</CodeWalk>
+
+## Validate the intrinsics against a plane
+
+```python title="check_intrinsics.py"
+def plane_residuals(depth, K, roi=None):
+    """Point a depth camera at a flat wall or table and fit a plane.
+
+    A tape measure checks the RANGE calibration and is blind to the
+    intrinsics, which govern the lateral unprojection. This is not:
+
+      residuals growing with distance from the image centre -> principal point
+      systematic lateral scale error                        -> focal length
+      residuals random and small                            -> intrinsics fine
+    """
+    pts, valid = unproject(depth, K)
+    P = pts[valid]
+    if roi is not None:
+        P = P[roi[valid]]
+
+    centroid = P.mean(axis=0)
+    _, _, Vt = np.linalg.svd(P - centroid, full_matrices=False)
+    normal = Vt[-1]                                  # smallest singular vector
+    resid = (P - centroid) @ normal
+
+    return {
+        "rms_mm": float(np.sqrt((resid ** 2).mean()) * 1000),
+        "max_mm": float(np.abs(resid).max() * 1000),
+        "normal": normal.tolist(),
+    }
+```
+
+<KeyIdea>
+One image of a flat surface catches an entire class of error that otherwise
+presents as "the point cloud looks slightly wrong" and gets chased for days. The
+residual *pattern* is the diagnosis, not just its magnitude.
+</KeyIdea>
+
+## Propagate the uncertainty
+
+<CodeWalk title="Depth error, carried rather than discarded">
+
+```python title="uncertainty.py"
+def stereo_depth_sigma(z, focal_px, baseline_m, disparity_sigma_px=0.25):
+    """sigma_z = z^2 * sigma_d / (f * B). Quadratic in depth.
+
+    Carry this into whatever consumes the point. A grasp planner that treats
+    a 10 m measurement the same as a 1 m one is using a number that is 100x
+    less certain as though it were equally good.
+    """
+    return z ** 2 * disparity_sigma_px / (focal_px * baseline_m)
+
+
+def fuse(estimates, sigmas):
+    """Inverse-variance weighting. Note sigma_z ~ z^2 means the VARIANCE goes
+    as z^4, so a stereo measurement's weight collapses very fast with range —
+    naively averaging stereo and monocular at 8 m is dominated by a stereo
+    reading that is nearly worthless there.
+    """
+    w = 1.0 / np.square(sigmas)
+    return float(np.sum(w * np.asarray(estimates)) / np.sum(w))
+```
+
+</CodeWalk>
+
+## Getting a grasp point out of a depth image
+
+```python title="grasp_point.py"
+def target_point(depth, K, box, min_valid_frac=0.4):
+    """Semantics from a detector, geometry from the sensor.
+
+    Two robustness decisions, both about the structure of depth errors:
+
+      - MEDIAN, not mean. Boundary pixels interpolate between foreground and
+        background, so a few 'flying pixels' can shift a mean by centimetres
+        and put the grasp point behind the object.
+      - Refuse to answer if too much of the box is invalid. A number computed
+        from four surviving pixels on a glass beaker is not a measurement.
+    """
+    x0, y0, x1, y1 = [int(v) for v in box]
+    patch = depth[y0:y1, x0:x1]
+    valid = np.isfinite(patch) & (patch > 0)
+
+    if valid.mean() < min_valid_frac:
+        return None, {"reason": "insufficient valid depth", "frac": float(valid.mean())}
+
+    z = float(np.median(patch[valid]))               # robust to boundary outliers
+    cx_px, cy_px = (x0 + x1) / 2, (y0 + y1) / 2
+    fx, fy, cx, cy = K[0, 0], K[1, 1], K[0, 2], K[1, 2]
+
+    return (
+        ((cx_px - cx) * z / fx, (cy_px - cy) * z / fy, z),
+        {"sigma_z": stereo_depth_sigma(z, fx, BASELINE_M), "valid_frac": float(valid.mean())},
+    )
+```
+
+<Warning>
+Returning `None` when the depth is unusable is a feature. The alternative —
+computing something from whatever pixels survived — produces a plausible
+coordinate on exactly the objects where depth fails, which are transparent and
+specular things a gripper should not be driven into on a guess.
+</Warning>
+
+## Using a monocular network correctly
+
+```python title="monocular.py"
+def align_relative_depth(pred_rel, sparse_metric, sparse_mask):
+    """A relative-depth network is trained with a scale-and-shift-invariant
+    loss, which is an explicit statement that it does not predict metric
+    depth. Using its output as metres is using it outside its claim.
+
+    Given a few metric anchors — from stereo, a range sensor, or a known
+    object size — solve least squares for the scale and shift.
+    """
+    r = pred_rel[sparse_mask].reshape(-1, 1)
+    m = sparse_metric[sparse_mask].reshape(-1)
+    A = np.concatenate([r, np.ones_like(r)], axis=1)
+    (s, t), *_ = np.linalg.lstsq(A, m, rcond=None)
+    return s * pred_rel + t, {"scale": float(s), "shift": float(t)}
+```
+
+## Checks before trusting a depth pipeline
+
+<Steps>
+<Step title="Plane test on a flat surface">
+Catches intrinsics errors, and the residual pattern identifies which parameter.
+</Step>
+
+<Step title="Quote accuracy at your working range">
+$z^2\delta d/(fB)$. A sensor specified at 1 m has 25 times the error at 5 m, and
+this is the most common way one gets chosen for the wrong task.
+</Step>
+
+<Step title="Look at the holes, and where they are">
+Clustered on glass, polished metal, and dark surfaces. If your task involves
+those, the hole pattern is the specification.
+</Step>
+
+<Step title="Never let a filled hole reach a planner unlabelled">
+Carry a validity mask. Inpainting is fine for visualisation and not for anything
+that moves a gripper.
+</Step>
+</Steps>

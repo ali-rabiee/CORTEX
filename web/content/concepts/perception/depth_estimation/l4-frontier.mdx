@@ -1,0 +1,193 @@
+---
+concept: depth_estimation
+level: 4
+status: final
+recall:
+  prompt: "Trace learned depth estimation. What was solved, what remains unobservable, and what does that mean for a robot?"
+  keyPoints:
+    - "Eigen et al. (2014) established that a network can predict depth from a single image, working in log space to handle the scale of the target."
+    - "Monodepth2 (2019) made it self-supervised via photometric reprojection, with per-pixel minimum and auto-masking as principled fixes for occlusion and moving objects."
+    - "MiDaS (2020) achieved cross-dataset generalisation by training on a scale-and-shift-invariant loss — solving the part of the problem that is observable and explicitly declining the rest."
+    - "ZoeDepth (2023) bolts metric heads onto a relative backbone; the scale still comes from a learned prior about object sizes, which is a guess rather than a measurement."
+papers:
+  - key: eigen2014depth
+    title: "Depth Map Prediction from a Single Image using a Multi-Scale Deep Network"
+    authors: "David Eigen, Christian Puhrsch, Rob Fergus"
+    venue: NeurIPS
+    year: 2014
+    arxiv: "1406.2283"
+    takeaway: "The first convincing demonstration that a network can predict dense depth from a single image, using a coarse-to-fine architecture and a scale-invariant loss in log space."
+  - key: godard2019monodepth2
+    title: "Digging Into Self-Supervised Monocular Depth Estimation"
+    authors: "Clément Godard, Oisin Mac Aodha, Michael Firman, Gabriel Brostow"
+    venue: ICCV
+    year: 2019
+    arxiv: "1806.01260"
+    takeaway: "Trains depth and pose jointly by photometric reprojection with no depth labels, and introduces per-pixel minimum reprojection loss and auto-masking as targeted fixes for occlusion and for objects moving with the camera."
+  - key: ranftl2020midas
+    title: "Towards Robust Monocular Depth Estimation: Mixing Datasets for Zero-shot Cross-dataset Transfer"
+    authors: "René Ranftl, Katrin Lasinger, David Hafner, Konrad Schindler, Vladlen Koltun"
+    venue: TPAMI
+    year: 2022
+    arxiv: "1907.01341"
+    takeaway: "Mixes datasets with incompatible depth annotations by training on a scale-and-shift-invariant loss, achieving strong zero-shot transfer — and making explicit that what generalises is relative rather than metric depth."
+  - key: ranftl2021dpt
+    title: "Vision Transformers for Dense Prediction"
+    authors: "René Ranftl, Alexey Bochkovskiy, Vladlen Koltun"
+    venue: ICCV
+    year: 2021
+    arxiv: "2103.13413"
+    takeaway: "Replaces the convolutional encoder with a transformer for dense prediction, gaining global receptive field at every stage — which matters for depth because scale cues are often far from the pixel being estimated."
+  - key: bhat2023zoedepth
+    title: "ZoeDepth: Zero-shot Transfer by Combining Relative and Metric Depth"
+    authors: "Shariq Farooq Bhat, Reiner Birkl, Diana Wofk, Peter Wonka, Matthias Müller"
+    year: 2023
+    arxiv: "2302.12288"
+    takeaway: "Pretrains for relative depth and attaches domain-specific metric heads, recovering metric predictions — while the scale still derives from learned priors over object sizes rather than from geometry."
+check:
+  - id: de_l4_c1
+    prompt: "MiDaS trains with a scale-and-shift-invariant loss. Why is that a *design* decision rather than a limitation?"
+    options:
+      - "It makes the loss easier to optimise"
+      - "It lets incompatible datasets be mixed — different sensors give depth in different units and offsets — and it declines to fit the component that single-view geometry cannot determine, which is why the result generalises across domains"
+      - "It reduces overfitting"
+      - "It is required for transformer backbones"
+    answer: 1
+    explanation: "Two things at once. Practically, it makes datasets with incommensurable annotations — laser scans in metres, stereo disparities, ordinal labels from human annotators — poolable into one training set, which is where the generalisation comes from. Conceptually, it is fitting only the observable part: scale is a gauge freedom under single-view projection, so a loss that ignores it is aligned with what the data can determine. Declining to fit an unobservable quantity is what makes the estimate transfer."
+  - id: de_l4_c2
+    prompt: "Monodepth2's per-pixel *minimum* reprojection error over source frames replaced an average. What does that fix?"
+    options:
+      - "Sensor noise"
+      - "Occlusion: a pixel hidden in one source frame has no valid correspondence there and produces a large error for every depth, so averaging lets that meaningless term dominate — while taking the minimum uses whichever frame the pixel is actually visible in"
+      - "Moving objects"
+      - "Calibration error between frames"
+    answer: 1
+    explanation: "The mechanism is that an occluded pixel's error is uninformative rather than merely noisy — no depth reduces it, so its gradient points nowhere useful. Averaging over frames guarantees that term is always present; the minimum selects the frame where the pixel is visible, which for typical camera motion is usually at least one. Moving objects are the *other* failure and get the separate auto-masking fix, and keeping the two apart is what makes the paper's contributions legible."
+  - id: de_l4_c3
+    prompt: "ZoeDepth produces metric depth from a single image. Has the ambiguity been solved?"
+    options:
+      - "Yes — with enough training data metric depth is recoverable"
+      - "No. The scale comes from a learned prior over typical object sizes, not from the geometry, so it is a well-informed guess that fails on atypically-sized scenes — a scale model, an unusual room, a close-up of a miniature"
+      - "Yes, because the transformer has global context"
+      - "The ambiguity only affects relative depth"
+    answer: 1
+    explanation: "Scaling a scene and the camera translation together leaves every image bit-identical, so no single-view method can determine scale from the data — that is a statement about information, and training data does not change it. What a metric monocular model does is recognise objects and apply learned size priors, which works well because most scenes contain familiar things. Its failures are correspondingly specific and confident: a doll's house, a macro shot, an unusually large room. For a robot that means monocular metric depth should not command a gripper without an independent scale reference."
+---
+
+## Establishing that it is possible at all
+
+<PaperCard refKey="eigen2014depth" />
+
+That a network could produce dense depth from a single image was not obvious in
+2014, and the paper's architecture — a coarse global prediction refined locally —
+reflects the structure of the problem: overall scene layout is a global judgement
+and local detail is not.
+
+<KeyIdea>
+Its choice of a scale-invariant loss in log space is worth noticing, because it
+prefigures everything that followed. Even here, fitting the metric scale directly
+was the wrong target — the observable part of the problem is relative, and the
+loss was built around that a decade before it became the standard framing.
+</KeyIdea>
+
+## Removing the need for labels
+
+<PaperCard refKey="godard2019monodepth2" />
+
+Depth labels require a range sensor and are expensive. The self-supervised
+alternative predicts depth *and* relative pose, warps one frame into another, and
+minimises photometric error — supervision from nothing but video.
+
+The two contributions are targeted fixes for two distinct violations of the
+static-scene assumption the objective rests on.
+
+<Steps>
+<Step title="Per-pixel minimum, for occlusion">
+A pixel hidden in one source frame produces a large error for *any* depth, so its
+gradient is meaningless. Averaging over frames guarantees that term is always
+present; taking the minimum uses whichever frame the pixel is visible in.
+</Step>
+
+<Step title="Auto-masking, for moving objects">
+Apparent motion can be explained by camera motion with correct depth *or* by
+wrong depth, and the objective cannot tell them apart. An object moving with the
+camera gets assigned near-infinite depth, since that makes it stationary in the
+warp. Masking pixels whose photometric error does not improve over the
+no-motion baseline removes exactly those.
+</Step>
+</Steps>
+
+<Warning>
+Both failures are the objective's *assumptions* failing rather than the model
+being weak, which is the general lesson worth carrying. Reading a self-supervised
+loss tells you where the method will break before you test it — and the fixes
+here are principled precisely because they were derived from the violation rather
+than tuned against a benchmark.
+</Warning>
+
+## Fitting the observable part
+
+<PaperGrid>
+<PaperCard refKey="ranftl2020midas" />
+<PaperCard refKey="ranftl2021dpt" />
+</PaperGrid>
+
+MiDaS's problem was that depth datasets are mutually incompatible: laser scans in
+metres, stereo disparities in arbitrary units, ordinal labels from human
+annotators. Training on a **scale-and-shift-invariant** loss makes them poolable.
+
+<KeyIdea>
+It is also the conceptually right target. Scale is a gauge freedom under
+single-view projection, so a loss that ignores scale is aligned with what the data
+can determine — and declining to fit an unobservable quantity is what makes the
+estimate transfer across domains. The generalisation and the honesty are the same
+decision.
+</KeyIdea>
+
+DPT then replaces the convolutional encoder with a transformer, which matters for
+depth specifically: the cue that fixes a pixel's depth is often far away — a
+recognisable object elsewhere in the scene — and a convolutional stack's receptive
+field grows linearly with depth, so global context is exactly what it is short of.
+
+## Recovering metric scale, and what that costs
+
+<PaperCard refKey="bhat2023zoedepth" />
+
+Pretrain for relative depth where generalisation is achievable, then attach
+metric heads for specific domains.
+
+<Warning>
+The ambiguity has not been dissolved. Scaling a scene and the camera translation
+together leaves every image bit-identical, so no single-view method can recover
+scale *from the data*. What a metric monocular model does is recognise objects
+and apply learned size priors.
+
+That works well, because most scenes contain familiar things — and it fails
+specifically and confidently on scenes that do not: a scale model, a macro shot,
+an unusually proportioned room. For a robot the consequence is concrete:
+monocular metric depth should not command a gripper without an independent scale
+reference, because its failure mode is a confident wrong number rather than an
+error bar.
+</Warning>
+
+## Where this leaves a robot
+
+<Steps>
+<Step title="Monocular for structure, geometry for measurement">
+Relative depth generalises impressively and is genuinely useful — for ordering,
+for segmentation cues, for collision-avoidance priors. Metric commands should
+come from stereo, a range sensor, or a known reference.
+</Step>
+
+<Step title="The sensor's range is the specification">
+Stereo error grows as $z^2$, so the choice is determined by the working distance
+far more than by the sensor's headline accuracy.
+</Step>
+
+<Step title="Learned depth does not remove the material failures">
+Glass and polished metal defeat active sensors physically. A monocular network
+will happily produce a surface there — which is sometimes better than a hole and
+sometimes a confident hallucination, and the difference matters when a gripper
+acts on it.
+</Step>
+</Steps>
