@@ -1,27 +1,164 @@
 ---
 concept: convolutional_neural_networks
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Convolutional Neural Networks — Translation Equivariance and
-    Hierarchical Features in plain language: what is it, and why does it
-    matter?"
+  prompt: "What is the convolutional prior, exactly? What does it buy, and what does it cost?"
   keyPoints:
-    - A CNN is like a hierarchy of pattern detectors.
-    - Early layers detect edges and textures (3x3 local patterns), middle layers
-      combine these into parts (corners, shapes), and deep layers recognize
-      objects (faces, tools).
-    - Weight sharing means the same edge detector works everywhere in the image
-      — you do not need separate parameters for 'edge in top-left' vs 'edge in
-      bottom-right'.
-check: []
-papers: []
+    - "The prior is weight sharing across position: the same kernel is applied everywhere, which asserts that a feature means the same thing wherever it appears."
+    - "It buys an enormous parameter reduction — about $10^6$ for a $3\\times3$, 256-channel layer on a $56\\times56$ grid — and translation equivariance for free."
+    - "It costs context: the receptive field of stacked stride-1 $3\\times3$ convolutions grows only *linearly*, reaching 21 pixels after ten layers."
+    - "So context has to be bought back — by striding (multiplicative growth, at the cost of resolution) or dilation (exponential, at full resolution). Attention gets there in one layer, and pays quadratically."
+media:
+  - kind: article
+    title: "Deep Residual Learning for Image Recognition"
+    url: https://arxiv.org/abs/1512.03385
+    source: "He, Zhang, Ren, Sun"
+    note: "The paper that made depth usable, and the one whose residual argument recurs everywhere else in this material. Read Section 3.1 — the degradation observation that motivates it is more interesting than the architecture."
+  - kind: article
+    title: "Multi-Scale Context Aggregation by Dilated Convolutions"
+    url: https://arxiv.org/abs/1511.07122
+    source: "Yu, Koltun"
+    note: "The clean answer to the receptive-field problem: grow context exponentially without losing resolution. Worth reading for the arithmetic, which makes the constraint concrete."
+  - kind: article
+    title: "A ConvNet for the 2020s"
+    url: https://arxiv.org/abs/2201.03545
+    source: "Liu, Mao, Wu, Feichtenhofer, Darrell, Xie"
+    note: "Applies the transformer era's training recipe and design choices to a pure convolutional network and closes most of the gap — the necessary control for claims about architecture versus recipe."
+check:
+  - id: cnn_l1_c1
+    prompt: "What exactly is the inductive bias in a convolutional layer?"
+    options:
+      - "That images are smooth"
+      - "Weight sharing across position: the same kernel is applied everywhere, which asserts that a feature means the same thing regardless of where it appears — and that assertion is what buys both the parameter reduction and the equivariance"
+      - "That nearby pixels are correlated"
+      - "That features are hierarchical"
+    answer: 1
+    explanation: "Locality and hierarchy are real properties of the architecture and they are consequences rather than the core claim. The load-bearing assumption is that a detector for an edge is the same detector wherever the edge is — which is why one kernel suffices for the whole image. That single assumption gives the roughly million-fold parameter reduction and translation equivariance simultaneously, and it is also exactly what is false when position carries meaning, as in a task where the top of the image means something different from the bottom."
+  - id: cnn_l1_c2
+    prompt: "After ten stacked stride-1 $3\\times3$ convolutions, how large is the receptive field?"
+    options:
+      - "About 1024 pixels, doubling per layer"
+      - "21 pixels — each layer adds 2, so growth is *linear* in depth, which is far slower than most people assume"
+      - "About 100 pixels"
+      - "The whole image, since the layers compose"
+    answer: 1
+    explanation: "$1 + 2L$ for stride-1 $3\\times3$: ten layers gives 21 pixels. The slowness is the point — a ten-layer plain convolutional stack cannot relate two objects 50 pixels apart, however many parameters it has. This is why architectures use striding, pooling, or dilation rather than just depth, and computing it for your own network is a fast way to find out whether it can physically see what the task requires."
+  - id: cnn_l1_c3
+    prompt: "Why does a convolutional trunk remain a sensible default for a robot policy with 200 demonstrations?"
+    options:
+      - "Convolutions are faster to compute"
+      - "Because a built-in inductive bias helps most when data is scarce: translation equivariance is a correct prior the network gets for free, whereas a transformer must learn it from data it does not have"
+      - "Because transformers cannot process images"
+      - "Because convolutions generalise better in all settings"
+    answer: 1
+    explanation: "The regime is what decides, and the ViT result makes the crossover explicit — patches beat convolutions given enough pretraining data and lose given less. At 200 demonstrations you are firmly in the scarce regime, so a prior you get for free is worth having. A conv trunk also pools spatially before any sequence model, which cuts the token count and therefore the quadratic attention cost. The one argument that overrides this is wanting to inherit pretrained weights, which is really a statement that someone else already paid the data cost."
 ---
 
-## Intuition
+## The prior is weight sharing
 
-A CNN is like a hierarchy of pattern detectors. Early layers detect edges and textures (3x3 local patterns), middle layers combine these into parts (corners, shapes), and deep layers recognize objects (faces, tools). Weight sharing means the same edge detector works everywhere in the image — you do not need separate parameters for 'edge in top-left' vs 'edge in bottom-right'. Pooling progressively summarizes spatial information: 'there is a vertical edge somewhere in this 4x4 region' — providing robustness to small translations, which is critical for recognizing objects regardless of exact pixel position.
+A convolutional layer applies the same kernel at every spatial position. That is
+not an implementation convenience — it is a claim about the world: **a feature
+means the same thing wherever it appears**.
 
-## In practice
+<Figure src="/figures/cnn-receptive-field.svg"
+        alt="Left: a comparison showing a 3x3 256-channel convolution using 589,824 parameters against 644 billion for a dense equivalent. Right: a table of receptive field size against depth for stride-1, strided, and dilated convolutions."
+        caption="Reusing one kernel everywhere is a million-fold parameter reduction and a correct prior about images. It also means context grows linearly with depth, which is far slower than it feels." />
 
-A robot perception stack using ResNet-34 as backbone: input $640 \times 480 \times 3$ RGB, output $20 \times 15 \times 512$ feature map, then task-specific heads for detection and segmentation. The effective receptive field at the final layer covers $> 400 \times 400$ pixels but is concentrated in the center (effective receptive field is much smaller than theoretical). For real-time inference at 30Hz on embedded GPU (Jetson Orin): use depthwise separable convolutions (MobileNet) reducing FLOPs from 3.6G to 0.3G with minimal accuracy loss. Key: use pre-trained ImageNet weights — training from scratch on robot data alone requires $10\times$ more data.
+<KeyIdea>
+For a $3\times3$ layer mapping 256 channels to 256 on a $56\times56$ grid, the
+convolution has about 590 thousand parameters and a dense layer over the same
+activations would have 644 *billion* — a factor of $10^6$. That reduction is
+purchased entirely by the assumption, and it is why convolutional networks were
+trainable on datasets that could never have supported the dense equivalent.
+</KeyIdea>
+
+<Intuition>
+Learning to recognise a face by learning a separate detector for every possible
+position in the image is absurd — you would need as many examples as positions.
+Learning one detector and sliding it is obviously right.
+
+Obviously right *for images*. It is exactly wrong for something like a tabular
+problem where each column means something different, and it is why applying
+convolutions to arbitrary data is not a neutral choice.
+</Intuition>
+
+## Equivariance, and its weaker cousin
+
+Weight sharing gives **translation equivariance**: shift the input and the output
+shifts with it. That is a property of the convolution and it holds exactly.
+
+<Warning>
+Equivariance is not invariance, and the distinction matters more than it sounds.
+Equivariance says the output *moves with* the input; invariance says the output
+*does not change*. Convolution gives the first; pooling and global averaging give
+approximate versions of the second.
+
+Which you want depends on the task, and getting it backwards is a real design
+error. Classification wants invariance — a cat is a cat wherever it is.
+Segmentation, detection, and any robot policy that must reach toward something
+want **equivariance**, because where it is *is the answer*. Global average
+pooling in a manipulation policy destroys exactly the information the task needs,
+which is why spatial softmax exists.
+</Warning>
+
+## Context grows slowly
+
+Each stride-1 $3\times3$ layer adds 2 to the receptive field, so after $L$ layers
+it is $1 + 2L$ — **linear** in depth.
+
+| layers | stride 1 | stride 2 alternating | dilated |
+| --- | --- | --- | --- |
+| 2 | 5 | 5 | 7 |
+| 4 | 9 | 13 | 31 |
+| 6 | 13 | 29 | 127 |
+| 10 | 21 | 125 | 2047 |
+
+<KeyIdea>
+Ten layers of plain $3\times3$ convolution see 21 pixels. That is much less than
+most people assume, and it means a network cannot relate two objects 50 pixels
+apart no matter how many parameters it has. Context is not something depth
+provides for free — it has to be bought.
+</KeyIdea>
+
+<Steps>
+<Step title="Striding and pooling — multiplicative growth">
+Each downsample doubles how far a subsequent layer reaches, so the field grows
+geometrically. The cost is resolution: you cannot localise more precisely than
+the grid you are working on.
+</Step>
+
+<Step title="Dilation — exponential growth at full resolution">
+Insert gaps between kernel taps and double the gap each layer. Eight layers reach
+511 pixels while every layer stays at full resolution — which is why it dominates
+in segmentation, where you need both context and precise boundaries.
+</Step>
+
+<Step title="Attention — global in one layer, at quadratic cost">
+Every position sees every other immediately. The convolutional constraint
+disappears and is replaced by a different one: cost that grows with the square of
+the number of positions.
+</Step>
+</Steps>
+
+## When the prior stops paying
+
+A built-in inductive bias is a constraint. It helps when data is scarce, because
+it is structure you did not have to learn, and it limits you when data is
+plentiful, because the learned version fits better.
+
+<Warning>
+That crossover is measured rather than argued: vision transformers, which discard
+translation equivariance entirely, lose to convolutions at ImageNet scale and win
+with much larger pretraining. So the question is never "convolution or
+transformer" but **how much data do I have**.
+
+For a robot policy with 200 demonstrations the answer is emphatic: a
+convolutional trunk gives you a correct prior for free, and it pools spatially
+before any sequence model, which cuts the token count that attention pays for
+quadratically. The one argument that overrides this is wanting to inherit
+pretrained weights — which is really a statement that someone else already paid
+the data cost.
+</Warning>
+
+<WatchThis />

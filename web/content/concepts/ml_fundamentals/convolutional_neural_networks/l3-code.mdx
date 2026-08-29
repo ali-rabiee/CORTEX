@@ -1,0 +1,202 @@
+---
+concept: convolutional_neural_networks
+level: 3
+status: final
+recall:
+  prompt: "Compute a network's receptive field and cost before training it. What do you check, and what are the usual mistakes?"
+  keyPoints:
+    - "Compute the receptive field from the layer spec before training — a network that cannot see the structure the task requires will not learn it, whatever you do to the optimiser."
+    - "Parameters are independent of spatial size and FLOPs are not, so early layers dominate compute and late layers dominate parameters. A parameter count says little about runtime."
+    - "Replace global average pooling with a spatial softmax whenever the output is a spatial quantity — pooling is built to discard the position the task needs."
+    - "Verify equivariance empirically: shift the input and check the feature map shifts. Padding, striding, and any position-dependent layer break it."
+check:
+  - id: cnn_l3_c1
+    prompt: "Why compute the receptive field before training rather than after diagnosing a failure?"
+    options:
+      - "It affects the learning rate"
+      - "Because it is a hard constraint, not a tendency: if the field is smaller than the structure the task requires, the network *cannot* represent the answer — and no amount of training, capacity, or data changes that"
+      - "It determines the batch size"
+      - "It is needed to initialise the weights"
+    answer: 1
+    explanation: "Most training problems are matters of degree and this one is categorical. A unit whose receptive field spans 21 pixels has no access to information 50 pixels away — the relationship is not weakly represented, it is absent. Computing $1 + 2L$ for a stride-1 stack takes a second and rules out an entire class of failure that would otherwise be attributed to optimisation. It is also the calculation that tells you whether to add striding or dilation rather than depth."
+  - id: cnn_l3_c2
+    prompt: "You profile a convolutional network and find early layers dominate runtime despite having few parameters. Why?"
+    options:
+      - "Early layers use larger kernels"
+      - "Because FLOPs scale with spatial size and parameters do not: an early layer has few channels but a large $H\\times W$, so $2HWk^2C_{\\text{in}}C_{\\text{out}}$ is large while $k^2C_{\\text{in}}C_{\\text{out}}$ is small"
+      - "Because gradients are larger in early layers"
+      - "Because of memory transfer overhead"
+    answer: 1
+    explanation: "The two quantities decouple, and that decoupling is why a parameter count is a poor proxy for runtime in a convolutional network. A first layer at $224\\times224$ with 3 to 64 channels has under 2,000 parameters and does a lot of arithmetic; a late layer at $7\\times7$ with 512 to 512 channels has 2.4 million parameters and does less. If you want to make a network faster, look at the early layers; if you want to make it smaller, look at the late ones."
+  - id: cnn_l3_c3
+    prompt: "How would you verify your network is actually translation-equivariant?"
+    options:
+      - "Check the layer definitions"
+      - "Test it: shift the input by a known number of pixels, run both through the trunk, and check the feature map shifted by the corresponding amount — padding, striding, and any position-dependent layer break it, sometimes in ways the code does not reveal"
+      - "Compare training and validation loss"
+      - "Visualise the learned filters"
+    answer: 1
+    explanation: "Reading the definitions tells you what should happen; a shift test tells you what does. Equivariance is exact in the interior and approximate at boundaries because of padding, and a stride of $s$ only gives equivariance to shifts that are multiples of $s$ — which is easy to overlook and produces a network that behaves differently for a one-pixel shift than for a two-pixel one. A five-line test catches both, and also catches an accidentally position-dependent layer."
+---
+
+## Compute the receptive field first
+
+<CodeWalk title="Receptive field and jump, from a layer spec">
+
+```python title="receptive_field.py"
+def receptive_field(layers):
+    """layers: list of (kernel, stride, dilation).
+
+    Two quantities propagate: the receptive field r, and the jump j — the
+    distance in input pixels between adjacent output positions.
+
+        j_l = j_{l-1} * s_l
+        r_l = r_{l-1} + d_l * (k_l - 1) * j_{l-1}
+
+    At stride 1 the jump stays 1, so each 3x3 layer adds a constant 2 and
+    growth is LINEAR: ten layers see 21 pixels, which is far less than it
+    feels like.
+    """
+    r, j, rows = 1, 1, []
+    for i, (k, s, d) in enumerate(layers, 1):
+        r = r + d * (k - 1) * j
+        j = j * s
+        rows.append({"layer": i, "rf": r, "jump": j})
+    return rows
+
+
+# A plain stack: linear growth.
+plain = [(3, 1, 1)] * 10                  # -> rf 21
+
+# Alternating stride: multiplicative.
+strided = [(3, 1, 1), (3, 2, 1)] * 5      # -> rf 125
+
+# Doubling dilation at full resolution: exponential.
+dilated = [(3, 1, 2 ** i) for i in range(8)]   # -> rf 511
+```
+
+</CodeWalk>
+
+<KeyIdea>
+Run this and compare the result against the spatial extent of what the task
+requires. Unlike most training problems, this one is categorical: a unit whose
+field spans 21 pixels has *no access* to information 50 pixels away. The
+relationship is not weakly represented — it is absent, and no optimiser setting
+recovers it.
+</KeyIdea>
+
+## Parameters and FLOPs decouple
+
+```python title="cost.py"
+def layer_cost(k, c_in, c_out, h, w, groups=1):
+    """Parameters do not depend on spatial size; FLOPs do. So early layers —
+    large HxW, few channels — dominate runtime, and late layers dominate
+    parameter count. A parameter total says little about how fast a
+    convolutional network runs.
+    """
+    params = k * k * c_in * c_out // groups
+    flops = 2 * h * w * params
+    return {"params": params, "flops": flops}
+
+
+# Depthwise-separable: k^2*C_in + C_in*C_out instead of k^2*C_in*C_out.
+# Roughly a 1/k^2 reduction at large C — about 9x for 3x3 — and it assumes
+# spatial and cross-channel structure are approximately independent.
+def separable_cost(k, c_in, c_out, h, w):
+    dw = layer_cost(k, c_in, c_in, h, w, groups=c_in)
+    pw = layer_cost(1, c_in, c_out, h, w)
+    return {"params": dw["params"] + pw["params"],
+            "flops": dw["flops"] + pw["flops"]}
+```
+
+## The pooling choice, made deliberately
+
+<CodeWalk title="Global average pooling versus spatial softmax">
+
+```python title="pooling.py"
+import torch, torch.nn as nn
+
+class SpatialSoftmax(nn.Module):
+    """(B, C, H, W) -> (B, 2C) expected keypoint coordinates.
+
+    Global average pooling answers "is this feature present anywhere?" and is
+    BUILT to discard position — right for classification, wrong when the
+    output is a spatial target and where a thing is IS the answer.
+    """
+
+    def __init__(self, height, width, temperature=1.0):
+        super().__init__()
+        self.temperature = temperature
+        ys, xs = torch.meshgrid(torch.linspace(-1, 1, height),
+                                torch.linspace(-1, 1, width), indexing="ij")
+        self.register_buffer("xs", xs.reshape(-1))
+        self.register_buffer("ys", ys.reshape(-1))
+
+    def forward(self, feat):
+        B, C, H, W = feat.shape
+        # Softmax over SPACE (the flattened HxW axis), not over channels.
+        # Over channels would classify each pixel; over space locates each
+        # feature.
+        attn = torch.softmax(feat.reshape(B, C, H * W) / self.temperature, dim=-1)
+        return torch.cat([(attn * self.xs).sum(-1),
+                          (attn * self.ys).sum(-1)], dim=-1)
+```
+
+</CodeWalk>
+
+<Warning>
+The assumption is that each channel's activation map is unimodal. Two equally
+strong peaks — two identical objects, or an object and its reflection — return
+the midpoint, a location with nothing at it. Downstream heads cannot recover
+from this because the information left the network here, and it is the same
+mode-averaging pathology that appears in action regression one layer higher.
+</Warning>
+
+## Verify equivariance rather than assuming it
+
+```python title="equivariance_test.py"
+@torch.no_grad()
+def equivariance_error(trunk, x, shift=8, total_stride=1):
+    """Reading the layer definitions tells you what should happen. This tells
+    you what does.
+
+    Two things break it in practice: padding makes it approximate near the
+    boundary, and a total stride of s gives equivariance only to shifts that
+    are MULTIPLES of s — so a one-pixel shift behaves differently from a
+    two-pixel one, which is easy to overlook.
+    """
+    assert shift % total_stride == 0, "shift must be a multiple of the total stride"
+    out = trunk(x)
+    out_shifted = trunk(torch.roll(x, shifts=shift, dims=-1))
+    expected = torch.roll(out, shifts=shift // total_stride, dims=-1)
+
+    # Compare the interior only: padding makes the boundary genuinely different.
+    m = shift // total_stride + 1
+    a, b = out_shifted[..., m:-m], expected[..., m:-m]
+    return (a - b).abs().max().item() / (b.abs().max().item() + 1e-8)
+```
+
+## Checks before training
+
+<Steps>
+<Step title="Receptive field against the task's spatial extent">
+One line, and it rules out a categorical failure. If the field is too small, add
+striding or dilation — depth alone grows it linearly and will not get there.
+</Step>
+
+<Step title="FLOPs per layer, not parameter count">
+Early layers dominate runtime. Optimising the layer with the most parameters is
+usually optimising the wrong one.
+</Step>
+
+<Step title="The pooling choice against the output type">
+Spatial output means spatial pooling. Global average pooling in a policy that
+must reach somewhere is discarding the answer.
+</Step>
+
+<Step title="Overlay the spatial-softmax keypoints on the image">
+Keypoints tracking the object and the gripper mean the trunk found the task;
+keypoints pinned to a table corner mean it found a shortcut. It is the one piece
+of interpretability this architecture hands you for free.
+</Step>
+</Steps>

@@ -1,27 +1,170 @@
 ---
 concept: convolutional_neural_networks
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Convolutional Neural Networks — Translation Equivariance and
-    Hierarchical Features fail in practice, and how would you present it in an
-    interview?
+  prompt: "Give your interview answer on convolutional networks. What is the prior, and how do you decide between a conv trunk and a transformer?"
   keyPoints:
-    - "Failure to account for receptive field limitations: the network cannot
-      reason about relationships between distant image regions if the receptive
-      field is too small."
-    - "Symptoms: works on cropped close-up images but fails on full scene
-      understanding."
-    - "Also: translation equivariance breaks at boundaries (padding artifacts)
-      and with strided convolutions (aliasing)."
-check: []
-papers: []
+    - "The prior is weight sharing across position — one kernel applied everywhere — which asserts a feature means the same thing wherever it appears, and buys a $10^6$ parameter reduction plus equivariance."
+    - "Distinguish equivariance from invariance: convolution gives the first, pooling approximates the second, and a spatial task wants the first."
+    - "Know the receptive-field arithmetic: stride-1 $3\\times3$ grows linearly, so ten layers see 21 pixels. Striding is multiplicative, dilation exponential."
+    - "State the architecture choice as a data-scale crossover rather than a preference, and mention ConvNeXt as the control that separates recipe from architecture."
+interview:
+  answer: >-
+    The prior is weight sharing across position. The same kernel is applied
+    everywhere, and that's a claim about the world — a feature means the same
+    thing wherever it appears. Two things follow. It's an enormous parameter
+    reduction: a three-by-three layer mapping 256 channels to 256 on a
+    fifty-six by fifty-six grid is about 590 thousand parameters, and a dense
+    layer over the same activations would be 644 billion — a factor of about a
+    million, bought entirely by that assumption. And it gives translation
+    equivariance exactly, which falls out of the definition in two lines,
+    because the weight is indexed by the offset between input and output
+    positions rather than by absolute position. The distinction I'd want to draw
+    is equivariance versus invariance, because they get conflated and they call
+    for different designs. Equivariance means shift the input and the output
+    shifts with it; invariance means the output doesn't change. Convolution
+    gives you the first, and pooling — especially global average pooling — gives
+    an approximation of the second. Classification wants invariance, since a cat
+    is a cat wherever it is. Detection, segmentation, and any robot policy that
+    reaches toward something wants equivariance, because where it is *is* the
+    answer. So global average pooling in a manipulation policy destroys exactly
+    the information the task needs, which is why spatial softmax exists — it
+    returns each channel's expected image coordinates, a differentiable keypoint
+    rather than a presence indicator. The thing I'd flag that people
+    underestimate is how slowly context grows. Each stride-one three-by-three
+    layer adds two to the receptive field, so it's one plus two L — linear in
+    depth. Ten layers see twenty-one pixels. That's a hard constraint, not a
+    tendency: a network whose field is smaller than the structure it must
+    recognise cannot represent the answer, whatever you do to the optimiser. So
+    context has to be bought explicitly — striding gives multiplicative growth
+    at the cost of resolution, dilation gives exponential growth at full
+    resolution, and attention gets there in one layer and pays quadratically.
+  followUps:
+    - q: "So conv trunk or transformer for a robot policy?"
+      a: >-
+        It's a data-scale question rather than an architecture preference, and
+        the ViT result makes the crossover explicit — patches beat convolutions
+        given large pretraining and lose given less, because a built-in
+        inductive bias is structure you didn't have to learn. At a couple of
+        hundred demonstrations you're firmly in the scarce regime, so
+        translation equivariance is a correct prior you get for free and a
+        transformer would have to learn it from data you don't have. A conv
+        trunk also pools spatially before any sequence model, which cuts the
+        token count, and attention is quadratic in that. The one thing that
+        overrides all of it is wanting to inherit pretrained weights — which
+        isn't really an argument about inductive bias, it's a statement that
+        someone else already paid the data cost, and it's usually decisive when
+        it applies.
+    - q: "Your segmentation model misses large objects. Where do you look?"
+      a: >-
+        The receptive field, before anything else, because it's the one
+        constraint that's categorical rather than a matter of degree. I'd
+        compute it from the layer spec — the recursion is r plus k minus one
+        times the current jump, with the jump multiplying by the stride at each
+        layer — and compare it against the size of the objects being missed. If
+        the field is smaller, the network physically can't see the whole object,
+        and more training or capacity won't help. Then the fix depends on what
+        else the task needs: striding grows the field multiplicatively but costs
+        resolution, which is bad for boundaries; dilation grows it exponentially
+        at full resolution, which is why it dominates in segmentation. Doubling
+        the dilation each layer gets you to 511 pixels in eight layers. Adding
+        depth is the option that won't work, because it's linear.
+    - q: "Are convolutions obsolete?"
+      a: >-
+        No, and I'd point at ConvNeXt as the reason to be careful about the
+        claim. Transformers arrived alongside a substantially different training
+        recipe — heavier augmentation, a different optimiser and schedule,
+        different normalisation — so the architecture and the recipe changed
+        together and the comparison was confounded. Modernising a ResNet with
+        those same choices recovers most of the reported gap. That doesn't show
+        convolutions are better; it shows the earlier comparison didn't isolate
+        what it claimed to, which is the same methodological point that comes up
+        in evaluation and in optimiser comparisons. What survives the control is
+        smaller and it's about long-range interaction, where attention's global
+        receptive field in a single layer is a genuine structural difference
+        rather than a recipe artefact.
+    - q: "Why did ResNet matter so much?"
+      a: >-
+        Because it correctly diagnosed the problem. Deeper networks were getting
+        worse on *training* error, which rules out overfitting immediately —
+        that's fitting the training data too well, and this was fitting it
+        worse. And there's a constructive argument that closes it: a deeper
+        network can represent a shallower one exactly by setting the extra
+        layers to identity, so a solution at least as good provably exists in
+        the hypothesis class and the optimiser was failing to find it. That
+        localises it to optimisation, and it dictates the fix — make the
+        identity the default with F of x plus x, so a layer that should do
+        nothing only has to learn zero. The gradient consequence is the same one
+        that shows up in transformers: the Jacobian is I plus J, so the product
+        across layers contains an identity term and no layer is cut off from the
+        loss.
+  traps:
+    - "Describing the prior as 'locality' or 'hierarchy'. Those are consequences; the load-bearing claim is weight sharing across position."
+    - "Conflating equivariance with invariance. Convolution gives the first exactly, pooling approximates the second, and a spatial task needs the first."
+    - "Assuming the receptive field grows quickly with depth. Stride-1 $3\\times3$ is linear — ten layers see 21 pixels — and it is a hard constraint."
+    - "Treating the conv-versus-transformer question as settled either way. It is a data-scale crossover, and ConvNeXt shows much of the reported gap was recipe."
+check:
+  - id: cnn_l5_c1
+    prompt: "A candidate says convolutions work because 'nearby pixels are related'. What is the sharper statement?"
+    options:
+      - "It is correct"
+      - "Locality is one property; the load-bearing assumption is *weight sharing across position* — the same kernel everywhere, asserting a feature means the same thing wherever it appears, which is what buys both the $10^6$ parameter reduction and translation equivariance"
+      - "Convolutions do not assume locality"
+      - "The assumption is that images are smooth"
+    answer: 1
+    explanation: "Locality alone would be a locally-connected layer — a distinct weight per position, restricted to a neighbourhood — which has vastly more parameters and no equivariance at all. The sharing is what does the work, and it is also what tells you when the prior is wrong: a task where position carries meaning, such as one where the top of the image means something different from the bottom, violates exactly this assumption while still having local structure."
+  - id: cnn_l5_c2
+    prompt: "A policy uses a 12-layer stride-1 conv trunk and cannot relate two objects 40 pixels apart. What is the diagnosis?"
+    options:
+      - "The model needs more capacity"
+      - "The receptive field is $1 + 2\\times12 = 25$ pixels, so no unit sees both objects — this is a representational impossibility rather than a training problem, and the fix is striding or dilation, not depth or width"
+      - "The learning rate is too low"
+      - "It needs more training data"
+    answer: 1
+    explanation: "Computing $1 + 2L$ takes a second and converts a vague failure into a categorical one. At 25 pixels there is no unit whose input includes both objects, so the relationship is absent from the representation rather than weakly learned — and capacity, data, and optimiser settings are all irrelevant. The fix has to change the growth rate: striding is multiplicative and costs resolution, dilation is exponential at full resolution, and adding more stride-1 layers gets you 2 pixels each."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Failure to account for receptive field limitations: the network cannot reason about relationships between distant image regions if the receptive field is too small. Symptoms: works on cropped close-up images but fails on full scene understanding. Also: translation equivariance breaks at boundaries (padding artifacts) and with strided convolutions (aliasing). Pooling discards precise spatial information needed for pixel-level tasks. Fixes: use dilated convolutions to increase receptive field without losing resolution, feature pyramid networks (FPN) for multi-scale reasoning, and deformable convolutions for adaptive receptive fields.
+<Steps>
+<Step title="Cannot relate distant structure → compute the receptive field">
+$1 + 2L$ for stride-1 $3\times3$. If it is smaller than the structure, this is
+representational and no training change fixes it. Stride or dilate.
+</Step>
 
-## Interview-ready answer
+<Step title="Policy reaches inaccurately → check the pooling">
+Global average pooling is built to discard position. Spatial softmax if the
+output is a spatial target.
+</Step>
 
-CNNs encode translation equivariance through weight sharing and local connectivity — the same filter detects the same pattern everywhere. The hierarchical feature extraction (edges → parts → objects) emerges naturally from stacking convolutional layers. Key design choices: (1) receptive field must cover the relevant spatial context — use dilated convolutions or deeper networks for global reasoning, (2) stride and pooling control the resolution-computation tradeoff, (3) residual connections enable training very deep networks (50-150+ layers). For robotics: CNNs remain the backbone for real-time perception (ResNet, EfficientNet) due to favorable FLOPs vs accuracy compared to ViTs at smaller scales. ViTs surpass CNNs when data and compute are abundant, but CNNs with pre-training remain the practical choice for deployment on edge devices like Jetson.
+<Step title="Reaches confidently to the wrong place, repeatably → spatial softmax averaging">
+Two equal activations in one channel return the midpoint. Overlay the keypoints
+on the image and look.
+</Step>
+
+<Step title="Fast profile does not match the parameter count → they decouple">
+FLOPs scale with spatial size and parameters do not. Early layers dominate
+runtime, late layers dominate size.
+</Step>
+
+<Step title="Small dataset, considering a transformer → check the regime">
+Below the crossover, the free prior is worth more than the learned one. Unless
+you are inheriting pretrained weights, in which case the question is already
+answered.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+Two things make this answer precise. Naming the prior as **weight sharing across
+position** rather than locality — because locality alone describes a
+locally-connected layer, which has neither the parameter saving nor the
+equivariance. And knowing the receptive-field arithmetic well enough to be
+surprised by it: ten stride-1 layers see 21 pixels, which is a hard
+representational constraint people routinely assume away. Adding the
+equivariance-versus-invariance distinction, with global average pooling in a
+reaching policy as the concrete cost, is what makes it clear you have designed
+one of these rather than used one.
+</Warning>

@@ -1,0 +1,206 @@
+---
+concept: convolutional_neural_networks
+level: 4
+status: final
+recall:
+  prompt: "Trace the convolutional architecture line and its collision with transformers. What did the ConvNeXt result establish?"
+  keyPoints:
+    - "VGG (2015) established that stacking small kernels beats large ones — three $3\\times3$ layers match one $7\\times7$'s receptive field with fewer parameters and more nonlinearity."
+    - "ResNet (2016) diagnosed the depth problem as *optimisation* rather than overfitting, since the deeper model provably contained the shallower one, and made the identity the default."
+    - "Dilated convolutions (2016) grew the receptive field exponentially at full resolution, solving the context problem without the resolution cost of striding."
+    - "ConvNeXt (2022) is the control experiment: apply the transformer era's training recipe to a pure convolutional network and most of the reported gap closes — so much of the comparison was recipe, not architecture."
+papers:
+  - key: simonyan2015vgg
+    title: "Very Deep Convolutional Networks for Large-Scale Image Recognition"
+    authors: "Karen Simonyan, Andrew Zisserman"
+    venue: ICLR
+    year: 2015
+    arxiv: "1409.1556"
+    takeaway: "Shows that stacking small $3\\times3$ kernels beats using large ones: the same receptive field with fewer parameters and more nonlinearities, which fixed the kernel-size question for a decade."
+  - key: he2016resnet
+    title: "Deep Residual Learning for Image Recognition"
+    authors: "Kaiming He, Xiangyu Zhang, Shaoqing Ren, Jian Sun"
+    venue: CVPR
+    year: 2016
+    arxiv: "1512.03385"
+    takeaway: "Identifies the degradation of deeper networks as an optimisation failure rather than overfitting — the deeper model contained the shallower one plus identities and still did worse — and makes the identity mapping the default with residual connections."
+  - key: yu2016dilated
+    title: "Multi-Scale Context Aggregation by Dilated Convolutions"
+    authors: "Fisher Yu, Vladlen Koltun"
+    venue: ICLR
+    year: 2016
+    arxiv: "1511.07122"
+    takeaway: "Grows the receptive field exponentially by doubling the dilation each layer while keeping full resolution — solving the context-versus-precision tension that striding forces on dense prediction."
+  - key: dosovitskiy2021vit
+    title: "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale"
+    authors: "Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, et al."
+    venue: ICLR
+    year: 2021
+    arxiv: "2010.11929"
+    takeaway: "Discards translation equivariance entirely, treating patches as tokens, and loses to convolutions at moderate data scale while winning with large pretraining — making the inductive-bias trade a measured crossover rather than an argument."
+  - key: liu2022convnext
+    title: "A ConvNet for the 2020s"
+    authors: "Zhuang Liu, Hanzi Mao, Chao-Yuan Wu, Christoph Feichtenhofer, Trevor Darrell, Saining Xie"
+    venue: CVPR
+    year: 2022
+    arxiv: "2201.03545"
+    takeaway: "Modernises a ResNet step by step with the training recipes and design choices that accompanied transformers, and recovers most of the reported gap — separating architectural change from recipe change."
+check:
+  - id: cnn_l4_c1
+    prompt: "Why did ResNet's authors argue the degradation of deeper networks was not overfitting?"
+    options:
+      - "Because they used more data"
+      - "Because *training* error got worse, and a deeper network can represent a shallower one exactly by making the extra layers identities — so a solution at least as good provably exists, and the optimiser was failing to find it"
+      - "Because they used stronger regularisation"
+      - "Because the validation gap was small"
+    answer: 1
+    explanation: "The constructive argument is what makes the diagnosis airtight rather than a hypothesis. Overfitting means fitting the training data too well; here the deeper model fit it *worse*, which no capacity story explains. And since the deeper architecture contains the shallower one as a special case — set the extra layers to identity — a solution at least as good is guaranteed to be in the hypothesis class. That localises the problem to optimisation, and it dictates the fix: make the identity the easy thing to represent."
+  - id: cnn_l4_c2
+    prompt: "What does ConvNeXt establish about the convolution-versus-transformer comparison?"
+    options:
+      - "That convolutions are better than transformers"
+      - "That much of the reported gap came from the *training recipe* — augmentation, optimiser, schedule, normalisation choices — rather than the architecture, since applying those to a pure ConvNet recovers most of it"
+      - "That architecture does not matter at all"
+      - "That transformers were never better"
+    answer: 1
+    explanation: "It is a controlled comparison, which is what the original claims lacked: transformers arrived alongside a substantially different training recipe, so the two changed together. Modernising a ResNet with the recipe and design choices — larger kernels, fewer activations, layer normalisation, the training schedule — closes most of the gap. That does not show convolutions are better; it shows the earlier comparison was confounded, which is a more careful and more useful conclusion."
+  - id: cnn_l4_c3
+    prompt: "How should you state the ViT result for someone choosing an architecture?"
+    options:
+      - "Transformers are better for vision"
+      - "It is a crossover in data scale: discarding translation equivariance costs you at moderate data and pays with large pretraining, so the question is how much data you have — not which architecture is better"
+      - "Convolutions are better for small images"
+      - "The two are equivalent given enough training"
+    answer: 1
+    explanation: "Stating it as a crossover is what makes it actionable. A built-in inductive bias is structure you did not have to learn, so it helps when data is scarce and constrains you when it is plentiful and a learned version would fit better. ViT loses at ImageNet scale and wins with much larger pretraining, which locates the crossover empirically. For a robot policy with a few hundred demonstrations that answer is emphatic — and the one thing that overrides it is wanting pretrained weights, which is really a statement that someone else paid the data cost."
+---
+
+## Small kernels, stacked
+
+<PaperCard refKey="simonyan2015vgg" />
+
+Three $3\times3$ layers have the same $7\times7$ receptive field as one large
+kernel, use fewer parameters ($3\cdot 9 C^2 = 27C^2$ against $49C^2$), and
+interpose two extra nonlinearities.
+
+<KeyIdea>
+This settled the kernel-size question for roughly a decade, and it is a clean
+instance of a general move: replace one expressive operation with a composition
+of cheaper ones that spans the same domain. The same argument appears in
+depthwise-separable convolutions and in low-rank factorisations of dense layers.
+</KeyIdea>
+
+## The depth problem, correctly diagnosed
+
+<PaperCard refKey="he2016resnet" />
+
+Adding layers eventually made networks worse — and crucially, worse on *training*
+error.
+
+<Warning>
+That single observation rules out overfitting, which by definition means fitting
+the training data too well. And the constructive argument closes it: a deeper
+network can represent a shallower one exactly by setting the extra layers to
+identity, so a solution at least as good provably exists in the hypothesis class.
+The optimiser was failing to find something it could represent.
+
+Diagnosing it as an *optimisation* problem is what dictated the fix. Make the
+identity the default — $F(x) + x$ — so a layer that should do nothing has only to
+learn zero, rather than having to learn to reproduce its input exactly.
+</Warning>
+
+The gradient consequence is the same one that recurs throughout this material:
+$\partial(x + F(x))/\partial x = I + J$, so the product across layers contains an
+identity term and no layer is cut off from the loss.
+
+## Context without losing resolution
+
+<PaperCard refKey="yu2016dilated" />
+
+Striding grows the receptive field geometrically and destroys resolution, which
+is a genuine conflict for dense prediction — segmentation needs both wide context
+and precise boundaries.
+
+Dilation resolves it: insert gaps between kernel taps, double the gap each layer,
+and the field grows as $2^{L+1}-1$ while every layer stays at full resolution.
+Eight layers reach 511 pixels.
+
+<KeyIdea>
+Worth carrying because it identifies the constraint being traded. Striding buys
+context with resolution; dilation buys it with *sampling density* — the kernel
+taps become sparse, so fine texture between them is not seen at that layer. Which
+is the right trade depends on whether the task needs high-frequency detail or
+wide context, and stating it that way is more useful than treating dilation as a
+free upgrade.
+</KeyIdea>
+
+## The collision
+
+<PaperCard refKey="dosovitskiy2021vit" />
+
+Cut the image into patches, treat them as tokens, discard translation
+equivariance entirely. It loses to convolutions at ImageNet scale and wins with
+much larger pretraining.
+
+<Steps>
+<Step title="Why the crossover exists">
+A built-in inductive bias is structure you did not have to learn from data. When
+data is scarce that is a large advantage; when it is plentiful, a model that
+learns its own version of the structure fits better than the imposed one.
+</Step>
+
+<Step title="Why it is the useful form of the result">
+It converts "which architecture is better" into "how much data do I have", which
+is a question with an answer. For a robot policy on a few hundred demonstrations
+the answer is emphatic.
+</Step>
+
+<Step title="The exception">
+Wanting to inherit pretrained weights. That is not an argument about inductive
+bias — it is a statement that someone else already paid the data cost, and it is
+usually decisive when it applies.
+</Step>
+</Steps>
+
+## The control experiment
+
+<PaperCard refKey="liu2022convnext" />
+
+Transformers arrived alongside a substantially different training recipe — heavier
+augmentation, different optimiser and schedule, different normalisation. So the
+architecture and the recipe changed together, and the comparison was confounded.
+
+ConvNeXt modernises a ResNet step by step with those choices, and recovers most
+of the reported gap.
+
+<Warning>
+The conclusion is not that convolutions are better. It is that the earlier
+comparison did not isolate what it claimed to, which is a more careful and more
+transferable finding — and the same methodological point that appears in
+evaluation, in data curation, and in the optimiser literature: hold the resource
+fixed and vary only the thing you are studying.
+
+The residual disagreement after the control is much smaller than the original
+claims, and it is about long-range interaction, where attention's global receptive
+field in one layer is a genuine structural difference rather than a recipe
+artefact.
+</Warning>
+
+## Where this leaves the choice
+
+<Steps>
+<Step title="Small data, spatial output, fixed sensor">
+Convolutional trunk. The prior is free and correct, and pooling before any
+sequence model cuts the token count attention pays for quadratically.
+</Step>
+
+<Step title="Large-scale pretraining available">
+Whatever the pretrained backbone is. The data question has already been answered
+by whoever trained it.
+</Step>
+
+<Step title="Long-range interaction is the task">
+Attention, or dilation if resolution matters. A plain convolutional stack grows
+context linearly, and that is a hard constraint rather than a tuning matter.
+</Step>
+</Steps>

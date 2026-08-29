@@ -1,23 +1,221 @@
 ---
 concept: convolutional_neural_networks
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Convolutional Neural Networks —
-    Translation Equivariance and Hierarchical Features, including the key
-    equations.
+  prompt: "Prove translation equivariance from the definition, derive the receptive field recursion, and give the parameter and FLOP accounting."
   keyPoints:
-    - CNNs exploit spatial structure through convolutional layers that apply
-      learnable filters with shared weights across spatial locations.
-    - "A 2D convolution computes: $$(f * k)(i, j) = \\sum_{m} \\sum_{n} f(i+m,
-      j+n) \\cdot k(m, n)$$ Translation equivariance: shifting the input shifts
-      the output by the same amount — $T_\\tau(f * k) = (T_\\tau f) * k$."
-    - Pooling (max or average) provides approximate translation invariance and
-      reduces spatial dimensions.
-check: []
-papers: []
+    - "Equivariance follows in two lines from the convolution's definition: shifting the input shifts the output, because the kernel depends only on the *offset* between positions."
+    - "Receptive field: $r_{\\ell} = r_{\\ell-1} + (k_\\ell - 1)\\,j_{\\ell-1}$ with jump $j_\\ell = j_{\\ell-1}s_\\ell$ — linear in depth at stride 1, geometric once you stride."
+    - "Parameters $= k^2 C_{\\text{in}}C_{\\text{out}}$, independent of spatial size; FLOPs $= 2\\,H W k^2 C_{\\text{in}}C_{\\text{out}}$, which is where the compute goes."
+    - "Pooling gives approximate invariance and destroys the localisation a policy needs — which is what spatial softmax is for."
+check:
+  - id: cnn_l2_c1
+    prompt: "Which property of the convolution makes it translation-equivariant?"
+    options:
+      - "That the kernel is small"
+      - "That the weight depends only on the *offset* between input and output positions, not on the absolute position — so shifting the input by $\\delta$ shifts every output by $\\delta$, exactly"
+      - "That the same nonlinearity is applied everywhere"
+      - "That the kernel sums to one"
+    answer: 1
+    explanation: "Write $y[n] = \\sum_m w[m]\\,x[n+m]$: the weight $w$ is indexed by the offset $m$ alone. Substituting a shifted input $x'[n] = x[n-\\delta]$ gives $y'[n] = y[n-\\delta]$ in two lines. Kernel size affects the receptive field and has nothing to do with equivariance — a $1\\times1$ convolution is equally equivariant. And a layer with position-dependent weights, like a locally-connected layer, is not equivariant despite looking similar."
+  - id: cnn_l2_c2
+    prompt: "Why does the receptive field grow linearly at stride 1 and geometrically once you introduce striding?"
+    options:
+      - "Because striding uses larger kernels"
+      - "Because the recursion is $r_\\ell = r_{\\ell-1} + (k-1)j_{\\ell-1}$ where the jump $j$ multiplies by the stride at each layer — at stride 1 the jump stays 1 so each layer adds a constant, and with strides the jump grows so each layer adds progressively more"
+      - "Because pooling merges receptive fields"
+      - "Because deeper layers have more channels"
+    answer: 1
+    explanation: "The jump is the distance in input pixels between adjacent output positions, and it accumulates multiplicatively as $j_\\ell = \\prod_{i\\le\\ell} s_i$. Each layer extends the field by $(k-1)$ times the *current* jump, so at stride 1 that is a constant 2 per $3\\times3$ layer, while after three stride-2 layers the jump is 8 and each subsequent $3\\times3$ adds 16. That is the whole reason architectures downsample rather than relying on depth alone."
+  - id: cnn_l2_c3
+    prompt: "A manipulation policy uses global average pooling after its convolutional trunk and cannot reach accurately. What is the mechanism?"
+    options:
+      - "Average pooling loses too much information about texture"
+      - "Global average pooling is designed to be translation-*invariant*, so it discards where a feature was — and for reaching, position is the answer. The convolution was equivariant; the pooling threw that away"
+      - "The receptive field is too small"
+      - "Averaging saturates the activations"
+    answer: 1
+    explanation: "This is the equivariance-versus-invariance distinction with a concrete cost. Global average pooling answers 'is this feature present anywhere?' and deliberately discards position — exactly right for classification and exactly wrong when the output is a spatial target. The convolutional trunk preserved position equivariantly and the pooling layer destroyed it. Spatial softmax is the standard fix: it returns each channel's expected image coordinates, which is a differentiable keypoint rather than a presence indicator."
 ---
 
-## Formal definition
+## Equivariance, from the definition
 
-CNNs exploit spatial structure through convolutional layers that apply learnable filters with shared weights across spatial locations. A 2D convolution computes: $$(f * k)(i, j) = \sum_{m} \sum_{n} f(i+m, j+n) \cdot k(m, n)$$ Translation equivariance: shifting the input shifts the output by the same amount — $T_\tau(f * k) = (T_\tau f) * k$. Pooling (max or average) provides approximate translation invariance and reduces spatial dimensions. The receptive field of a neuron at layer $l$ with kernel size $k$ and stride $s$ grows as $r_l = r_{l-1} + (k_l - 1) \cdot \prod_{i=1}^{l-1} s_i$. Modern architectures stack conv → norm → activation blocks with residual connections.
+Write a convolution with the weight indexed by the **offset** between input and
+output positions:
+
+$$
+y[n] = \sum_{m} w[m]\; x[n + m]
+$$
+
+<Derivation title="Shifting the input shifts the output, exactly">
+
+Let $x'[n] = x[n - \delta]$ be the input shifted by $\delta$. Then
+
+$$
+y'[n] = \sum_m w[m]\,x'[n+m] = \sum_m w[m]\,x[n + m - \delta] = y[n - \delta]
+$$
+
+**Two lines, and note what was used.** Only that $w$ is indexed by $m$ alone. The
+kernel size is irrelevant — a $1\times1$ convolution is equally equivariant — and
+so is the nonlinearity, since applying the same pointwise function everywhere
+preserves the property.
+
+**What breaks it.** A *locally connected* layer, which has a distinct weight per
+position, looks similar and is not equivariant. Neither is anything that adds a
+position-dependent term, such as a positional encoding. And padding breaks it at
+the boundary, which is why the equivariance is exact in the interior and
+approximate at the edges — a real effect for small feature maps.
+
+</Derivation>
+
+<Warning>
+Equivariance is not invariance. Equivariance: shift the input, the output shifts.
+Invariance: shift the input, the output is unchanged. Convolution gives the
+first exactly; pooling gives an approximation of the second.
+
+Which you want is a task property. Classification wants invariance. Detection,
+segmentation, and any policy producing a spatial target want equivariance,
+because *where* is the answer — and a global pooling layer in such a network
+destroys exactly the information the task needs.
+</Warning>
+
+## The receptive field recursion
+
+Two quantities propagate through a stack: the receptive field $r$, and the
+**jump** $j$ — the distance in input pixels between adjacent output positions.
+
+$$
+j_\ell = j_{\ell-1}\, s_\ell,
+\qquad
+r_\ell = r_{\ell-1} + (k_\ell - 1)\, j_{\ell-1}
+$$
+
+with $r_0 = 1$, $j_0 = 1$.
+
+<Derivation title="Why the growth rate changes with stride">
+
+**Stride 1 everywhere.** Then $j_\ell = 1$ for all $\ell$, so each layer adds
+$(k-1)$:
+
+$$
+r_L = 1 + L(k-1)
+$$
+
+For $3\times3$ that is $1 + 2L$ — **linear**. Ten layers see 21 pixels.
+
+**With strides.** The jump accumulates multiplicatively, $j_\ell = \prod_{i\le\ell} s_i$,
+so each layer extends the field by $(k-1)$ times the *current* jump. After three
+stride-2 layers $j = 8$, and each subsequent $3\times3$ adds 16 rather than 2.
+
+**With dilation $d_\ell$.** The effective kernel size becomes
+$k_{\text{eff}} = d(k-1) + 1$, so
+
+$$
+r_\ell = r_{\ell-1} + d_\ell (k_\ell - 1)\, j_{\ell-1}
+$$
+
+Doubling $d$ each layer at stride 1 gives $r_L = 2^{L+1} - 1$ — **exponential**,
+at full resolution. Eight layers reach 511 pixels.
+
+| layers | stride 1 | stride 2 alternating | dilation doubling |
+| --- | --- | --- | --- |
+| 2 | 5 | 5 | 7 |
+| 4 | 9 | 13 | 31 |
+| 6 | 13 | 29 | 127 |
+| 8 | 17 | 61 | 511 |
+| 10 | 21 | 125 | 2047 |
+
+**The practical consequence.** Compute $r_L$ for your own network and compare it
+against the spatial extent of what the task requires. A network whose receptive
+field is smaller than the structure it must recognise cannot do the task, and no
+amount of training or capacity changes that.
+
+</Derivation>
+
+## Parameters and FLOPs
+
+<Derivation title="Where the parameters are and where the compute goes">
+
+A $k\times k$ convolution with $C_{\text{in}}$ input and $C_{\text{out}}$ output
+channels:
+
+$$
+\text{params} = k^2\,C_{\text{in}}\,C_{\text{out}}
+\qquad\text{(independent of } H, W)
+$$
+
+$$
+\text{FLOPs} = 2\,H\,W\,k^2\,C_{\text{in}}\,C_{\text{out}}
+$$
+
+**Note the asymmetry.** Parameters do not depend on spatial size; compute scales
+with it. So early layers — large $H\times W$, few channels — are cheap in
+parameters and expensive in FLOPs, and late layers are the reverse. A parameter
+count tells you almost nothing about where a convolutional network spends its
+time.
+
+**Against a dense layer.** Connecting every input activation to every output on a
+$56\times56$ grid with 256 channels:
+
+$$
+(56 \cdot 56 \cdot 256)^2 \approx 6.4\times10^{11}
+\quad\text{versus}\quad
+3^2 \cdot 256^2 \approx 5.9\times10^{5}
+$$
+
+a factor of about $10^6$, bought entirely by the weight-sharing assumption.
+
+**The separable variant.** Splitting into a depthwise $k\times k$ and a pointwise
+$1\times1$ gives $k^2 C_{\text{in}} + C_{\text{in}}C_{\text{out}}$ instead of
+$k^2C_{\text{in}}C_{\text{out}}$ — roughly $1/k^2$ of the cost at $C$ large,
+about $9\times$ for $3\times3$. That factorisation is what makes mobile
+architectures feasible, and it assumes the spatial and cross-channel structure
+are approximately independent.
+
+</Derivation>
+
+## Why depth needed residuals
+
+Stacking convolutions deeper eventually made networks *worse on training error* —
+not an overfitting problem, since the deeper model could in principle represent
+the shallower one plus identity layers.
+
+$$
+\text{deeper should be} \ \ge \ \text{shallower, by construction} \qquad \text{yet it was not}
+$$
+
+<KeyIdea>
+That framing is the useful one: the deeper network was failing to find a solution
+it demonstrably contained, so the problem was *optimisation*, not capacity or
+generalisation. Residual connections make the identity the default — $F(x) + x$
+rather than $F(x)$ — so a layer that should do nothing has only to learn zero.
+And the gradient argument follows: $\partial(x + F(x))/\partial x = I + J$, so the
+product across layers contains an identity term and no layer is cut off from the
+loss.
+</KeyIdea>
+
+## Pooling, and what a policy needs instead
+
+Global average pooling computes $\bar f_c = \frac{1}{HW}\sum_{ij} f_{cij}$ —
+answering "is this feature present?" and deliberately discarding where.
+
+The alternative for spatial tasks normalises each channel's activation map over
+*space* and returns its expectation:
+
+$$
+s_{cij} = \frac{\exp(f_{cij}/\alpha)}{\sum_{i'j'}\exp(f_{ci'j'}/\alpha)},
+\qquad
+(x_c, y_c) = \sum_{ij} s_{cij}\,(x_{ij}, y_{ij})
+$$
+
+a differentiable keypoint detector — a soft argmax with a temperature, recovering
+the hard argmax as $\alpha \to 0$.
+
+<Warning>
+Its assumption is that each channel's map is unimodal. Two equally strong
+activations return the midpoint, which is a location with nothing at it — the
+same mode-averaging pathology that appears in action regression, one layer lower
+in the network. No downstream head can undo it, because the information left the
+network at that layer.
+</Warning>
