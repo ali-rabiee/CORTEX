@@ -1,25 +1,228 @@
 ---
 concept: gradient_descent_variants
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Gradient Descent Variants — SGD,
-    Momentum, and Learning Rate Schedules, including the key equations.
+  prompt: "Derive gradient descent's dependence on the condition number, momentum's improvement to $\\sqrt\\kappa$, and the linear scaling rule with its limit."
   keyPoints:
-    - "Stochastic gradient descent (SGD) updates parameters using gradients
-      estimated from mini-batches: $\\theta_{t+1} = \\theta_t - \\alpha
-      \\nabla_\\theta L_B(\\theta_t)$ where $B$ is the batch."
-    - "SGD with momentum adds a velocity term: $$v_t = \\mu v_{t-1} +
-      \\nabla_\\theta L_B, \\quad \\theta_{t+1} = \\theta_t - \\alpha v_t$$
-      Nesterov momentum evaluates the gradient at the look-ahead position:
-      $\\nabla_\\theta L_B(\\theta_t - \\alpha \\mu v_{t-1})$."
-    - Learning rate schedules include step decay, cosine annealing $\alpha_t =
-      \alpha_{\min} + \frac{1}{2}(\alpha_{\max} - \alpha_{\min})(1 + \cos(\pi t
-      / T))$, and warmup-then-decay strategies.
-check: []
-papers: []
+    - "On a quadratic, GD's error contracts per step by $|1-\\eta\\lambda_i|$ per eigendirection. Stability needs $\\eta < 2/\\lambda_{\\max}$, so the slowest direction contracts by $1 - 2\\mu/L$ and the iteration count scales with $\\kappa = L/\\mu$."
+    - "Momentum turns each eigendirection into a second-order recursion whose roots have modulus $\\sqrt\\beta$ at the optimal $\\beta$, giving $O(\\sqrt\\kappa)$ — the classical acceleration."
+    - "For a consistent gradient, momentum's velocity converges to $g/(1-\\beta)$, so raising $\\beta$ multiplies the effective step by $1/(1-\\beta)$."
+    - "The linear scaling rule follows from matching the SGD-as-SDE noise term; it holds until the batch reaches the gradient noise scale $B_{\\text{noise}} = \\operatorname{tr}(\\Sigma)/\\|g\\|^2$."
+check:
+  - id: gd_l2_c1
+    prompt: "On a quadratic with curvatures $\\mu \\le \\lambda_i \\le L$, why does gradient descent need $O(\\kappa)$ iterations?"
+    options:
+      - "Because the gradient shrinks as you approach the optimum"
+      - "Stability caps $\\eta$ at about $2/L$, and the slowest eigendirection contracts by $|1 - \\eta\\mu| \\approx 1 - 2\\mu/L = 1 - 2/\\kappa$ per step — so reducing its error by a constant factor takes $O(\\kappa)$ steps"
+      - "Because of gradient noise, which scales with $\\kappa$"
+      - "Because the Hessian must be inverted"
+    answer: 1
+    explanation: "The two facts have to be combined: the largest curvature sets the ceiling on the step size, and the smallest sets the rate of progress. One step multiplies the error in direction $i$ by $|1-\\eta\\lambda_i|$, so you want $\\eta$ large — but $\\eta > 2/L$ makes the steepest direction diverge. Being stuck at $\\eta \\approx 2/L$ leaves the shallow direction contracting by $1-2/\\kappa$, hence $O(\\kappa)$ steps. Note this is entirely noiseless, which is why conditioning is a more basic difficulty than stochasticity."
+  - id: gd_l2_c2
+    prompt: "Why does raising momentum from 0.9 to 0.99 often cause divergence at an unchanged learning rate?"
+    options:
+      - "Because higher momentum amplifies gradient noise"
+      - "Because for a consistent gradient the velocity converges to $g/(1-\\beta)$, so the effective step is multiplied by $1/(1-\\beta)$ — going from 0.9 to 0.99 multiplies it by ten"
+      - "Because momentum becomes unstable above 0.95"
+      - "Because the averaging window exceeds the batch size"
+    answer: 1
+    explanation: "It is a step-size change disguised as a smoothing change. Summing the geometric series, a constant gradient $g$ drives $v \\to g/(1-\\beta)$, so the parameter moves $\\eta g/(1-\\beta)$ per step: $10\\eta g$ at $\\beta = 0.9$ and $100\\eta g$ at $\\beta = 0.99$. The rule that follows is that increasing momentum should be paired with a proportional decrease in the learning rate, and failing to do so produces divergence attributed to the wrong parameter."
+  - id: gd_l2_c3
+    prompt: "What determines when the linear scaling rule stops working?"
+    options:
+      - "Hardware memory limits"
+      - "The gradient noise scale $B_{\\text{noise}} \\approx \\operatorname{tr}(\\Sigma)/\\|g\\|^2$: below it the gradient is noise-dominated and a larger batch buys a proportionally larger step, above it the gradient is already near-deterministic and further batching reduces step count without allowing larger steps"
+      - "The point where the learning rate exceeds $2/L$"
+      - "The number of available accelerators"
+    answer: 1
+    explanation: "The rule works because the constraint on step size is *noise*, so halving the noise permits doubling the step. That constraint disappears once the batch gradient is close to the full gradient — the remaining limit is curvature, which batching does not change. Option 3 names the eventual hard ceiling and not the practical transition: you typically stop gaining wall-clock well before the learning rate approaches the stability limit, and $B_{\\text{noise}}$ is where."
 ---
 
-## Formal definition
+## Gradient descent on a quadratic
 
-Stochastic gradient descent (SGD) updates parameters using gradients estimated from mini-batches: $\theta_{t+1} = \theta_t - \alpha \nabla_\theta L_B(\theta_t)$ where $B$ is the batch. SGD with momentum adds a velocity term: $$v_t = \mu v_{t-1} + \nabla_\theta L_B, \quad \theta_{t+1} = \theta_t - \alpha v_t$$ Nesterov momentum evaluates the gradient at the look-ahead position: $\nabla_\theta L_B(\theta_t - \alpha \mu v_{t-1})$. Learning rate schedules include step decay, cosine annealing $\alpha_t = \alpha_{\min} + \frac{1}{2}(\alpha_{\max} - \alpha_{\min})(1 + \cos(\pi t / T))$, and warmup-then-decay strategies.
+Take $f(\theta) = \tfrac12\theta^\top H\theta$ with $H$ symmetric positive
+definite, eigenvalues $\mu = \lambda_{\min} \le \cdots \le \lambda_{\max} = L$,
+condition number $\kappa = L/\mu$.
+
+<Derivation title="Why the iteration count scales with $\kappa$">
+
+Gradient descent gives $\theta_{t+1} = \theta_t - \eta H\theta_t = (I - \eta H)\theta_t$.
+In the eigenbasis this decouples completely:
+
+$$
+\theta^{(i)}_{t} = (1 - \eta\lambda_i)^t\,\theta^{(i)}_0
+$$
+
+**Stability.** Every direction must contract: $|1-\eta\lambda_i| < 1$ for all
+$i$, and the binding constraint is the largest curvature:
+
+$$
+\eta < \frac{2}{L}
+$$
+
+**Rate.** With $\eta$ capped there, the *slowest* direction contracts by
+
+$$
+|1 - \eta\mu| \;\approx\; 1 - \frac{2\mu}{L} = 1 - \frac{2}{\kappa}
+$$
+
+so reducing its error by a constant factor takes $O(\kappa)$ iterations.
+
+**Read what happened.** The largest curvature sets the ceiling on the step and
+the smallest sets the progress, so the *ratio* is what costs you. And none of
+this involved noise — conditioning is a more basic difficulty than stochasticity,
+and it is why second-order and adaptive methods exist at all.
+
+</Derivation>
+
+## Momentum, and the $\sqrt\kappa$ acceleration
+
+$$
+v_t = \beta v_{t-1} + g_t,
+\qquad
+\theta_t = \theta_{t-1} - \eta v_t
+$$
+
+<Derivation title="Two facts about momentum">
+
+**Fact 1: the effective step multiplier.** For a constant gradient $g$, unroll:
+
+$$
+v_t = \sum_{k=0}^{t-1}\beta^k g \;\longrightarrow\; \frac{g}{1-\beta}
+$$
+
+so the parameter moves $\eta g/(1-\beta)$ per step — ten times plain SGD at
+$\beta = 0.9$, a hundred times at $\beta = 0.99$.
+
+**Consequence.** Raising $\beta$ is a step-size change wearing a smoothing
+change's clothes. Increase it and you must decrease $\eta$ proportionally, or you
+will diverge and blame the wrong parameter.
+
+**Fact 2: the acceleration.** In the eigenbasis, each direction obeys a
+second-order linear recursion:
+
+$$
+\theta^{(i)}_{t+1} = (1 + \beta - \eta\lambda_i)\,\theta^{(i)}_t - \beta\,\theta^{(i)}_{t-1}
+$$
+
+whose convergence rate is the modulus of the larger root of
+$z^2 - (1+\beta-\eta\lambda_i)z + \beta = 0$. When the discriminant is negative
+the roots are complex with modulus exactly $\sqrt\beta$ — *independent of
+$\lambda_i$*.
+
+Choosing $\eta$ and $\beta$ so that this holds across the whole spectrum gives
+
+$$
+\sqrt\beta = \frac{\sqrt\kappa - 1}{\sqrt\kappa + 1}
+\qquad\Longrightarrow\qquad
+\text{iterations} = O(\sqrt\kappa)
+$$
+
+**The table, computed:**
+
+| $\kappa$ | GD $\sim\kappa$ | momentum $\sim\sqrt\kappa$ | speedup |
+| --- | --- | --- | --- |
+| $10$ | 10 | 3.2 | 3.2x |
+| $10^2$ | 100 | 10 | 10x |
+| $10^3$ | 1,000 | 32 | 32x |
+| $10^4$ | 10,000 | 100 | 100x |
+
+**The assumption doing the work** is that the problem is quadratic with a known
+spectrum. Real losses are neither, so the optimal $\beta$ is not computable and
+0.9 is a default that works — but the *shape* of the result, that momentum buys
+a square root, is what justifies using it at all.
+
+</Derivation>
+
+## Noise, and the linear scaling rule
+
+With minibatch gradients, $\hat g = g + \xi$ where $\xi$ has covariance
+$\Sigma/B$ for batch size $B$. Treating SGD as a discretisation of a stochastic
+differential equation, the update
+
+$$
+\Delta\theta = -\eta\,\hat g = -\eta g - \eta\,\xi
+$$
+
+has a deterministic drift $\eta g$ and a noise term with covariance
+$\eta^2\Sigma/B$.
+
+<Derivation title="Linear scaling, and where it stops">
+
+**The rule.** Holding the *ratio* of noise to drift fixed across a change in
+batch size requires $\eta^2/B$ to be constant... but holding the noise per
+*epoch* fixed — the quantity that actually governs the trajectory the
+optimisation follows — gives $\eta \propto B$. That is the linear scaling rule:
+$k$ times fewer steps, each $k$ times larger, same total progress and same
+effective noise per epoch.
+
+**Why it needs warmup.** The argument is about the steady state, and the first
+steps are the ones taken from a random initialisation with an unrepresentative
+gradient. A large rate there does damage the analysis does not model, so ramping
+over the first epochs is what makes the rule work in practice.
+
+**Where it stops: the gradient noise scale.**
+
+$$
+B_{\text{noise}} \;=\; \frac{\operatorname{tr}(\Sigma)}{\|g\|^2}
+$$
+
+This compares the total gradient variance against the squared gradient magnitude.
+
+- $B \ll B_{\text{noise}}$: the batch gradient is noise-dominated, the step is
+  noise-limited, and halving the noise permits doubling the step. Linear scaling
+  holds.
+- $B \gg B_{\text{noise}}$: the batch gradient is already close to the full
+  gradient. The step is now limited by *curvature*, which batching does not
+  change, so a larger batch reduces the step count without permitting larger
+  steps and wall-clock stops improving.
+
+**Why this is useful.** $B_{\text{noise}}$ is estimable from gradient statistics
+during training, so "how large a batch is worth using?" becomes a measurement
+rather than a sweep — and it explains why the answer differs by orders of
+magnitude between problems.
+
+</Derivation>
+
+## Nesterov's variant
+
+$$
+v_t = \beta v_{t-1} + \nabla f\big(\theta_{t-1} - \eta\beta v_{t-1}\big),
+\qquad
+\theta_t = \theta_{t-1} - \eta v_t
+$$
+
+The gradient is evaluated at the point momentum is *about to take you*, not where
+you are.
+
+<KeyIdea>
+The intuition is a correction term: if momentum is going to overshoot, evaluating
+ahead sees the gradient already reversing and damps it before the overshoot
+happens, rather than after. In convex optimisation this yields a genuinely better
+constant; in deep learning the difference from plain momentum is usually small,
+which is why both are in use and neither is a strong default.
+</KeyIdea>
+
+## Schedules, in terms of the same quantities
+
+<Steps>
+<Step title="Warmup addresses the unrepresentative early gradient">
+At initialisation the gradient reflects random weights, and the noise scale is
+different from its steady-state value. A small early rate avoids taking a large
+step on bad information.
+</Step>
+
+<Step title="Decay addresses the noise floor">
+Late in training the remaining improvement per step is small relative to the
+gradient noise, so a fixed step size makes the iterate diffuse in a ball around
+the optimum with radius proportional to $\eta$. Decaying $\eta$ shrinks that
+ball, which is the entire reason the loss drops at each step-decay milestone.
+</Step>
+
+<Step title="Cosine is a smooth version of the same thing">
+Its practical advantage is having nothing to tune about where the transitions
+occur, and its practical disadvantage is that the total step count must be known
+in advance — which is why runs that get extended need care.
+</Step>
+</Steps>

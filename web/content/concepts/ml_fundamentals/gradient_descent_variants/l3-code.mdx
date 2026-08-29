@@ -1,0 +1,213 @@
+---
+concept: gradient_descent_variants
+level: 3
+status: final
+recall:
+  prompt: "Implement momentum, a warmup-cosine schedule, and a gradient noise scale estimator. What do you measure to size a batch?"
+  keyPoints:
+    - "PyTorch's SGD momentum uses $v \\leftarrow \\beta v + g$ then $\\theta \\leftarrow \\theta - \\eta v$, so the effective step is $1/(1-\\beta)$ times $\\eta$ — raising $\\beta$ requires lowering $\\eta$."
+    - "Warmup then cosine is the default. The warmup length matters most at large batch; the cosine needs the total step count known in advance."
+    - "The gradient noise scale is estimable from the gradient norm at two batch sizes, turning 'how large a batch?' into a measurement."
+    - "When scaling to a larger batch, scale the learning rate linearly and lengthen the warmup — the rule is about steady state and the early steps are what break."
+check:
+  - id: gd_l3_c1
+    prompt: "PyTorch's `SGD(momentum=0.9)` — what is the relationship between the `lr` you pass and the actual step size?"
+    options:
+      - "They are the same"
+      - "The buffer accumulates to $g/(1-\\beta)$ for a consistent gradient, so the steady-state step is about $10\\times$ `lr` at $\\beta = 0.9$ — which is why a rate tuned without momentum is far too large with it"
+      - "The step is `lr` divided by $(1-\\beta)$ only for the first step"
+      - "PyTorch normalises the buffer, so they are equal"
+    answer: 1
+    explanation: "PyTorch implements $v \\leftarrow \\beta v + g$ without a $(1-\\beta)$ factor on the gradient, so the buffer sums rather than averages and converges to $g/(1-\\beta)$. Some frameworks use the dampened form $v \\leftarrow \\beta v + (1-\\beta)g$, which averages instead and has no such multiplier — so a learning rate is not portable between the two conventions, and this is a real source of confusion when porting a recipe."
+  - id: gd_l3_c2
+    prompt: "Why does the linear scaling rule need a longer warmup at larger batch sizes?"
+    options:
+      - "Because larger batches take longer to compute"
+      - "Because the scaled-up learning rate is only justified in the steady state, and the early steps are taken from random weights on an unrepresentative gradient — the larger the target rate, the more damage a premature large step does"
+      - "Because the noise scale changes during warmup"
+      - "Because batch normalisation statistics need to stabilise"
+    answer: 1
+    explanation: "The scaling argument assumes the noise-to-drift structure has settled, and at initialisation it has not: the gradient reflects random weights and its statistics are unlike their eventual values. Ramping in gives the model time to reach a configuration where the large rate is appropriate. The empirical rule is that the warmup should lengthen as the target rate rises, which is why the ImageNet-in-an-hour recipe pairs an 8k batch with several epochs of ramp rather than a few hundred steps."
+  - id: gd_l3_c3
+    prompt: "How would you measure whether a larger batch is worth using?"
+    options:
+      - "Train at both sizes and compare final accuracy"
+      - "Estimate the gradient noise scale from gradient norms at two batch sizes — if your current batch is well below it, larger batches still buy proportionally larger steps; if it is above, you are spending compute for no wall-clock gain"
+      - "Check GPU utilisation"
+      - "Compare the loss after a fixed number of steps"
+    answer: 1
+    explanation: "Training at both sizes answers the question expensively and after the fact. The noise scale is measurable during a single run from gradient statistics, and it answers the question *before* committing hardware. Option 4 is actively misleading — a larger batch will always look better per step, since each step uses more data; the question is whether it is better per unit of *compute*, which is what the noise scale addresses."
+---
+
+## Momentum, and the convention trap
+
+<CodeWalk title="Two conventions that need different learning rates">
+
+```python title="momentum.py"
+import torch
+
+class SGDMomentum:
+    def __init__(self, params, lr, beta=0.9, nesterov=False, dampen=False):
+        self.params = list(params)
+        self.lr, self.beta, self.nesterov = lr, beta, nesterov
+        # PyTorch's default: v <- beta*v + g. The buffer SUMS, so for a
+        # consistent gradient it converges to g/(1-beta) and the effective
+        # step is 10x lr at beta=0.9.
+        #
+        # The dampened form v <- beta*v + (1-beta)*g AVERAGES instead and has
+        # no such multiplier. A learning rate is not portable between them.
+        self.dampen = dampen
+        self.v = [torch.zeros_like(p) for p in self.params]
+
+    @torch.no_grad()
+    def step(self):
+        for p, v in zip(self.params, self.v):
+            if p.grad is None:
+                continue
+            g = p.grad
+            v.mul_(self.beta).add_(g, alpha=(1 - self.beta) if self.dampen else 1.0)
+            # Nesterov: step along g + beta*v rather than v, which is the
+            # look-ahead written in a form that needs no extra forward pass.
+            d = g.add(v, alpha=self.beta) if self.nesterov else v
+            p.add_(d, alpha=-self.lr)
+```
+
+</CodeWalk>
+
+<Warning>
+If you raise $\beta$ from 0.9 to 0.99, divide the learning rate by roughly ten.
+The buffer's steady-state value is $g/(1-\beta)$, so momentum is a step-size
+multiplier as much as a smoother — and the divergence that follows from changing
+one without the other is routinely attributed to the wrong parameter.
+</Warning>
+
+## Warmup and cosine
+
+<CodeWalk title="The schedule, as a closed-form multiplier">
+
+```python title="schedule.py"
+import math
+
+def warmup_cosine(step, warmup_steps, total_steps, min_ratio=0.1):
+    """Warmup: the scaled-up rate is only justified in the steady state, and
+    the first steps are taken from random weights on an unrepresentative
+    gradient. Cosine: late in training the remaining improvement is small
+    relative to gradient noise, so a fixed step diffuses in a ball of radius
+    proportional to lr.
+    """
+    if step < warmup_steps:
+        return step / max(1, warmup_steps)
+    progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+    progress = min(1.0, progress)
+    return min_ratio + (1 - min_ratio) * 0.5 * (1 + math.cos(math.pi * progress))
+
+
+scheduler = torch.optim.lr_scheduler.LambdaLR(
+    optimizer, lambda s: warmup_cosine(s, warmup_steps=2000, total_steps=100_000)
+)
+```
+
+</CodeWalk>
+
+Cosine needs `total_steps` known in advance, which is its one real drawback — a
+run that gets extended past its planned length ends up at the floor rate for the
+extension, doing very little. If the length is uncertain, a constant-then-decay
+schedule is easier to extend.
+
+## Scaling to a larger batch
+
+```python title="scale.py"
+def scaled_config(base_lr, base_batch, base_warmup, new_batch):
+    """Linear scaling: k times fewer steps, each k times larger, so total
+    progress per epoch is preserved. The warmup lengthens because the rule is
+    about the steady state and the early steps are what break."""
+    k = new_batch / base_batch
+    return {
+        "lr": base_lr * k,
+        "warmup_steps": int(base_warmup * max(1.0, k ** 0.5)),
+        "note": "verify against the noise scale before assuming k is worth it",
+    }
+```
+
+## Measuring whether the batch is worth it
+
+<CodeWalk title="Gradient noise scale from two batch sizes">
+
+```python title="noise_scale.py"
+@torch.no_grad()
+def grad_norm_sq(model):
+    return sum(p.grad.pow(2).sum().item() for p in model.parameters()
+               if p.grad is not None)
+
+
+def noise_scale(model, loss_fn, small_batch, big_batch):
+    """B_noise = tr(Sigma) / ||g||^2, estimated from the fact that
+
+        E||g_B||^2 = ||g||^2 + tr(Sigma)/B
+
+    so measuring the squared gradient norm at two batch sizes gives two
+    equations in the two unknowns.
+
+    Below B_noise, a larger batch buys a proportionally larger step. Above it,
+    you are spending compute for no wall-clock gain — which is the question
+    'is a bigger batch worth it?' answered by measurement rather than a sweep.
+    """
+    def sq_norm(batch):
+        model.zero_grad(set_to_none=True)
+        loss_fn(model, batch).backward()
+        return grad_norm_sq(model)
+
+    b_small, b_big = len(small_batch), len(big_batch)
+    g_small, g_big = sq_norm(small_batch), sq_norm(big_batch)
+
+    # Solve: g_small = G + S/b_small ; g_big = G + S/b_big
+    S = (g_small - g_big) / (1.0 / b_small - 1.0 / b_big)      # tr(Sigma)
+    G = g_big - S / b_big                                       # ||g||^2
+    return {"B_noise": S / max(G, 1e-12), "grad_sq": G, "trace_sigma": S}
+```
+
+</CodeWalk>
+
+<KeyIdea>
+Average this over many steps — a single estimate is extremely noisy — and track
+it across training, because the noise scale typically *grows* as the model
+improves and the gradient shrinks. A batch size that was well chosen at the start
+can be below the useful scale later, which is the justification for batch-size
+schedules.
+</KeyIdea>
+
+## Diagnostics
+
+```python title="monitor.py"
+@torch.no_grad()
+def optimiser_health(model, lr):
+    """Update-to-parameter norm ratio per layer, around 1e-3 when healthy.
+    Scale-free, comparable across layers, and it localises problems that a
+    single gradient norm cannot."""
+    out = {}
+    for name, p in model.named_parameters():
+        if p.grad is not None:
+            out[name] = (lr * p.grad.norm() / (p.norm() + 1e-12)).item()
+    return out
+```
+
+<Steps>
+<Step title="Diverges after raising momentum → you also raised the step size">
+$1/(1-\beta)$. Lower the learning rate proportionally.
+</Step>
+
+<Step title="Diverges after raising the batch size → warmup too short">
+Linear scaling is a steady-state argument. Lengthen the ramp before reducing the
+rate.
+</Step>
+
+<Step title="Loss drops at each schedule milestone → the rate was the constraint">
+Step decay makes this visible and cosine hides it. If you want to know whether
+the schedule is doing the work, a step schedule is more informative.
+</Step>
+
+<Step title="Bigger batch, no wall-clock gain → past the noise scale">
+Measure it rather than sweeping. The answer differs by orders of magnitude
+between problems and changes during training.
+</Step>
+</Steps>

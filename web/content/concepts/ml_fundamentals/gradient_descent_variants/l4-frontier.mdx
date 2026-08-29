@@ -1,0 +1,209 @@
+---
+concept: gradient_descent_variants
+level: 4
+status: final
+recall:
+  prompt: "What did the large-batch training literature establish, and what is the state of the adaptive-versus-SGD generalisation question?"
+  keyPoints:
+    - "Goyal et al. (2017) established the linear scaling rule and the warmup that makes it work, at a scale where the failure modes are expensive and therefore visible."
+    - "Keskar et al. (2017) proposed that large batches find sharper minima that generalise worse — an influential framing whose mechanism has been substantially contested since."
+    - "McCandlish et al. (2018) supplied the measurable quantity: the gradient noise scale, which predicts where extra parallelism stops buying speed."
+    - "Wilson et al. (2017) documented the adaptive-versus-SGD generalisation gap. It is real on some problems, problem-dependent, and does not clearly transfer to transformers on language."
+papers:
+  - key: goyal2017largebatch
+    title: "Accurate, Large Minibatch SGD: Training ImageNet in 1 Hour"
+    authors: "Priya Goyal, Piotr Dollár, Ross Girshick, Pieter Noordhuis, Lukasz Wesolowski, Aapo Kyrola, Andrew Tulloch, Yangqing Jia, Kaiming He"
+    year: 2017
+    arxiv: "1706.02677"
+    takeaway: "The linear scaling rule with a gradual warmup, taken to batch size 8192 without accuracy loss — plus the implementation details (weight-decay exclusions, batch-norm handling) that turn out to matter as much as the rule."
+  - key: keskar2017largebatch
+    title: "On Large-Batch Training for Deep Learning: Generalization Gap and Sharp Minima"
+    authors: "Nitish Shirish Keskar, Dheevatsa Mudigere, Jorge Nocedal, Mikhail Smelyanskiy, Ping Tak Peter Tang"
+    venue: ICLR
+    year: 2017
+    arxiv: "1609.04836"
+    takeaway: "Observes that large-batch training generalises worse and proposes sharp minima as the explanation — an influential framing whose causal claim has been substantially contested since, while the observation stands."
+  - key: mccandlish2018noisescale
+    title: "An Empirical Model of Large-Batch Training"
+    authors: "Sam McCandlish, Jared Kaplan, Dario Amodei, OpenAI Dota Team"
+    year: 2018
+    arxiv: "1812.06162"
+    takeaway: "Defines the gradient noise scale and shows it predicts the batch size beyond which parallelism stops reducing wall-clock time — converting a hyperparameter sweep into a measurement."
+  - key: wilson2017marginal
+    title: "The Marginal Value of Adaptive Gradient Methods in Machine Learning"
+    authors: "Ashia C. Wilson, Rebecca Roelofs, Mitchell Stern, Nathan Srebro, Benjamin Recht"
+    venue: NeurIPS
+    year: 2017
+    arxiv: "1705.08292"
+    takeaway: "Shows adaptive methods can converge to solutions that generalise worse than well-tuned SGD on several problems, including a constructed case where adaptive methods provably find a worse solution."
+  - key: loshchilov2017sgdr
+    title: "SGDR: Stochastic Gradient Descent with Warm Restarts"
+    authors: "Ilya Loshchilov, Frank Hutter"
+    venue: ICLR
+    year: 2017
+    arxiv: "1608.03983"
+    takeaway: "Introduces cosine annealing with periodic restarts, and is the origin of the cosine schedule that became the default even where the restarts did not."
+check:
+  - id: gd_l4_c1
+    prompt: "Keskar et al.'s sharp-minima explanation for the large-batch generalisation gap has been contested. What survived?"
+    options:
+      - "Nothing; the observation was an artefact"
+      - "The observation that large-batch training can generalise worse under a naive configuration survived; the causal explanation via sharpness did not, partly because sharpness is not invariant to reparameterisation, and because much of the gap closes with proper learning-rate scaling and warmup"
+      - "The explanation survived and the observation did not"
+      - "Both were confirmed"
+    answer: 1
+    explanation: "This is a useful case of a robust observation with a contested mechanism. The reparameterisation point is the sharpest objection: for a network with rescaling symmetries, you can change the measured sharpness of a minimum without changing the function it computes, so sharpness alone cannot be what determines generalisation. And Goyal et al. showed much of the gap closes with linear scaling plus warmup, which suggests a good deal of it was a tuning artefact rather than a property of large batches."
+  - id: gd_l4_c2
+    prompt: "Why is the gradient noise scale a more useful contribution than a recommended batch size?"
+    options:
+      - "Because it is easier to compute"
+      - "Because it is a *measurable property of your problem* rather than a number transferred from someone else's — it predicts where extra parallelism stops buying wall-clock time, and it changes across problems and during training"
+      - "Because it applies only to reinforcement learning"
+      - "Because it removes the need for a learning-rate schedule"
+    answer: 1
+    explanation: "A recommended batch size is a fact about someone else's problem. The noise scale is estimable from your own gradient statistics during a run, and it answers the question that actually matters — at what point does doubling the batch stop halving the wall-clock time. It also changes during training, typically growing as the model improves and the gradient shrinks, which is the justification for batch-size schedules and would be invisible from a fixed recommendation."
+  - id: gd_l4_c3
+    prompt: "How should you state the adaptive-versus-SGD generalisation question today?"
+    options:
+      - "Adaptive methods generalise worse; use SGD"
+      - "The gap is real on some problems, chiefly in vision, is problem-dependent, is sensitive to how hard each method was tuned, and does not clearly transfer to transformers on language — so the default is adaptive for robustness, with the comparison worth running when chasing the last point"
+      - "The gap was disproved"
+      - "Adaptive methods generalise better"
+    answer: 1
+    explanation: "Both unqualified positions are wrong and the qualified one is a real research position. The findings are genuine and were demonstrated including on a constructed problem, so they are not an artefact. But the effect is problem-dependent, 'well-tuned SGD' hides substantial tuning effort that Adam does not require, and the language-model regime where most large-scale training now happens uses adaptive methods essentially universally without an evident penalty. Stating the conditions is what distinguishes a defensible answer."
+---
+
+## Scaling up, and what it took
+
+<PaperCard refKey="goyal2017largebatch" />
+
+The linear scaling rule — multiply the batch by $k$, multiply the learning rate
+by $k$ — plus a gradual warmup, taken to batch size 8192 on ImageNet without
+accuracy loss.
+
+<KeyIdea>
+What makes this a useful paper rather than a rule of thumb is the accompanying
+detail. Excluding weight decay from biases and normalisation parameters, handling
+batch-norm statistics correctly under data parallelism, and scaling the warmup
+with the target rate all turn out to matter as much as the rule itself. The rule
+is the headline; the reason it works in practice is the list.
+</KeyIdea>
+
+## The sharp-minima story, and what happened to it
+
+<PaperCard refKey="keskar2017largebatch" />
+
+Large-batch training generalises worse, and the proposed explanation is that it
+converges to *sharper* minima — regions where the loss rises quickly under small
+parameter perturbations — which are hypothesised to generalise worse than flat
+ones.
+
+<Warning>
+The observation is robust and the causal explanation is contested, which is worth
+separating carefully because the framing became very widely repeated.
+
+The sharpest objection is reparameterisation: for a network with rescaling
+symmetries — multiply one layer's weights by $c$ and the next layer's by $1/c$ —
+you can change the measured sharpness of a minimum without changing the function
+it computes at all. A quantity that can be altered arbitrarily without changing
+the model cannot by itself determine generalisation.
+
+And much of the gap closes with correct learning-rate scaling and warmup, which
+suggests a substantial part of the original effect was a tuning artefact.
+</Warning>
+
+## The measurable quantity
+
+<PaperCard refKey="mccandlish2018noisescale" />
+
+The contribution here is a *measurement* rather than a recommendation. The
+gradient noise scale
+
+$$
+B_{\text{noise}} = \frac{\operatorname{tr}(\Sigma)}{\|g\|^2}
+$$
+
+compares the total gradient variance against the squared gradient magnitude, and
+predicts the batch size beyond which additional parallelism stops reducing
+wall-clock time.
+
+<Steps>
+<Step title="Why this beats a recommended batch size">
+A recommendation is a fact about someone else's problem. The noise scale is
+estimable from your own gradient statistics during a run, before you commit
+hardware.
+</Step>
+
+<Step title="It changes during training">
+Typically growing as the model improves and the gradient shrinks — so a batch
+size well chosen at the start can be below the useful scale later. That is the
+justification for batch-size schedules, and it is invisible from a fixed
+recommendation.
+</Step>
+
+<Step title="It varies enormously across problems">
+Which is why the folklore about "the right batch size" was contradictory before
+there was a quantity to measure.
+</Step>
+</Steps>
+
+## The adaptive-versus-SGD question
+
+<PaperCard refKey="wilson2017marginal" />
+
+Adaptive methods can converge to solutions that generalise worse than well-tuned
+SGD, demonstrated across several problems and including a constructed case where
+adaptive methods provably find a worse solution.
+
+<Warning>
+The honest statement has four qualifications, and dropping any of them makes the
+claim wrong in one direction or the other.
+
+The effect is **real** — it is not an artefact, and it was shown constructively as
+well as empirically. It is **problem-dependent**, appearing most clearly in
+vision. It is **sensitive to tuning effort**, and "well-tuned SGD" conceals a
+learning-rate search that Adam does not require, since Adam's rate transfers and
+SGD's does not. And it **does not clearly transfer** to transformers on language,
+where adaptive methods are essentially universal at scale without an evident
+penalty.
+
+So: default to adaptive for robustness, and run the comparison if you are chasing
+the last point on a benchmark where the gap has been observed.
+</Warning>
+
+## Schedules
+
+<PaperCard refKey="loshchilov2017sgdr" />
+
+The origin of the cosine schedule, introduced with periodic *restarts* — jumping
+the learning rate back up to escape a basin and explore another. The restarts
+were the point; the cosine shape is what survived, and it is now the default in
+settings that use no restarts at all.
+
+<KeyIdea>
+That is a common pattern worth recognising: a component of a proposed method
+outliving the method's central idea. The reason cosine spread is mundane — it has
+nothing to tune about where the transitions occur, unlike step decay, and it
+decays smoothly to a floor. Its one real cost is needing the total step count in
+advance, which makes extending a run awkward.
+</KeyIdea>
+
+## What to take from this literature
+
+<Steps>
+<Step title="Established">
+Linear scaling with warmup works over a wide range. The gradient noise scale
+predicts where parallelism stops paying. Weight decay should exclude biases and
+normalisation parameters.
+</Step>
+
+<Step title="Contested">
+Whether large batches inherently generalise worse, and whether sharpness is the
+mechanism. The observation is more robust than the explanation.
+</Step>
+
+<Step title="Problem-dependent">
+Whether adaptive methods cost you generalisation. Real in vision, unclear
+elsewhere, and confounded by unequal tuning effort.
+</Step>
+</Steps>

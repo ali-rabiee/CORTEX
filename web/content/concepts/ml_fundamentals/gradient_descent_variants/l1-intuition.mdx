@@ -1,25 +1,183 @@
 ---
 concept: gradient_descent_variants
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Gradient Descent Variants — SGD, Momentum, and Learning Rate
-    Schedules in plain language: what is it, and why does it matter?"
+  prompt: "What limits plain gradient descent, what does momentum actually fix, and how do batch size and learning rate relate?"
   keyPoints:
-    - Vanilla SGD is like navigating by the local slope at each step — noisy and
-      slow in ravines.
-    - "Momentum is like rolling a ball: it accumulates velocity in consistent
-      gradient directions, damping oscillations in noisy dimensions."
-    - Nesterov momentum is even smarter — it peeks ahead to where momentum would
-      take you and corrects based on the gradient there, reducing overshooting.
-check: []
-papers: []
+    - "Gradient descent's step is capped by the *steepest* direction, so on a badly conditioned problem any step large enough to progress along the shallow axis oscillates across the narrow one."
+    - "Momentum averages successive gradients: the oscillating components cancel, the consistent one accumulates. It improves the convergence rate from $\\kappa$ to $\\sqrt\\kappa$ — a 100x gain at $\\kappa = 10^4$."
+    - "$\\beta = 0.9$ averages about $1/(1-\\beta) = 10$ gradients and multiplies the effective step by the same factor, which is why raising $\\beta$ without lowering the learning rate diverges."
+    - "Larger batches give less noisy gradients, so the learning rate can rise with batch size — roughly linearly, until you pass the gradient noise scale and further batching buys nothing."
+media:
+  - kind: article
+    title: "An overview of gradient descent optimization algorithms"
+    url: https://www.ruder.io/optimizing-gradient-descent/
+    source: "Sebastian Ruder"
+    note: "The standard tour of the family. Read it for placement rather than mechanism — the update rules are all here and the reasons they differ are in Level 2."
+  - kind: article
+    title: "Accurate, Large Minibatch SGD: Training ImageNet in 1 Hour"
+    url: https://arxiv.org/abs/1706.02677
+    source: "Goyal, Dollár, Girshick, Noordhuis, Wesolowski, Kyrola, Tulloch, Jia, He"
+    note: "The linear scaling rule and the warmup that makes it work, established at a scale where getting it wrong is expensive. The most practically useful paper on this list."
+  - kind: article
+    title: "An Empirical Model of Large-Batch Training"
+    url: https://arxiv.org/abs/1812.06162
+    source: "McCandlish, Kaplan, Amodei, OpenAI Dota Team"
+    note: "Defines the gradient noise scale — the batch size beyond which more parallelism stops buying speed. It turns 'how large a batch?' from a tuning question into a measurable quantity."
+check:
+  - id: gd_l1_c1
+    prompt: "Why is plain gradient descent slow on a badly conditioned problem?"
+    options:
+      - "Because the gradient is noisy"
+      - "Because the largest stable step is set by the steepest direction: anything bigger oscillates across the narrow axis, so progress along the shallow axis is limited by curvature you are not trying to descend"
+      - "Because it has no momentum term"
+      - "Because the learning rate decays too quickly"
+    answer: 1
+    explanation: "Stability requires the step size to be below roughly $2/L$ where $L$ is the largest curvature. Progress along a direction with curvature $\\mu$ then advances by a factor set by $\\eta\\mu \\le 2\\mu/L = 2/\\kappa$ per step, so the number of iterations scales with the condition number $\\kappa = L/\\mu$. The problem is entirely deterministic — it appears on a noiseless quadratic — which is why option 1 describes a different, additive difficulty."
+  - id: gd_l1_c2
+    prompt: "What does momentum actually do to the convergence rate?"
+    options:
+      - "It reduces gradient noise"
+      - "It improves the iteration count from proportional to $\\kappa$ to proportional to $\\sqrt{\\kappa}$ — a factor of 100 at $\\kappa = 10^4$ — by letting oscillating components cancel while the consistent component accumulates"
+      - "It increases the maximum stable learning rate"
+      - "It converts the problem to a well-conditioned one"
+    answer: 1
+    explanation: "The $\\kappa \\to \\sqrt\\kappa$ improvement is the classical result and it is the reason momentum matters, not the intuition about rolling downhill. Averaging successive gradients cancels the components that alternate sign — precisely the oscillation across the narrow direction — while reinforcing the component that points consistently down the valley. At $\\kappa = 10^4$ that is a hundredfold reduction in iterations, which is the difference between feasible and not."
+  - id: gd_l1_c3
+    prompt: "You increase batch size from 256 to 1024. What should happen to the learning rate, and what is the limit of that rule?"
+    options:
+      - "Leave it unchanged; batch size and learning rate are independent"
+      - "Scale it up roughly 4x — a larger batch gives a proportionally less noisy gradient, so a larger step is safe — but only until the batch exceeds the gradient noise scale, past which the gradient is already near-deterministic and further batching buys nothing"
+      - "Reduce it by 4x to compensate for the larger batch"
+      - "Scale it by $\\sqrt{4} = 2$"
+    answer: 1
+    explanation: "The linear scaling rule follows from wanting the *total* progress per epoch to be preserved: four times fewer steps, each four times larger. It works well over a wide range and needs a warmup, because the rule is about the steady state and the first steps are where a large rate does damage. The limit is the point where gradient noise is no longer what constrains the step — past that, doubling the batch halves the number of steps without allowing a proportionally larger one, so wall-clock stops improving."
 ---
 
-## Intuition
+## The problem is curvature, not noise
 
-Vanilla SGD is like navigating by the local slope at each step — noisy and slow in ravines. Momentum is like rolling a ball: it accumulates velocity in consistent gradient directions, damping oscillations in noisy dimensions. Nesterov momentum is even smarter — it peeks ahead to where momentum would take you and corrects based on the gradient there, reducing overshooting. Learning rate schedules are like adjusting your stride: large steps early to cover ground quickly, small steps later for fine-grained convergence.
+The intuitive story about gradient descent is that it is slow because gradients
+are noisy. The more fundamental problem is deterministic and survives with exact
+gradients: **conditioning**.
 
-## In practice
+<Figure src="/figures/sgd-conditioning-momentum.svg"
+        alt="Left: an elongated contour plot with gradient descent zigzagging across the narrow axis while creeping along the shallow one, and a smooth momentum path underneath. Right: a table of iterations to fixed error, showing GD scaling with kappa and momentum with root kappa."
+        caption="The largest stable step is set by the steepest direction, so progress along the shallow direction is throttled by curvature you were not trying to descend. Momentum lets the oscillating components cancel." />
 
-Training ResNet-50 on ImageNet for robot perception pre-training: SGD with momentum $\mu = 0.9$, base learning rate $\alpha = 0.1$, weight decay $5 \times 10^{-4}$, cosine schedule over 90 epochs with linear warmup for 5 epochs. Batch size 256 across 4 GPUs with synchronized SGD. The learning rate warmup prevents early training instability caused by large gradients from random initialization. For fine-tuning on robot data: reduce learning rate by $10\times$ ($\alpha = 0.01$), use shorter cosine schedule over 20 epochs, freeze BatchNorm statistics.
+<Intuition>
+Walking down a long narrow valley. The floor slopes gently toward the exit and
+the walls are steep. Step size is limited by the walls — anything larger and you
+are bouncing off them — so you shuffle toward the exit at a pace set by
+geometry that has nothing to do with where you are going.
+
+Momentum is carrying speed: the bounces off opposite walls cancel, and the
+component along the valley floor accumulates.
+</Intuition>
+
+<KeyIdea>
+The condition number $\kappa$ — the ratio of largest to smallest curvature — sets
+the iteration count. Plain gradient descent needs $O(\kappa)$ iterations;
+momentum needs $O(\sqrt\kappa)$. At $\kappa = 10^4$ that is a hundredfold
+difference, which is why momentum is not an optimisation but a requirement.
+</KeyIdea>
+
+## What momentum is, mechanically
+
+$$
+v_t = \beta v_{t-1} + g_t,
+\qquad
+\theta_t = \theta_{t-1} - \eta\,v_t
+$$
+
+$v$ is a running sum of past gradients with geometric decay — so it averages
+roughly $1/(1-\beta)$ of them.
+
+<Warning>
+That averaging window is also an **effective step multiplier**. For a consistent
+gradient, $v$ converges to $g/(1-\beta)$, so the step is $1/(1-\beta)$ times
+larger than plain SGD's: 10x at $\beta = 0.9$, 100x at $\beta = 0.99$.
+
+Raising $\beta$ without lowering $\eta$ therefore multiplies your step size, and
+the usual result is divergence attributed to the wrong cause. If you increase
+momentum, decrease the learning rate by roughly the same factor.
+</Warning>
+
+## Batch size and learning rate move together
+
+A batch of size $B$ averages $B$ gradient samples, so the noise in the estimate
+falls like $1/\sqrt{B}$ and a larger step becomes safe.
+
+<Steps>
+<Step title="The linear scaling rule">
+Multiply the batch size by $k$, multiply the learning rate by $k$. The reasoning
+is about progress per epoch: $k$ times fewer steps, each $k$ times larger. It
+holds over a surprisingly wide range.
+</Step>
+
+<Step title="Why it needs a warmup">
+The rule is about the steady state, and the first steps are where a large rate
+does its damage — the weights are random and the gradients are unrepresentative.
+Ramping the learning rate over the first few epochs is what makes the rule work
+in practice rather than in principle.
+</Step>
+
+<Step title="Where it stops">
+Past the **gradient noise scale**, the gradient is already close to
+deterministic, so a larger batch no longer permits a proportionally larger step.
+Doubling the batch then halves your step count without any compensating gain, and
+wall-clock time stops improving. That scale is measurable rather than a matter of
+taste.
+</Step>
+</Steps>
+
+## Schedules
+
+Almost nobody trains at a constant learning rate, for a reason that follows from
+the noise argument: a step size appropriate for making progress early is too
+large to settle later, when the remaining improvement is smaller than the noise.
+
+<Steps>
+<Step title="Warmup">
+Ramp up over the first few hundred to few thousand steps. Necessary for large
+batches, for post-norm transformers, and whenever the early gradients are
+unrepresentative — which is most of the time.
+</Step>
+
+<Step title="Cosine decay">
+Smoothly to near zero over the run. The dominant choice, and its main practical
+property is that it has no cliff — nothing has to be tuned about where the drops
+happen.
+</Step>
+
+<Step title="Step decay">
+Divide by 10 at fixed milestones. Older, still competitive, and it makes the
+schedule's effect visible in the loss curve — each drop produces a step, which is
+diagnostically useful when you want to know whether the rate was the limiting
+factor.
+</Step>
+</Steps>
+
+<KeyIdea>
+A schedule is doing two separable jobs: keeping the early steps small enough to
+survive an unrepresentative gradient, and keeping the late steps small enough to
+settle rather than bounce. Knowing which job you need explains why the same
+schedule shape appears everywhere and why the transitions sit where they do.
+</KeyIdea>
+
+## Where the family fits
+
+<Warning>
+Adam and its relatives differ from everything above by dividing out the *scale*
+of each coordinate's gradient, which makes the learning rate a distance in
+parameter space rather than a multiplier on an unknown gradient magnitude. That
+is a genuinely different property, and it is why Adam's hyperparameters transfer
+across architectures where SGD's must be retuned.
+
+The honest counterweight is that well-tuned SGD with momentum still generalises
+better on some vision problems. The effect is real, it is problem-dependent, and
+"well-tuned" is doing a lot of work — so the default is adaptive, and the
+comparison is worth running if you are chasing the last point.
+</Warning>
+
+<WatchThis />

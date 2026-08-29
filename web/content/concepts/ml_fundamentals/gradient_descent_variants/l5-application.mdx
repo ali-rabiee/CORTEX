@@ -1,27 +1,168 @@
 ---
 concept: gradient_descent_variants
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Gradient Descent Variants — SGD, Momentum, and Learning Rate
-    Schedules fail in practice, and how would you present it in an interview?
+  prompt: "Give your interview answer on gradient descent variants. What is the underlying difficulty, and what would you measure before scaling a run?"
   keyPoints:
-    - Learning rate too high causes divergence (loss increases or oscillates);
-      too low causes extremely slow convergence or getting trapped in sharp
-      minima.
-    - With momentum, overshooting is amplified — the combination of high
-      learning rate and high momentum ($\mu > 0.9$) can cause the optimizer to
-      oscillate around the minimum.
-    - "Large batch sizes require learning rate scaling (linear scaling rule:
-      $\\alpha \\propto B$) but this breaks down for $B > 8192$."
-check: []
-papers: []
+    - "The underlying difficulty is conditioning, not noise: the step is capped by the steepest direction, so iterations scale with $\\kappa$ — and this is true with exact gradients."
+    - "Momentum's contribution is $\\kappa \\to \\sqrt\\kappa$, a hundredfold at $\\kappa = 10^4$. It is also a step-size multiplier of $1/(1-\\beta)$, which is why raising it without lowering the rate diverges."
+    - "Linear scaling with batch size, with a warmup, and it stops at the gradient noise scale — a quantity you can measure rather than sweep."
+    - "State the adaptive-versus-SGD gap with its qualifications: real, problem-dependent, tuning-sensitive, and unclear for transformers on language."
+interview:
+  answer: >-
+    The framing I'd start with is that the fundamental difficulty is
+    conditioning rather than noise, because that's true even with exact
+    gradients. On a quadratic, the largest stable step is about two over the
+    biggest curvature — anything larger and the steepest direction diverges. But
+    the rate of progress along the shallowest direction is set by the *smallest*
+    curvature. So you're stuck taking steps sized by one quantity to make
+    progress governed by another, and the iteration count scales with the ratio,
+    the condition number kappa. Momentum's real contribution is fixing that. It
+    averages successive gradients, so components that oscillate — which is
+    exactly what the narrow direction produces — cancel, while the consistent
+    component down the valley accumulates. If you work it out on a quadratic,
+    each eigendirection becomes a second-order recursion whose roots have
+    modulus root-beta independent of the curvature, and the iteration count goes
+    from order kappa to order root kappa. At kappa of ten thousand that's a
+    hundredfold. The practical detail I'd add is that momentum is also a
+    step-size multiplier: for a consistent gradient the velocity buffer
+    converges to g over one minus beta, so beta of 0.9 is a ten-times larger
+    effective step and 0.99 is a hundred-times one. Raising momentum without
+    lowering the learning rate multiplies your step, and the divergence gets
+    blamed on the wrong parameter. On batch size, the linear scaling rule —
+    multiply the batch by k, multiply the learning rate by k — works over a
+    surprisingly wide range, because the constraint on step size is gradient
+    noise and a k-times larger batch has proportionally less of it. Two caveats.
+    It needs a warmup, because the argument is about the steady state and the
+    early steps are taken from random weights on an unrepresentative gradient.
+    And it stops at the gradient noise scale, which is the trace of the gradient
+    covariance over the squared gradient norm — below it the step is
+    noise-limited so batching helps, above it the gradient is already
+    near-deterministic and the limit is curvature, which batching doesn't
+    change. That's the number I'd measure before committing hardware to a larger
+    batch, because it's estimable from gradient norms at two batch sizes during
+    a run rather than requiring a sweep.
+  followUps:
+    - q: "So do adaptive methods generalise worse than SGD?"
+      a: >-
+        I'd give that four qualifications, because both unqualified answers are
+        wrong. The effect is real — Wilson and colleagues showed it empirically
+        and constructed a problem where adaptive methods provably find a worse
+        solution, so it isn't an artefact. It's problem-dependent, appearing
+        most clearly in vision. It's sensitive to tuning effort, and "well-tuned
+        SGD" hides a learning-rate search that Adam doesn't need, because Adam's
+        rate transfers across architectures and SGD's doesn't. And it doesn't
+        clearly transfer to transformers on language, where adaptive methods are
+        essentially universal at scale with no evident penalty. So my default is
+        AdamW for robustness, and I'd run the comparison if I were chasing the
+        last point on a vision benchmark where the gap has been observed. What
+        I wouldn't do is state either side as a fact.
+    - q: "What about the sharp-minima explanation for large-batch generalisation?"
+      a: >-
+        I'd separate the observation from the mechanism, because the observation
+        held up and the explanation largely didn't. Large-batch training
+        generalising worse under a naive configuration is robust. The proposal
+        that it's because large batches find sharper minima has a sharp
+        objection: for a network with rescaling symmetries you can multiply one
+        layer by c and the next by one over c, which changes the measured
+        sharpness of a minimum without changing the function it computes at all.
+        A quantity you can alter arbitrarily without changing the model can't by
+        itself determine generalisation. And Goyal and colleagues showed much of
+        the gap closes with correct linear scaling plus warmup, which suggests a
+        good deal of the original effect was a tuning artefact. I find this a
+        useful example of a widely-repeated framing where the citation is doing
+        more work than the evidence.
+    - q: "How would you set up a training run you've never run before?"
+      a: >-
+        AdamW with the standard betas, a learning rate around three-times-ten-to
+        -the-minus-four if it's a transformer, weight decay on the matrices only
+        — excluding biases, normalisation gains, and embeddings — and warmup
+        into cosine. Then I'd instrument before tuning: update-to-parameter norm
+        ratios per layer, which should sit around ten to the minus three and
+        localise problems a global gradient norm can't; and the gradient noise
+        scale, so I know whether my batch size is anywhere near where it stops
+        paying. Those two tell me whether a bad run is the learning rate, a
+        specific layer, or the data, which is a much better first question than
+        starting a hyperparameter sweep. And I'd fix the total step count early,
+        because cosine needs it in advance and extending a cosine run leaves you
+        at the floor rate doing very little.
+    - q: "Why do learning rate schedules help at all?"
+      a: >-
+        Two separable jobs, and it's worth naming which one you need. Warmup
+        addresses the early gradient being unrepresentative — at initialisation
+        the weights are random and the gradient statistics are unlike their
+        eventual values, so a large step is taken on bad information. Decay
+        addresses the noise floor: late in training the remaining improvement
+        per step is small compared to the gradient noise, so a fixed step size
+        makes the iterate diffuse in a ball around the optimum whose radius is
+        proportional to the learning rate. Shrinking the rate shrinks the ball,
+        which is literally why the loss drops at each step-decay milestone. That
+        also tells you something diagnostic: if the loss drops sharply at a
+        milestone, the learning rate was the binding constraint, and a step
+        schedule makes that visible where cosine hides it.
+  traps:
+    - "Explaining gradient descent's slowness as a noise problem. The conditioning difficulty is deterministic and appears with exact gradients."
+    - "Describing momentum only as 'rolling downhill'. The content is $\\kappa \\to \\sqrt\\kappa$, and it is also a $1/(1-\\beta)$ step-size multiplier."
+    - "Repeating the sharp-minima story without qualification. The observation held up; the mechanism is contested on reparameterisation grounds."
+    - "Asserting either side of the adaptive-versus-SGD question. It is real, problem-dependent, tuning-sensitive, and unclear for language transformers."
+check:
+  - id: gd_l5_c1
+    prompt: "A colleague raises momentum from 0.9 to 0.99 to 'smooth the noise' and training diverges. What happened?"
+    options:
+      - "Higher momentum amplifies gradient noise"
+      - "The velocity buffer converges to $g/(1-\\beta)$, so the effective step went from $10\\eta$ to $100\\eta$ — they multiplied the learning rate by ten without meaning to, and the fix is to divide $\\eta$ by ten"
+      - "0.99 exceeds the stability limit for momentum"
+      - "The warmup was too short"
+    answer: 1
+    explanation: "Momentum is a step-size multiplier as much as a smoother, and the two effects are easy to conflate because only one is in the parameter's name. In PyTorch's convention the buffer sums rather than averages, so a consistent gradient drives it to $g/(1-\\beta)$. Going from 0.9 to 0.99 is therefore a tenfold step increase. The rule to carry is that raising momentum requires lowering the learning rate proportionally, and the dampened convention $v \\leftarrow \\beta v + (1-\\beta)g$ avoids the trap entirely."
+  - id: gd_l5_c2
+    prompt: "You double your batch size and wall-clock time per epoch halves, but time to a target loss does not improve. What is the likely explanation?"
+    options:
+      - "The learning rate was not scaled"
+      - "You are past the gradient noise scale: the batch gradient was already close to the full gradient, so a larger batch cannot support a proportionally larger step — you halved the number of steps without making each meaningfully bigger"
+      - "The data loader is the bottleneck"
+      - "The model is too small"
+    answer: 1
+    explanation: "Failing to scale the learning rate is worth ruling out first and produces a different signature — it typically shows as slower progress per step rather than a clean wash. The described pattern, where per-epoch time improves and time-to-target does not, is what the noise scale predicts above $B_{\\text{noise}}$: batching reduces noise you were no longer limited by, while the remaining constraint is curvature, which batching does not touch. That is precisely the regime the measurement exists to identify."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Learning rate too high causes divergence (loss increases or oscillates); too low causes extremely slow convergence or getting trapped in sharp minima. With momentum, overshooting is amplified — the combination of high learning rate and high momentum ($\mu > 0.9$) can cause the optimizer to oscillate around the minimum. Large batch sizes require learning rate scaling (linear scaling rule: $\alpha \propto B$) but this breaks down for $B > 8192$. Symptoms: loss spikes, training instability, or final performance below expected baseline. Fixes: grid search over $\alpha \in \{0.001, 0.01, 0.1\}$, use warmup for large batches, monitor gradient norms.
+<Steps>
+<Step title="Diverges after raising momentum → you raised the step size">
+$1/(1-\beta)$ multiplier. Lower the learning rate by the same factor.
+</Step>
 
-## Interview-ready answer
+<Step title="Diverges after raising the batch → warmup, before the rate">
+Linear scaling is a steady-state argument and the early steps are what break.
+Lengthen the ramp first.
+</Step>
 
-SGD with momentum ($\mu = 0.9$) remains the gold standard for supervised vision tasks — it generalizes better than Adam in many cases due to finding flatter minima. The key practical decisions are: (1) learning rate (most important hyperparameter), (2) schedule (cosine annealing is the default choice), (3) warmup duration (critical for large batches and transformers), (4) weight decay ($5 \times 10^{-4}$ for SGD, higher for AdamW). The linear scaling rule ($\alpha \propto B$) enables multi-GPU training but requires warmup. For transformers and generative models, Adam/AdamW has overtaken SGD because adaptive learning rates handle the heterogeneous gradient scales across attention and FFN layers.
+<Step title="Bigger batch, no time-to-target gain → past the noise scale">
+Measure $B_{\text{noise}}$ from gradient norms at two batch sizes rather than
+sweeping. It also grows during training, so re-measure.
+</Step>
+
+<Step title="Loss steps down at each milestone → the rate was the constraint">
+Diagnostic information that a step schedule gives you and cosine hides.
+</Step>
+
+<Step title="One layer's update ratio is enormous → a layer problem, not a rate problem">
+Around $10^{-3}$ is healthy. Per-layer ratios localise what a global gradient norm
+cannot.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The framing that distinguishes this answer is that the core difficulty is
+*conditioning*, not noise — and that it survives with exact gradients. From
+there, momentum's $\kappa \to \sqrt\kappa$ improvement is the content rather than
+the rolling-downhill intuition, the $1/(1-\beta)$ step multiplier explains a
+failure people routinely misattribute, and the noise scale turns "how big a
+batch?" from a sweep into a measurement. Volunteering the four qualifications on
+the adaptive-versus-SGD question, rather than picking a side, is what signals you
+have read the actual literature rather than absorbed its slogans.
+</Warning>
