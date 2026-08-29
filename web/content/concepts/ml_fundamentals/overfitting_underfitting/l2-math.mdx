@@ -1,22 +1,220 @@
 ---
 concept: overfitting_underfitting
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Overfitting and Underfitting —
-    Bias-Variance Tradeoff and Model Capacity, including the key equations.
+  prompt: "Derive the bias-variance decomposition, state exactly where it stops explaining things, and give the implicit-regularisation account that replaces it."
   keyPoints:
-    - "The expected test error decomposes as: $$E[(y - \\hat{f}(x))^2] =
-      \\text{Bias}(\\hat{f})^2 + \\text{Var}(\\hat{f}) + \\sigma^2$$ where
-      $\\sigma^2$ is irreducible noise."
-    - Underfitting (high bias) occurs when the model lacks capacity to capture
-      the true function — both training and test error are high.
-    - Overfitting (high variance) occurs when the model memorizes training noise
-      — training error is low but test error is high.
-check: []
-papers: []
+    - "$\\mathbb{E}[(y-\\hat f)^2] = \\text{bias}^2 + \\text{variance} + \\sigma^2$ — exact for squared loss, and it says nothing about how capacity maps to those terms."
+    - "The classical picture adds an assumption the decomposition does not contain: that variance grows monotonically with capacity. Past the interpolation threshold it does not."
+    - "Zhang et al.'s argument is about what a bound can say: a class rich enough to fit random labels admits no informative capacity-based guarantee."
+    - "Gradient descent on a least-squares problem from zero initialisation converges to the *minimum-norm* interpolating solution — an implicit bias with no term in the loss."
+check:
+  - id: ou_l2_c1
+    prompt: "The bias-variance decomposition is exact. So which part of the classical U-curve is an additional assumption?"
+    options:
+      - "The irreducible noise term"
+      - "That variance increases monotonically with capacity. The decomposition holds for any estimator and says nothing about how capacity maps onto its terms — the monotonic relationship is an empirical claim, true in the underparameterised regime and false past interpolation"
+      - "That bias decreases with capacity"
+      - "That the terms are independent"
+    answer: 1
+    explanation: "It is worth separating the algebra from the empirical claim layered onto it, because the algebra is not what failed. $\\mathbb{E}[(y-\\hat f)^2] = \\text{bias}^2 + \\text{var} + \\sigma^2$ is an identity for squared loss. The U-shape comes from asserting that variance rises with capacity, which holds when adding parameters means fitting more of the noise. Past interpolation, additional capacity instead allows a *smoother* interpolating solution, and the measured variance falls."
+  - id: ou_l2_c2
+    prompt: "Gradient descent on an underdetermined least-squares problem, started from zero, converges to which solution?"
+    options:
+      - "An arbitrary one, depending on the step size"
+      - "The minimum $\\ell_2$-norm interpolating solution — because every update lies in the row space of the data, so the iterate never leaves that subspace and lands on the unique interpolator within it"
+      - "The one closest to the initialisation in function space"
+      - "The sparsest solution"
+    answer: 1
+    explanation: "The gradient of $\\|X\\theta - y\\|^2$ is $2X^\\top(X\\theta - y)$, which always lies in the row space of $X$. Starting from zero, the iterate is a sum of such terms and therefore stays in the row space for all time — and the row space intersects the affine set of interpolating solutions in exactly one point, the minimum-norm one. So a regularisation preference appears with no regularisation term in the loss, which is the cleanest available example of implicit bias."
+  - id: ou_l2_c3
+    prompt: "Why does the peak in double descent occur precisely at the interpolation threshold?"
+    options:
+      - "Because that is where the parameter count equals the dataset size, which is numerically unstable"
+      - "Because there the interpolating solution is essentially unique — the model has exactly enough capacity to fit the data and no freedom left, so it is forced into whatever contorted function achieves it, with no smoother alternative available"
+      - "Because training becomes unstable at that point"
+      - "Because the optimiser fails to converge"
+    answer: 1
+    explanation: "The mechanism is about the *size of the solution set*. Below the threshold no interpolating solution exists and the model underfits, which is benign. Above it there are infinitely many and the optimiser can select a well-behaved one. At the threshold the set is a single point, so the model has no choice — and the unique solution passing exactly through every noisy point is typically wild. This also predicts that adding a small amount of explicit regularisation flattens the peak, which is observed."
 ---
 
-## Formal definition
+## The decomposition, and what it does not say
 
-The expected test error decomposes as: $$E[(y - \hat{f}(x))^2] = \text{Bias}(\hat{f})^2 + \text{Var}(\hat{f}) + \sigma^2$$ where $\sigma^2$ is irreducible noise. Underfitting (high bias) occurs when the model lacks capacity to capture the true function — both training and test error are high. Overfitting (high variance) occurs when the model memorizes training noise — training error is low but test error is high. Model capacity is formalized by VC dimension, Rademacher complexity, or more practically by parameter count and effective dimensionality.
+For squared loss, with $y = f(x) + \varepsilon$ and $\mathbb{E}[\varepsilon] = 0$,
+$\operatorname{Var}(\varepsilon) = \sigma^2$:
+
+$$
+\mathbb{E}_{\mathcal{D},\varepsilon}\Big[\big(y - \hat f_\mathcal{D}(x)\big)^2\Big]
+= \underbrace{\big(f(x) - \mathbb{E}_\mathcal{D}[\hat f_\mathcal{D}(x)]\big)^2}_{\text{bias}^2}
++ \underbrace{\operatorname{Var}_\mathcal{D}\big(\hat f_\mathcal{D}(x)\big)}_{\text{variance}}
++ \underbrace{\sigma^2}_{\text{irreducible}}
+$$
+
+<Derivation title="It is an identity, and the U-curve is an extra claim">
+
+Add and subtract $\bar f(x) = \mathbb{E}_\mathcal{D}[\hat f_\mathcal{D}(x)]$ inside
+the square and expand. The cross terms vanish: $\varepsilon$ is independent of
+$\mathcal{D}$ and mean-zero, and
+$\mathbb{E}_\mathcal{D}[\hat f - \bar f] = 0$ by definition. What remains is the
+three terms above.
+
+**Note what this contains.** It decomposes the error of *any* estimator, exactly.
+It makes no reference to model capacity, parameter counts, or hypothesis classes.
+
+**And what the classical picture adds.** The U-shape requires a further,
+empirical claim:
+
+$$
+\text{variance is monotonically increasing in capacity}
+$$
+
+That is true when adding parameters means fitting more of the noise — the
+underparameterised regime the decomposition was developed for. It is false past
+the interpolation threshold, where additional capacity instead permits a
+*smoother* interpolating solution and measured variance falls.
+
+**So the algebra never failed.** What failed is an empirical premise attached to
+it, and separating the two is the whole content of the modern correction.
+
+</Derivation>
+
+## Why capacity bounds cannot be the explanation
+
+<Derivation title="The random-label argument, stated as a claim about bounds">
+
+Let $\mathcal{H}$ be a hypothesis class and suppose a generalisation bound of the
+form
+
+$$
+\text{test error} \;\le\; \text{train error} \;+\; C\big(\mathcal{H}, n\big)
+$$
+
+where $C$ depends only on the class and the sample size — VC dimension,
+Rademacher complexity, norm-based measures.
+
+**The observation.** For a standard architecture, replacing all labels with
+random ones still yields zero training error. So $\mathcal{H}$ contains a
+function fitting *any* labelling of the training set.
+
+**The consequence.** The bound applies to the random-label case too. There the
+true test error is chance level — say $1 - 1/K$ — while the training error is
+zero. So
+
+$$
+C(\mathcal{H}, n) \;\ge\; 1 - \tfrac1K
+$$
+
+The complexity term must be at least as large as the worst possible error, which
+makes the bound vacuous for the real-data case as well.
+
+**What this does and does not establish.** It does not say the bounds are
+incorrect — they are valid, just uninformative. It says that any explanation
+depending *only* on the model class cannot distinguish the two cases, so the
+explanation must involve the data distribution, the optimiser, or both.
+
+</Derivation>
+
+## The interpolation threshold
+
+<Derivation title="Why the peak is where the solution set is a single point">
+
+Consider fitting $n$ points with a model of $p$ parameters and count the
+interpolating solutions.
+
+**$p < n$:** generically no exact fit exists. The model underfits, the fitted
+function is a compromise, and it is stable to resampling — low variance, high
+bias.
+
+**$p = n$:** generically exactly one solution passes through all $n$ points. The
+model has no freedom, so it must adopt whatever function that is — and the unique
+interpolator through noisy points is typically extreme between them. Small changes
+in the data produce large changes in the function, so variance peaks.
+
+**$p > n$:** the interpolating set is an affine subspace of dimension $p - n$,
+containing infinitely many solutions. The optimiser now *selects*, and it selects
+systematically — so a smoother member becomes reachable and variance falls again.
+
+**A prediction that follows.** Adding a small amount of explicit regularisation
+should flatten the peak, because it breaks the uniqueness at $p = n$ by preferring
+a particular nearby solution rather than the exact interpolant. This is observed,
+and it is a good check that the mechanism is right rather than the description.
+
+</Derivation>
+
+## Implicit regularisation, made concrete
+
+The claim that "the optimiser selects" is vague until you can compute what it
+selects. In one case you can, exactly.
+
+<Derivation title="Gradient descent finds the minimum-norm interpolator">
+
+Least squares with $X \in \mathbb{R}^{n\times p}$, $p > n$, so the system is
+underdetermined and infinitely many $\theta$ satisfy $X\theta = y$.
+
+Gradient descent on $\mathcal{L} = \tfrac12\|X\theta - y\|^2$:
+
+$$
+\theta_{t+1} = \theta_t - \eta\, X^\top(X\theta_t - y)
+$$
+
+**The key structural fact.** The update $X^\top(\cdot)$ lies in the **row space**
+of $X$, for any residual. Starting from $\theta_0 = 0$, every iterate is a sum of
+such updates, so
+
+$$
+\theta_t \in \operatorname{row}(X) \quad \text{for all } t
+$$
+
+**And the row space meets the solution set once.** The interpolating solutions
+form the affine set $\{\theta : X\theta = y\} = \theta^\dagger + \ker(X)$, and
+$\operatorname{row}(X) = \ker(X)^\perp$. An affine set and the orthogonal
+complement of its direction space intersect in exactly one point — the one of
+minimum $\ell_2$ norm.
+
+$$
+\boxed{\;\theta_\infty = \arg\min_{\theta}\ \|\theta\|_2 \quad\text{s.t.}\quad X\theta = y\;}
+$$
+
+**A regularisation preference with no regulariser.** Nothing in the loss mentions
+$\|\theta\|$; the bias comes entirely from the algorithm's geometry and the
+initialisation. Change the initialisation and you converge to a different
+interpolator; change the optimiser — to a coordinate-wise adaptive method, say —
+and the implicit norm changes too.
+
+**The limitation to be honest about.** This is exact for linear least squares.
+For deep networks it is a suggestive analogy, not a theorem: what gradient
+descent implicitly minimises there is not known in general, and results exist
+only for restricted cases.
+
+</Derivation>
+
+<KeyIdea>
+That last caveat is the honest state of the field. We know capacity is the wrong
+variable, we know the optimiser's selection is what matters, and we have a
+complete characterisation of that selection only in linear cases. "Implicit
+regularisation" names the phenomenon rather than explaining it — and saying so is
+more accurate than presenting it as a solved account.
+</KeyIdea>
+
+## Where the classical picture still holds
+
+<Steps>
+<Step title="Small $n$">
+With a few hundred examples and a modestly-sized model you are underparameterised
+and the U-curve describes what you will observe. Most robot-learning datasets sit
+here, which is why the classical intuitions remain useful in that domain.
+</Step>
+
+<Step title="High label noise">
+Double descent's second descent is weaker when a large fraction of labels are
+wrong, because interpolating them is genuinely harmful however smooth the
+solution. The peak is also higher and wider.
+</Step>
+
+<Step title="Early stopping">
+Stopping before interpolation keeps you on the left branch entirely, which is
+partly why it works so reliably and why it interacts with the model-size question
+in ways the classical picture does not predict.
+</Step>
+</Steps>

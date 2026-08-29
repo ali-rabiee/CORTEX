@@ -1,0 +1,199 @@
+---
+concept: overfitting_underfitting
+level: 4
+status: final
+recall:
+  prompt: "Trace how the generalisation story changed after 2017. What was demolished, what replaced it, and what is still open?"
+  keyPoints:
+    - "Zhang et al. (2017) showed standard networks fit random labels, which makes any purely capacity-based bound vacuous — the demolition, not a new theory."
+    - "Belkin et al. (2019) named double descent and showed it across model families, reframing the classical U-curve as the left half of a larger picture."
+    - "Nakkiran et al. (2020) found it in model size, training time, *and* dataset size, unified by an effective-model-complexity notion."
+    - "Grokking (2022) separated fitting from generalising in time: models can interpolate for a very long stretch before generalisation appears, which no capacity account predicts."
+papers:
+  - key: zhang2017rethinking
+    title: "Understanding deep learning requires rethinking generalization"
+    authors: "Chiyuan Zhang, Samy Bengio, Moritz Hardt, Benjamin Recht, Oriol Vinyals"
+    venue: ICLR
+    year: 2017
+    arxiv: "1611.03530"
+    takeaway: "Standard architectures reach zero training error on randomly labelled data, so any generalisation bound depending only on the hypothesis class must be vacuous — the result that forced the explanation to involve data and optimiser rather than capacity alone."
+  - key: belkin2019doubledescent
+    title: "Reconciling modern machine learning practice and the bias-variance trade-off"
+    authors: "Mikhail Belkin, Daniel Hsu, Siyuan Ma, Soumik Mandal"
+    venue: PNAS
+    year: 2019
+    arxiv: "1812.11118"
+    takeaway: "Names and demonstrates the double-descent curve across neural networks, random forests, and kernel methods — establishing it as a property of interpolation rather than of deep learning specifically."
+  - key: nakkiran2020doubledescent
+    title: "Deep Double Descent: Where Bigger Models and More Data Hurt"
+    authors: "Preetum Nakkiran, Gal Kaplun, Yamini Bansal, Tristan Yang, Boaz Barak, Ilya Sutskever"
+    venue: ICLR
+    year: 2020
+    arxiv: "1912.02292"
+    takeaway: "Exhibits double descent in model size, training epochs, and dataset size, and unifies them with an effective-model-complexity measure — including the counterintuitive regime where more data hurts."
+  - key: power2022grokking
+    title: "Grokking: Generalization Beyond Overfitting on Small Algorithmic Datasets"
+    authors: "Alethea Power, Yuri Burda, Harri Edwards, Igor Babuschkin, Vedant Misra"
+    year: 2022
+    arxiv: "2201.02177"
+    takeaway: "Shows generalisation appearing long after training error reaches zero — sometimes orders of magnitude later — separating interpolation from generalisation in time and ruling out any account where fitting the data is the event that matters."
+check:
+  - id: ou_l4_c1
+    prompt: "Belkin et al. showed double descent in random forests and kernel methods as well as neural networks. Why does that matter?"
+    options:
+      - "It shows the effect is an artefact of deep learning implementations"
+      - "It establishes double descent as a property of *interpolation* rather than of deep networks specifically — so the explanation cannot rely on anything unique to them, like depth or non-convexity"
+      - "It shows classical methods are also overparameterised"
+      - "It means the effect is not important for deep learning"
+    answer: 1
+    explanation: "Breadth across model families constrains what an explanation may appeal to. If the phenomenon appeared only in deep networks, depth, architecture, or the non-convex loss surface would be candidate causes. Appearing in random forests and kernel regression rules those out and points at something about the geometry of interpolating solution sets — which is what the minimum-norm analysis captures. It also makes it a statistics result rather than a deep-learning curiosity."
+  - id: ou_l4_c2
+    prompt: "Nakkiran et al. found a regime where *more data hurts*. How is that possible?"
+    options:
+      - "It is a measurement artefact"
+      - "Because adding data can move a fixed-size model from the overparameterised regime toward the interpolation threshold — the threshold depends on the ratio of capacity to data, so growing $n$ at fixed $p$ walks you into the peak"
+      - "Because more data increases label noise"
+      - "Because larger datasets need more epochs"
+    answer: 1
+    explanation: "The interpolation threshold is about the relationship between capacity and dataset size, not about either alone. A model comfortably past the threshold at $n = 10{,}000$ may sit right at it at $n = 50{,}000$, and the peak is a property of that position. It is genuinely counterintuitive and it is a narrow regime — the usual advice to collect more data is right almost always — but it demonstrates that the threshold, rather than any monotone quantity, is what governs the curve."
+  - id: ou_l4_c3
+    prompt: "What does grokking add that double descent does not?"
+    options:
+      - "Nothing; it is the same phenomenon"
+      - "It separates fitting from generalising *in time*: training error reaches zero and validation stays at chance for a very long period before generalisation suddenly appears — so reaching interpolation is not the event that determines generalisation"
+      - "It shows regularisation is unnecessary"
+      - "It applies only to algorithmic tasks"
+    answer: 1
+    explanation: "Double descent is about capacity and grokking is about optimisation time, and together they rule out different explanations. If interpolating the training set were what determined the outcome, generalisation could not appear tens of thousands of steps after that point. So something continues changing in the solution long after the loss stops improving — which is direct evidence for the implicit-regularisation account, since the optimiser is still selecting among interpolating solutions well after it has found one."
+---
+
+## The demolition
+
+<PaperCard refKey="zhang2017rethinking" />
+
+Take a standard architecture that generalises well, replace every label with a
+random one, and train. It reaches zero training error.
+
+<KeyIdea>
+The paper's contribution is an argument about what a bound can say, and it is
+worth reconstructing rather than remembering. If the hypothesis class can fit
+*any* labelling, then a bound of the form "test error $\le$ train error $+$
+complexity of the class" must also hold when the labels are noise — where test
+error is at chance and train error is zero. So the complexity term must be at
+least as large as the worst possible error, which makes it uninformative for the
+real-data case too.
+
+This does not say the bounds are wrong. It says capacity is the wrong variable,
+and the explanation must involve the data or the optimiser.
+</KeyIdea>
+
+The paper also found that explicit regularisation — weight decay, dropout,
+augmentation — helps but is not what makes generalisation possible: removing it
+still leaves networks generalising far better than any capacity account permits.
+
+## Naming the curve
+
+<PaperCard refKey="belkin2019doubledescent" />
+
+The classical U-curve, extended past the interpolation threshold, has a second
+descent. Test error peaks exactly where the model first has enough capacity to
+fit the training set, then falls again — frequently below the classical optimum.
+
+<Warning>
+The important detail is the *breadth*: the effect appears in random forests and
+kernel methods as well as neural networks. That constrains what an explanation
+may appeal to. If it were deep-learning-specific, depth or non-convexity would be
+candidate causes; appearing across model families rules those out and points at
+the geometry of interpolating solution sets — which is exactly what the
+minimum-norm analysis captures.
+
+It also reframes the classical picture as *incomplete* rather than wrong. The
+U-curve correctly describes the underparameterised regime it was developed for.
+</Warning>
+
+## Three axes, one mechanism
+
+<PaperCard refKey="nakkiran2020doubledescent" />
+
+Double descent in model size, in training epochs, and — most surprisingly — in
+dataset size.
+
+<Steps>
+<Step title="Model size">
+The familiar version. Sweep width and the test error peaks at the threshold.
+</Step>
+
+<Step title="Training time">
+At fixed size, error can rise then fall again as training continues, because
+longer training increases the *effective* complexity of the solution being found.
+</Step>
+
+<Step title="Dataset size — where more data hurts">
+Genuinely counterintuitive. The threshold depends on the ratio of capacity to
+data, so growing $n$ at fixed $p$ can walk a comfortably overparameterised model
+into the peak. A narrow regime, and a decisive demonstration that the threshold
+rather than any monotone quantity governs the curve.
+</Step>
+</Steps>
+
+<KeyIdea>
+The unification is an *effective model complexity* — roughly, the largest dataset
+the training procedure can interpolate — with the peak occurring when it matches
+the actual dataset size. That makes the three axes the same phenomenon viewed
+along different directions, which is a more satisfying account than three
+separate observations.
+</KeyIdea>
+
+## Separating fitting from generalising in time
+
+<PaperCard refKey="power2022grokking" />
+
+On small algorithmic datasets, training error reaches zero and validation
+accuracy stays at chance — for tens of thousands of steps — and then rises
+sharply to near-perfect.
+
+<Warning>
+This rules out an entire family of explanations. If interpolating the training
+set were the event determining generalisation, nothing could change afterwards.
+That something does change, long after the training loss has stopped improving,
+is direct evidence that the optimiser continues *selecting among interpolating
+solutions* well after finding one.
+
+It is observed most cleanly on small, structured, algorithmic tasks with weight
+decay, so it should not be over-generalised. But as an existence proof separating
+the two events it is decisive, and it is the cleanest empirical support for the
+implicit-regularisation framing.
+</Warning>
+
+## Where this leaves the field
+
+<Steps>
+<Step title="Established">
+Capacity alone does not explain generalisation. Double descent is real, spans
+model families, and appears along several axes. The classical U-curve describes a
+regime rather than a law.
+</Step>
+
+<Step title="The working account">
+Implicit regularisation: among the many interpolating solutions, the optimiser
+selects systematically, and which one it selects depends on the initialisation,
+the algorithm, and the structure of the data.
+</Step>
+
+<Step title="Open">
+What gradient descent implicitly minimises for a deep network. It is known
+exactly for linear least squares — the minimum-norm interpolator — and only in
+restricted cases beyond that. So "implicit regularisation" currently *names* the
+phenomenon rather than explaining it, and presenting it as a solved account
+overstates what is known.
+</Step>
+</Steps>
+
+<KeyIdea>
+The practically actionable residue is narrower than the theoretical upheaval:
+stop treating parameter count as a predictor of overfitting, and diagnose from
+the train-validation gap and the learning curve rather than from model size. Most
+of what changed is the explanation rather than the practice — but the one piece
+of practice that did change, reaching for a smaller model first, is a common
+reflex worth unlearning.
+</KeyIdea>

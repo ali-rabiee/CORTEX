@@ -1,24 +1,170 @@
 ---
 concept: overfitting_underfitting
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Overfitting and Underfitting — Bias-Variance Tradeoff and Model
-    Capacity fail in practice, and how would you present it in an interview?
+  prompt: "Give your interview answer on overfitting. What is the classical picture, where does it fail, and what would you actually do?"
   keyPoints:
-    - "Subtle overfitting in robot learning: policy works in simulation but
-      fails in real world."
-    - The model has overfit to simulation-specific features (perfect textures,
-      exact dynamics).
-    - "Symptoms: sim reward is high but real-world success rate is low."
-check: []
-papers: []
+    - "State the decomposition as an identity, then separate out the empirical claim layered on it — that variance rises monotonically with capacity — which is what fails."
+    - "Give double descent with the mechanism: at the interpolation threshold the solution is essentially unique, so the model has no freedom to pick a smoother one."
+    - "Cite the random-label result as an argument about bounds rather than as a curiosity: a class that fits any labelling admits no informative capacity-based guarantee."
+    - "Then be practical: diagnose from the gap, use a learning curve to decide whether more data helps, and reach for a smaller model last rather than first."
+interview:
+  answer: >-
+    The classical picture is that error decomposes into bias, variance, and
+    irreducible noise, and that as capacity grows bias falls while variance
+    rises — so there's an optimum in the middle and past it you overfit. I'd
+    separate two things there, because only one of them fails. The decomposition
+    is an identity for squared loss: it holds for any estimator and it says
+    nothing about capacity. What produces the U-shape is an additional empirical
+    claim, that variance increases monotonically with capacity, and that's what
+    turns out to be false in the regime modern networks are trained in. What
+    actually happens is double descent. Test error peaks at the interpolation
+    threshold — where the model has exactly enough capacity to fit the training
+    set — and then descends again, often below the classical optimum. The
+    mechanism is about how many interpolating solutions exist. Below the
+    threshold there are none, so the model underfits, which is benign. At it
+    there's essentially one, so the model is forced into whatever contorted
+    function passes through every noisy point, with no smoother alternative
+    available. Above it there are infinitely many, and the optimiser selects a
+    well-behaved one. What makes that more than a curve-fitting observation is
+    the random-label result. The same architectures that generalise well can fit
+    completely random labels to zero training error — and that's an argument
+    about what a bound can say. If the hypothesis class can fit any labelling,
+    then a bound depending only on that class must also hold when the labels are
+    noise, where test error is at chance, so the complexity term has to be at
+    least as large as the worst possible error. It's vacuous. That doesn't make
+    the bounds wrong, it makes capacity the wrong variable — the explanation has
+    to involve the data and the optimiser. The replacement is implicit
+    regularisation: among the many settings that interpolate, gradient descent
+    reliably finds particular ones. You can compute exactly which for linear
+    least squares — starting from zero, every update lies in the row space of
+    the data, so the iterate never leaves it and you land on the minimum-norm
+    interpolator, a regularisation preference with no regulariser in the loss.
+    For deep networks that's an analogy rather than a theorem, and I'd say so:
+    implicit regularisation currently names the phenomenon more than it explains
+    it.
+  followUps:
+    - q: "So what would you actually do when validation loss is rising?"
+      a: >-
+        Diagnose from the gap first, because half the time the reflexive
+        response is backwards. High training error and high validation error
+        with a small gap is underfitting, and adding regularisation there makes
+        it worse — the fixes are more capacity, longer training, or a higher
+        learning rate. A real gap means overfitting, and then I'd go in order of
+        expected value: more data, then augmentation as a cheap approximation to
+        it, then early stopping with best-weight restoration, then weight decay
+        and dropout. Shrinking the model is last, not first, because past the
+        interpolation threshold reducing capacity moves you toward the peak
+        rather than away from it. And before any of that I'd check the split for
+        near-duplicates, because a leaking validation set produces numbers that
+        look like something else entirely.
+    - q: "How do you decide whether collecting more data is worth it?"
+      a: >-
+        A learning curve — error against training set size, at several
+        fractions, with a few seeds each because the small-n points are high
+        variance. If the train and validation curves are still converging as n
+        grows, the model is data-limited and collection is the highest-value
+        action, and the curve gives you a rough sense of how much you need. If
+        they've flattened with a persistent gap, more data won't close it and
+        the limit is model capacity, feature quality, or label noise — and I'd
+        check the labels before the other two, because it's cheap and it's
+        surprisingly often the answer. That's a question a single train/val
+        number simply cannot answer, and it matters most in exactly the domains
+        where data is expensive, which is most robotics.
+    - q: "Does any of this change how you'd work on a small robot dataset?"
+      a: >-
+        Not much, and that's worth saying plainly rather than implying the new
+        theory overturns everything. With a few hundred demonstrations and a
+        modest model you're underparameterised — you're on the left branch, and
+        the classical U-curve describes what you'll actually see. So the
+        classical intuitions remain the right working model in that domain. What
+        I'd carry over is narrower: don't reason about parameter count as though
+        it predicts generalisation, especially if you're fine-tuning a large
+        pretrained model, because there you're firmly in the overparameterised
+        regime and the reflex to shrink it is wrong. And the diagnostic advice is
+        regime-independent — the gap and the learning curve tell you what to do
+        regardless of which branch you're on.
+    - q: "What's grokking, and does it matter?"
+      a: >-
+        It's the observation that on some small algorithmic tasks, training error
+        reaches zero and validation stays at chance for tens of thousands of
+        steps, and then generalisation appears suddenly. What makes it
+        interesting is that it separates fitting from generalising in *time*,
+        which rules out any account where interpolating the training set is the
+        event that determines the outcome — something keeps changing in the
+        solution long after the training loss has stopped improving. That's
+        direct evidence for the implicit-regularisation framing, since the
+        optimiser is evidently still selecting among interpolating solutions. I'd
+        be careful not to over-generalise it: it's cleanest on small structured
+        tasks with weight decay, and I wouldn't claim it's what happens in
+        ordinary training. As an existence proof it's decisive; as a description
+        of typical behaviour it isn't established.
+  traps:
+    - "Presenting the U-curve as a law. It is an accurate description of the underparameterised regime and the left third of the real picture."
+    - "Treating the bias-variance decomposition as the thing that failed. The decomposition is an identity; the empirical claim about variance and capacity is what fails."
+    - "Citing random labels as a curiosity. It is an argument that any purely capacity-based bound must be vacuous, and stating it that way is what makes it load-bearing."
+    - "Reaching for a smaller model first. Past interpolation that moves you toward the error peak, and it is the reflex double descent specifically corrects."
+check:
+  - id: ou_l5_c1
+    prompt: "A colleague sees a train/validation gap and proposes halving the model size. The model is a fine-tuned 300M-parameter backbone on 5,000 examples. What do you say?"
+    options:
+      - "Agree — fewer parameters means less overfitting"
+      - "Push back on the ordering: at 300M parameters on 5,000 examples you are far past the interpolation threshold, so shrinking moves toward the error peak rather than away from it. Try more data, augmentation, early stopping, and LoRA-style constrained fine-tuning first"
+      - "Suggest a larger learning rate"
+      - "Suggest training for more epochs"
+    answer: 1
+    explanation: "The regime is what decides, and here it is unambiguous — 300M parameters against 5,000 examples is deeply overparameterised, so the classical intuition points the wrong way. The productive moves either add effective data or constrain *which* interpolating solution is found, which is what early stopping and low-rank fine-tuning do. Halving the model is the one intervention that could plausibly land you nearer the peak while feeling like the principled choice."
+  - id: ou_l5_c2
+    prompt: "An interviewer says 'so bias-variance is wrong'. What is the accurate response?"
+    options:
+      - "Yes, it has been superseded"
+      - "The decomposition is an exact identity and is not wrong. What fails is a separate empirical premise — that variance rises monotonically with capacity — which holds below the interpolation threshold and not above it"
+      - "No, double descent is a measurement artefact"
+      - "It is wrong only for neural networks"
+    answer: 1
+    explanation: "Separating the algebra from the premise layered on it is what makes the answer precise rather than fashionable. $\\mathbb{E}[(y-\\hat f)^2] = \\text{bias}^2 + \\text{var} + \\sigma^2$ follows from expanding a square and holds for any estimator. The U-shape requires additionally that variance increases with capacity, which is an empirical claim about a regime. Option 4 is also wrong in an informative way — double descent appears in random forests and kernel methods too, which is what rules out deep-learning-specific explanations."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Subtle overfitting in robot learning: policy works in simulation but fails in real world. The model has overfit to simulation-specific features (perfect textures, exact dynamics). Symptoms: sim reward is high but real-world success rate is low. This is not captured by standard train/val splits if both are from simulation. Root causes: domain gap, limited visual diversity, deterministic dynamics. Fixes: domain randomization (vary textures, lighting, dynamics), sim2real transfer techniques, and validation on real-world data even during sim training.
+<Steps>
+<Step title="Both errors high, small gap → underfitting, and do not regularise">
+More capacity, longer training, a higher learning rate, better features. Adding
+regularisation here makes it worse, and it is the reflexive wrong move.
+</Step>
 
-## Interview-ready answer
+<Step title="Large gap → overfitting, in this order">
+More data, augmentation, early stopping with best-weight restoration, then
+explicit regularisation. Smaller model last.
+</Step>
 
-The bias-variance tradeoff is the fundamental tension in ML: simple models underfit (high bias), complex models overfit (high variance). The expected error is $\text{Bias}^2 + \text{Variance} + \text{Noise}$. In practice, I diagnose by comparing train vs validation curves: both high = underfitting (increase capacity, train longer, reduce regularization), train low + val high = overfitting (more data, augmentation, regularization, early stopping). Modern deep learning complicates the classical picture — overparameterized networks exhibit double descent where going past the interpolation threshold actually improves generalization. For robotics, the critical insight is that sim2real gap is a form of overfitting to the simulation distribution that cannot be caught by in-distribution validation.
+<Step title="Validation better than training → check for a bug first">
+Dropout or batch-norm still in training mode at evaluation, an easier validation
+split, or augmentation applied asymmetrically. Occasionally real, usually not.
+</Step>
+
+<Step title="Suspiciously good validation → check the split for near-duplicates">
+Sequential or session-structured data leaks across a random split, and the gap
+you are looking at is then meaningless.
+</Step>
+
+<Step title="Cannot decide whether to collect more data → learning curve">
+Converging curves mean data-limited. Flat with a gap means the model, the
+features, or the labels — check the labels first.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The move that makes this answer precise is separating the identity from the
+premise. "Bias-variance is wrong" is fashionable and inaccurate; the
+decomposition is exact algebra and what fails is the empirical claim that
+variance rises monotonically with capacity. Then give double descent with its
+mechanism — the solution set has one element at the threshold and infinitely many
+past it — and the random-label result as an argument about *bounds* rather than
+as a surprising fact. Finish by being honest that implicit regularisation names
+the phenomenon more than it explains it, which is the state of the field and
+signals you have read past the summaries.
+</Warning>

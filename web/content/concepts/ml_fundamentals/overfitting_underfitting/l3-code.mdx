@@ -1,0 +1,229 @@
+---
+concept: overfitting_underfitting
+level: 3
+status: final
+recall:
+  prompt: "How do you actually diagnose whether a model is over- or underfitting, and what do you do about it in order?"
+  keyPoints:
+    - "The diagnosis is the *gap*: high train and high test error is underfitting; low train and high test is overfitting. They call for opposite actions, so getting it wrong costs you twice."
+    - "Learning curves against dataset size distinguish them definitively — a gap that closes as data grows is overfitting, one that does not is underfitting or label noise."
+    - "Reproduce double descent yourself: sweep model width past the interpolation threshold and watch the test error peak and fall."
+    - "Order the fixes by cost: more data, then augmentation, then early stopping, then explicit regularisation, then a smaller model — which is last, not first."
+check:
+  - id: ou_l3_c1
+    prompt: "Training accuracy is 62% and validation accuracy is 60%. What is the diagnosis?"
+    options:
+      - "Overfitting — the model memorised the training set"
+      - "Underfitting: the gap is negligible and both are poor, so the model is not even fitting the data it has seen. Regularising further would make it worse"
+      - "The validation set is too small"
+      - "The learning rate is too high"
+    answer: 1
+    explanation: "The gap is what distinguishes the two, and here it is two points — the model is not memorising anything. Both numbers being poor means it lacks capacity, is undertrained, or has an optimisation problem. This matters because the reflexive response to bad validation accuracy is to add regularisation, which is exactly the wrong direction here: it would lower training accuracy further and lower validation with it. The fixes are more capacity, longer training, a higher learning rate, or better features."
+  - id: ou_l3_c2
+    prompt: "What does a learning curve — error against training-set size — tell you that a single train/validation pair does not?"
+    options:
+      - "Whether the learning rate is correct"
+      - "Whether more data would help: if the train and validation curves are converging as $n$ grows, collecting more data will close the remaining gap; if they have flattened with a gap, more data will not, and the limit is the model or the label noise"
+      - "The optimal number of epochs"
+      - "Whether the architecture is appropriate"
+    answer: 1
+    explanation: "It answers the question you actually face when deciding what to do next, which a single point cannot. Two curves still converging means the model is data-limited and collection is the highest-value action. Two flat curves with a persistent gap means more data will not help and you need a different model, better features, or cleaner labels. Getting this wrong is expensive in exactly the domains where data is costly to collect."
+  - id: ou_l3_c3
+    prompt: "In what order should you try fixes for a genuine overfitting problem?"
+    options:
+      - "Shrink the model first, since capacity causes overfitting"
+      - "More data, then augmentation, then early stopping, then explicit regularisation, and shrinking the model last — because past the interpolation threshold a smaller model can be *worse*, and the ordering also runs from most to least reliable"
+      - "Add dropout everywhere, then tune"
+      - "Reduce the learning rate"
+    answer: 1
+    explanation: "The ordering matters both for effect size and because the reflexive first choice is the one most likely to backfire. More data reliably helps and augmentation is a cheap approximation to it. Early stopping is nearly free and keeps you on the left branch of the double-descent curve. Explicit regularisation helps and needs tuning. Shrinking the model is last because in the overparameterised regime it can move you *toward* the interpolation peak rather than away from it — the intuition that smaller is safer is precisely the one double descent corrects."
+---
+
+## Diagnose before you treat
+
+<CodeWalk title="The gap is the diagnosis">
+
+```python title="diagnose.py"
+def diagnose(train_metric, val_metric, threshold_gap=0.05, threshold_poor=0.7):
+    """Two numbers, four situations. The reflexive response to poor validation
+    performance is to regularise, and in half of these cases that is the wrong
+    direction — which is why the diagnosis has to come first.
+    """
+    gap = train_metric - val_metric
+
+    if train_metric < threshold_poor and gap < threshold_gap:
+        return ("underfitting",
+                "more capacity, longer training, higher lr, better features — "
+                "and do NOT add regularisation")
+    if gap > threshold_gap:
+        return ("overfitting",
+                "more data, augmentation, early stopping, then regularisation")
+    if train_metric >= threshold_poor and gap < threshold_gap:
+        return ("healthy", "both good and close — push capacity or data further")
+    return ("suspicious",
+            "validation above training usually means a leak, a distribution "
+            "mismatch, or dropout still active at eval time")
+```
+
+</CodeWalk>
+
+<Warning>
+The last case is worth checking rather than celebrating. Validation performance
+*above* training performance almost always indicates a bug: dropout or
+batch-norm still in training mode during evaluation, a validation set that is
+easier than the training set, or an augmentation pipeline applied to training and
+not validation. Occasionally it is real — heavy augmentation makes the training
+task genuinely harder — but confirm before assuming.
+</Warning>
+
+## Learning curves answer "would more data help?"
+
+<CodeWalk title="Error against dataset size">
+
+```python title="learning_curve.py"
+def learning_curve(train_fn, dataset, val_set, fractions=(0.1, 0.2, 0.4, 0.7, 1.0),
+                   seeds=3):
+    """A single train/val pair cannot tell you whether to collect more data.
+    This can: converging curves mean data-limited, flat curves with a gap mean
+    the model or the labels are the limit.
+    """
+    rows = []
+    for frac in fractions:
+        n = int(len(dataset) * frac)
+        tr, va = [], []
+        for s in range(seeds):                       # several seeds: the small-n
+            sub = subsample(dataset, n, seed=s)      # points are high variance
+            model = train_fn(sub)
+            tr.append(evaluate(model, sub))
+            va.append(evaluate(model, val_set))
+        rows.append({"n": n,
+                     "train": float(np.mean(tr)),
+                     "val": float(np.mean(va)),
+                     "gap": float(np.mean(tr) - np.mean(va))})
+    return rows
+```
+
+</CodeWalk>
+
+<Steps>
+<Step title="Gap shrinking as $n$ grows">
+Data-limited. Collecting more is the highest-value action, and the curve tells
+you roughly how much you need.
+</Step>
+
+<Step title="Both curves flat with a persistent gap">
+More data will not close it. The limit is model capacity, feature quality, or
+label noise — and the third is worth checking before the first two.
+</Step>
+
+<Step title="Both flat and both poor">
+Underfitting. The model is not extracting what is there, so more of the same data
+changes nothing.
+</Step>
+</Steps>
+
+## Reproducing double descent
+
+```python title="double_descent.py"
+def width_sweep(widths, train_set, test_set, epochs=200):
+    """Sweep width past the interpolation threshold and watch the test error
+    peak and then fall. The threshold is where training error first reaches
+    zero — the model has exactly enough capacity and no freedom to choose a
+    smoother interpolant.
+
+    Use a few percent label noise: the peak is much sharper, because the
+    unique interpolator is forced through the corrupted points.
+    """
+    rows = []
+    for w in widths:
+        model = make_model(width=w)
+        train(model, train_set, epochs=epochs)
+        rows.append({
+            "width": w,
+            "params": sum(p.numel() for p in model.parameters()),
+            "train_err": error(model, train_set),
+            "test_err": error(model, test_set),
+        })
+    # The interpolation threshold: the smallest width with zero train error.
+    threshold = next((r["width"] for r in rows if r["train_err"] < 1e-6), None)
+    return rows, threshold
+```
+
+<KeyIdea>
+Running this once is worth more than reading about it. The peak is sharp, it sits
+exactly where training error first hits zero, and the test error past it often
+drops below anything achieved on the left branch — which makes "use a smaller
+model to avoid overfitting" visibly wrong in your own plot rather than in
+someone else's.
+</KeyIdea>
+
+## Fixes, in order of expected value
+
+```python title="fixes.py"
+FIX_ORDER = [
+    # 1. Reliable, and usually the largest effect.
+    ("more data",            "closes the gap directly; the learning curve says how much"),
+    # 2. A cheap approximation to more data, if the invariances are real.
+    ("augmentation",         "encodes invariances you believe in; wrong ones hurt"),
+    # 3. Nearly free, and keeps you on the left branch of double descent.
+    ("early stopping",       "monitor val, patience ~5-10 epochs, restore best"),
+    # 4. Helps, needs tuning, interacts with everything.
+    ("weight decay",         "exclude norms and biases; use AdamW not Adam"),
+    ("dropout",              "diminishing returns alongside heavy augmentation"),
+    # 5. LAST. Past interpolation a smaller model can be worse.
+    ("smaller model",        "may move you toward the peak, not away from it"),
+]
+```
+
+<Warning>
+Shrinking the model is last for a specific reason rather than as a matter of
+taste. In the overparameterised regime, reducing capacity moves you *toward* the
+interpolation threshold, where test error peaks. The intuition that a smaller
+model is safer is exactly the one double descent corrects, and acting on it can
+make things worse while feeling principled.
+</Warning>
+
+## Early stopping, done properly
+
+```python title="early_stopping.py"
+class EarlyStopping:
+    """Restore the best weights, do not merely stop. Stopping at the epoch
+    where patience ran out leaves you with a model several epochs past its
+    best, which is the point of the exercise."""
+
+    def __init__(self, patience=10, min_delta=1e-4):
+        self.patience, self.min_delta = patience, min_delta
+        self.best, self.wait, self.best_state = float("inf"), 0, None
+
+    def step(self, val_loss, model):
+        if val_loss < self.best - self.min_delta:
+            self.best, self.wait = val_loss, 0
+            self.best_state = {k: v.detach().clone()
+                               for k, v in model.state_dict().items()}
+            return False
+        self.wait += 1
+        if self.wait >= self.patience:
+            model.load_state_dict(self.best_state)     # restore, then stop
+            return True
+        return False
+```
+
+## Checks worth running
+
+<Steps>
+<Step title="Overfit a single batch on purpose">
+A model that cannot drive the loss to near zero on ten examples has a bug — a
+detached gradient, a wrong target alignment, a frozen layer. This takes a minute
+and rules out an entire class of problems before you interpret any curve.
+</Step>
+
+<Step title="Train on shuffled labels">
+If validation performance stays at chance, your pipeline is not leaking. If it
+does better than chance, something in your features encodes the label.
+</Step>
+
+<Step title="Check the split before believing the gap">
+Near-duplicate examples across the split inflate validation performance and hide
+overfitting. In sequential or session-structured data, split by session.
+</Step>
+</Steps>

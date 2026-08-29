@@ -1,26 +1,162 @@
 ---
 concept: overfitting_underfitting
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Overfitting and Underfitting — Bias-Variance Tradeoff and Model
-    Capacity in plain language: what is it, and why does it matter?"
+  prompt: "State the classical bias-variance picture, then say where it fails for modern networks and what replaces it."
   keyPoints:
-    - Underfitting is like trying to describe a city with one sentence — too
-      simple to capture reality.
-    - Overfitting is like memorizing every street name without understanding the
-      layout — perfect on the training city but useless in a new one.
-    - "The bias-variance tradeoff says: simple models are consistently wrong
-      (high bias, low variance), complex models are right on average but wildly
-      inconsistent (low bias, high variance)."
-check: []
-papers: []
+    - "The classical U-curve — error falls then rises with capacity — describes the *underparameterised* regime, and modern networks are not trained there."
+    - "Past the interpolation threshold, where a model has just enough capacity to fit the training set exactly, test error *falls again* — often below the classical optimum. That is double descent."
+    - "Capacity cannot explain generalisation on its own: the same networks that generalise well can also fit random labels perfectly, so any bound based only on capacity must be vacuous."
+    - "What separates the two cases is the *data*, and which of the many interpolating solutions the optimiser happens to find — implicit regularisation rather than restricted capacity."
+media:
+  - kind: article
+    title: "Understanding deep learning requires rethinking generalization"
+    url: https://arxiv.org/abs/1611.03530
+    source: "Zhang, Bengio, Hardt, Recht, Vinyals"
+    note: "The experiment that broke the standard explanation: the same architectures that generalise well fit random labels to zero training error. Read it for the argument that any purely capacity-based bound must therefore be vacuous."
+  - kind: article
+    title: "Reconciling modern machine learning practice and the bias-variance trade-off"
+    url: https://arxiv.org/abs/1812.11118
+    source: "Belkin, Hsu, Ma, Mandal"
+    note: "Names the double-descent curve and shows it across model families, not just deep networks. The framing — that the classical picture is the left half of a larger one — is what makes it clarifying rather than merely surprising."
+  - kind: article
+    title: "Deep Double Descent: Where Bigger Models and More Data Hurt"
+    url: https://arxiv.org/abs/1912.02292
+    source: "Nakkiran, Kaplun, Bansal, Yang, Barak, Sutskever"
+    note: "Shows the phenomenon in model size, training time, *and* dataset size — the last being genuinely counterintuitive. Worth reading for the effective-model-complexity framing that unifies the three."
+check:
+  - id: ou_l1_c1
+    prompt: "You double your model's parameter count and test error improves. What does the classical bias-variance picture predict, and why is it wrong here?"
+    options:
+      - "It predicts improvement, so the picture is confirmed"
+      - "It predicts *worse* test error past the optimum. It is wrong because modern networks operate past the interpolation threshold, where the curve descends a second time — the classical U describes only the underparameterised left portion"
+      - "It makes no prediction about parameter count"
+      - "It predicts improvement only if you also add data"
+    answer: 1
+    explanation: "The classical picture has a single optimum with error rising monotonically after it, which is a correct description of the regime it was developed for — models with fewer parameters than data points. Modern networks are trained far past the point where they can fit the training set exactly, and in that regime error descends again, frequently below the classical optimum. So the U-curve is not wrong, it is *incomplete*: it is the left third of the real picture."
+  - id: ou_l1_c2
+    prompt: "The same architecture that generalises well on CIFAR-10 can also fit random labels to zero training error. What does that establish?"
+    options:
+      - "That the architecture is badly designed"
+      - "That capacity alone cannot explain generalisation: a bound depending only on the model class must cover the random-label case too, so it cannot be tight enough to say anything useful about the real-data case"
+      - "That the model memorises rather than learns"
+      - "That regularisation is not working"
+    answer: 1
+    explanation: "The argument is about what a bound can possibly say. If the hypothesis class is rich enough to fit arbitrary labels, then any generalisation guarantee derived from properties of that class alone must also apply when the labels are noise — where generalisation is impossible. So such a bound is vacuous. The consequence is that the explanation has to involve the *data* and the *optimiser*, not just the model, which is what reoriented the field toward implicit regularisation."
+  - id: ou_l1_c3
+    prompt: "If capacity does not explain it, what does?"
+    options:
+      - "Explicit regularisation like weight decay and dropout"
+      - "Implicit regularisation: among the many parameter settings that fit the training data exactly, gradient descent reliably finds particular ones — and which one it finds depends on the initialisation, the optimiser, and the data's structure"
+      - "The number of training epochs"
+      - "Batch normalisation"
+    answer: 1
+    explanation: "Past the interpolation threshold there are infinitely many parameter settings achieving zero training error, and they generalise very differently — so the question shifts from 'how large is the hypothesis class' to 'which member does the optimiser select'. Explicit regularisation matters and is not the main effect: networks trained without weight decay or dropout still generalise far better than the capacity bound permits. That the selection is systematic rather than arbitrary is the phenomenon needing explanation."
 ---
 
-## Intuition
+## The picture everyone learned
 
-Underfitting is like trying to describe a city with one sentence — too simple to capture reality. Overfitting is like memorizing every street name without understanding the layout — perfect on the training city but useless in a new one. The bias-variance tradeoff says: simple models are consistently wrong (high bias, low variance), complex models are right on average but wildly inconsistent (low bias, high variance). Modern deep learning partially escapes this tradeoff — double descent shows that very large overparameterized models can generalize well despite interpolating training data.
+Underfit and the model is too simple to capture the pattern; overfit and it
+memorises noise. Test error falls, then rises, and the optimum sits in the
+middle. That is a correct description of a regime — models with fewer parameters
+than data points — and modern networks are not trained in it.
 
-## In practice
+<Figure src="/figures/double-descent.svg"
+        alt="Test error against model capacity. A dashed grey curve shows the classical U with an optimum in the middle. A solid curve continues past it, peaking sharply at the interpolation threshold and then descending again to below the classical optimum."
+        caption="The classical U-curve is the left third of the real picture. Past the point where the model can fit the training data exactly, error descends a second time — frequently to below the classical optimum." />
 
-Training a grasp success predictor on 5K demonstrations. A linear model achieves 65% train / 63% test accuracy (underfitting — cannot capture nonlinear grasp geometry). A 4-layer MLP with 1024 hidden units achieves 99% train / 71% test (overfitting). Solutions: (1) data augmentation (random crops, color jitter) brings test to 79%, (2) adding dropout $p = 0.3$ brings test to 82%, (3) collecting 50K demonstrations brings test to 90%, (4) using a pre-trained ViT with frozen backbone and linear probe achieves 88% test with only 5K examples — reducing effective model capacity to match data size.
+<KeyIdea>
+The peak sits at the **interpolation threshold**: exactly enough capacity to fit
+the training set and no more. There, the model is forced into the one solution
+that fits, however contorted. Add capacity and there are many solutions to choose
+among, and the optimiser reliably picks a better-behaved one.
+</KeyIdea>
+
+<Intuition>
+Fitting a curve through noisy points. With too few degrees of freedom you cannot
+follow the trend. With exactly enough, you are forced through every point
+including the noise, and the curve whips violently between them.
+
+With far more degrees of freedom than points, there are infinitely many curves
+through them — and the smoothest is available. Something has to prefer it, and
+that something is the optimiser rather than the capacity.
+</Intuition>
+
+## The experiment that broke the old explanation
+
+Take a standard architecture that generalises well. Replace every label with a
+random one. Train it. It reaches **zero training error** — memorising a dataset
+with no learnable structure at all.
+
+<Warning>
+The consequence is about what a bound can say. If the hypothesis class is rich
+enough to fit arbitrary labels, then any generalisation guarantee derived from
+properties of that class alone must also hold when the labels are noise — where
+generalisation is impossible. So such a bound cannot be tight enough to be
+informative.
+
+That is not a claim that the bounds are wrong. It is a claim that capacity is the
+wrong variable, and the explanation has to involve the data and the optimiser.
+</Warning>
+
+## What replaces it
+
+Past the interpolation threshold there are infinitely many parameter settings
+achieving zero training error, and they generalise very differently. So the
+question changes from *how large is the hypothesis class* to **which member does
+the optimiser select**.
+
+<Steps>
+<Step title="Gradient descent is not neutral">
+It starts at a particular initialisation and takes a particular path, so it
+arrives at a particular interpolating solution. Which one is a property of the
+algorithm, not of the model class.
+</Step>
+
+<Step title="And the selection is systematic">
+Networks trained without weight decay or dropout still generalise far better than
+capacity alone permits. Explicit regularisation matters and is not the main
+effect — the optimiser's preference is.
+</Step>
+
+<Step title="Structure in the data is what makes it work">
+On real data the easiest solutions to reach are also the ones that generalise; on
+random labels no such solution exists, so the model is forced to memorise. The
+same optimiser produces both outcomes, which is why the data has to be part of
+the explanation.
+</Step>
+</Steps>
+
+## What still applies
+
+None of this means overfitting is not real, and the practical picture is
+unchanged in the places it matters.
+
+<Steps>
+<Step title="Small data still overfits">
+With a few hundred examples you are in the classical regime, and the U-curve
+describes what you will see. Most robot-learning datasets are here.
+</Step>
+
+<Step title="Validation still tells you">
+A rising validation loss while training loss falls is still overfitting, whatever
+the theory says about why. The diagnostic did not change.
+</Step>
+
+<Step title="Regularisation still helps">
+Augmentation, early stopping, and weight decay all still improve results. What
+changed is the *explanation* — they are shaping which solution the optimiser
+finds rather than shrinking a hypothesis class.
+</Step>
+</Steps>
+
+<KeyIdea>
+The practically useful update is narrower than "everything you learned is wrong".
+It is: stop reasoning about parameter count as though it predicts generalisation.
+A larger model is not automatically more prone to overfitting, and the intuition
+that it is will lead you to make a model smaller when the fix was more data or
+better augmentation.
+</KeyIdea>
+
+<WatchThis />
