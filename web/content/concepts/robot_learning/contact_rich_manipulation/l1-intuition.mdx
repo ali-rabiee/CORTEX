@@ -1,26 +1,115 @@
 ---
 concept: contact_rich_manipulation
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Contact-Rich Manipulation in plain language: what is it, and
-    why does it matter?"
+  prompt: "Why is contact qualitatively different from free-space motion, and what does that force about the architecture?"
   keyPoints:
-    - "Imagine threading a needle: you can't just plan a trajectory in free
-      space — you must feel the needle against the fabric, adjust force and
-      angle based on tactile feedback, and maintain precise force control while
-      moving."
-    - Every millimeter of insertion involves complex friction and deformation.
-    - This is qualitatively different from pick-and-place where contacts are
-      brief and simple.
-check: []
-papers: []
+    - "Position control fails in contact for a physical reason: 1 mm of error against a stiff environment is hundreds of newtons, not a small tracking error."
+    - "Compliance is the fix, and its real value is that it removes the unknown — with a soft robot the contact force barely depends on the environment's stiffness."
+    - "Contact transients run about 1 ms; a 10 Hz policy is a hundred times too slow, so the policy cannot be the contact controller."
+    - "The policy commands setpoints and stiffness to a fast inner loop. That division of labour is the architecture the physics dictates."
+media:
+  - kind: article
+    title: "Ch. 8 — Manipulator Control"
+    url: https://manipulation.csail.mit.edu/force.html
+    source: "Russ Tedrake · MIT 6.4210 Robotic Manipulation"
+    note: "The stiffness/impedance control sections. Worth it for the treatment of why you control the relationship between force and motion rather than either alone."
+  - kind: article
+    title: "Making Sense of Vision and Touch"
+    url: https://sites.google.com/view/visionandtouch
+    source: "Lee et al. · ICRA 2019"
+    note: "The videos are the argument: watch where vision stops being informative and force takes over."
+check:
+  - id: crm_l1_c1
+    prompt: "Why does a position-controlled robot fail at insertion, in physical terms?"
+    options:
+      - "Its position accuracy is insufficient for the clearance"
+      - "Position error against a stiff environment becomes force by $F = K\\delta$ — 1 mm against $10^6$ N/m is 1000 N, far beyond what the parts or the arm survive, so the error is not merely inaccurate but destructive"
+      - "Position controllers have too much latency"
+      - "The controller cannot represent rotations correctly"
+    answer: 1
+    explanation: "Accuracy is a real issue but it is the smaller one, and framing it that way suggests a better encoder would help. The structural problem is that in contact, commanding a position you cannot reach means commanding a force you did not intend, and the multiplier is the environment stiffness — a quantity you neither control nor know. A more accurate robot pressing into a jam still generates the jam force."
+  - id: crm_l1_c2
+    prompt: "A peg has 50 µm of clearance and the arm has ±100 µm repeatability. What kind of problem is this?"
+    options:
+      - "A perception problem — estimate the hole pose more precisely"
+      - "Not a positioning problem at all: the target is smaller than the uncertainty, so no open-loop command can be trusted. It becomes a search executed under compliance, where contact forces reveal the alignment"
+      - "A calibration problem"
+      - "A control-gain tuning problem"
+    answer: 1
+    explanation: "When the tolerance is below the positioning uncertainty, aiming better cannot close the gap — this is a property of the hardware, not of the estimate. What works is making contact deliberately and using the resulting forces as the measurement: a chamfer converts lateral error into a corrective force, and a spiral search sweeps the uncertainty region while compliance keeps the forces bounded. Perception gets you into the neighbourhood; force finishes the job."
 ---
 
-## Intuition
+## Contact is a different regime
 
-Imagine threading a needle: you can't just plan a trajectory in free space — you must feel the needle against the fabric, adjust force and angle based on tactile feedback, and maintain precise force control while moving. Every millimeter of insertion involves complex friction and deformation. This is qualitatively different from pick-and-place where contacts are brief and simple.
+<Intuition>
+In free space the robot's dynamics are smooth and the environment is irrelevant.
+The instant it touches something, the equations change: a constraint appears,
+forces spike, and the relationship between what you command and what happens is
+governed by a stiffness you did not choose and cannot measure. Treating
+manipulation as "motion planning, but more precise" fails because contact is not
+a harder version of free space. It is a different regime with different
+mathematics.
+</Intuition>
 
-## In practice
+The number that makes this concrete: pressing 1 mm into a hard plastic surface at
+$10^6$ N/m generates **1000 N**. A Franka Panda's payload is 3 kg. So a
+position-controlled arm that commands a target 1 mm past a surface is not
+slightly inaccurate — it is commanding a force two orders of magnitude beyond
+what the parts survive.
 
-Industrial peg-in-hole insertion with $< 0.5$ mm clearance. Approach: learn a residual policy $\pi_{\text{res}}(a|s, f)$ that takes force-torque readings $f \in \mathbb{R}^6$ alongside visual state and outputs corrections $\Delta x \in SE(3)$ on top of a nominal impedance controller $a = K_p(x_{\text{des}} - x) + K_d(\dot{x}_{\text{des}} - \dot{x}) + \pi_{\text{res}}(s, f)$. Trained with 200 demonstrations + DAgger corrections. Key: impedance control provides passive compliance ($F = K(x_0 - x)$ with tunable stiffness $K$), while the learned policy handles the strategy.
+## Compliance, and what it actually buys
+
+Robot and environment behave as springs in series, so $1/K_{\text{eff}} =
+1/K_r + 1/K_e$, and **the softer element sets the force**. Everyone knows this
+buys lower forces. The more valuable consequence is different:
+
+<Figure src="/figures/contact-compliance-decouples.svg" alt="Left: robot and environment stiffnesses as springs in series, with the sensitivity of the effective stiffness to the environment's. Right: contact force at 1 mm penetration versus environment stiffness — a stiff robot spans 100 N to 91 kN while a compliant one stays between 9.1 and 10.0 N." caption="Compliance does more than reduce force. It makes the force nearly independent of a parameter you never knew." />
+
+With a stiff robot, sweeping the environment stiffness across three decades moves
+the contact force from 100 N to 91 kN. With a compliant robot at $10^4$ N/m, the
+same sweep gives 9.1 N to 10.0 N — a spread of 1.1×.
+
+<KeyIdea>
+Compliance converts an unknown parameter into an irrelevant one. That is the
+sim2real argument for contact in one sentence: you cannot identify the stiffness
+of every surface your robot will touch, and if you are much softer than all of
+them, you do not have to.
+</KeyIdea>
+
+## Why the policy cannot be the contact controller
+
+<Steps>
+<Step title="Contact transients are about a millisecond">
+The natural timescale of a contact is $\sqrt{m/k}$: 10 ms against soft rubber,
+1 ms against hard plastic, 0.03 ms against steel.
+</Step>
+
+<Step title="A learned policy runs at 10–50 Hz">
+Vision-based policies are limited by the camera and the network. A 10 Hz policy
+has a 100 ms period — a hundred times slower than the plastic transient, three
+thousand times slower than steel.
+</Step>
+
+<Step title="So contact is handled below the policy">
+A 1 kHz impedance loop reacts to contact; the policy cannot. This is not an
+engineering shortcut, it is a consequence of the timescales.
+</Step>
+
+<Step title="The policy commands setpoints and stiffness">
+It says where to aim and how firmly to insist, at its own leisurely rate. The
+inner loop resolves what happens on contact. The action space is the interface
+between two regimes running three decades apart.
+</Step>
+</Steps>
+
+<Warning>
+This is why "just add a force sensor to the observation" underdelivers. Sampling
+force at the policy's rate aliases a signal whose interesting structure lives two
+decades higher — you see that contact happened, long after the moment when
+reacting would have mattered. The sensor belongs in the fast loop; what reaches
+the policy should be an aggregate over the interval, not an instantaneous sample.
+</Warning>
+
+<WatchThis />

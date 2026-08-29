@@ -1,0 +1,137 @@
+---
+concept: contact_rich_manipulation
+level: 4
+status: final
+recall:
+  prompt: "Trace the papers on contact-rich manipulation. What did each establish?"
+  keyPoints:
+    - "Johannink et al.: keep the conventional controller and learn a residual on top, so RL only has to cover what the model got wrong."
+    - "Schoettler et al.: industrial insertion from vision with sparse natural rewards, showing the tolerances that matter are below what perception alone reaches."
+    - "Lee et al.: a self-supervised multimodal representation, because vision and force are informative at different phases of the same task."
+    - "Suh et al.: the theoretical reason contact resists differentiable simulation — the pathwise gradient is biased where the objective is discontinuous."
+papers:
+  - key: johannink2019residual
+    title: "Residual Reinforcement Learning for Robot Control"
+    authors: "Tobias Johannink, Shikhar Bahl, Ashvin Nair, Jianlan Luo, Avinash Kumar, Matthias Loskyll, Juan Aparicio Ojea, Eugen Solowjow, Sergey Levine"
+    venue: ICRA
+    year: 2019
+    arxiv: "1812.03201"
+    takeaway: "Learn a correction on top of a hand-designed controller rather than a policy from scratch: the model handles what it models well, and RL covers only the contact-dependent remainder."
+  - key: schoettler2020insertion
+    title: "Deep Reinforcement Learning for Industrial Insertion Tasks with Visual Inputs and Natural Rewards"
+    authors: "Gerrit Schoettler, Ashvin Nair, Jianlan Luo, Shikhar Bahl, Juan Aparicio Ojea, Eugen Solowjow, Sergey Levine"
+    venue: IROS
+    year: 2020
+    arxiv: "1906.05841"
+    takeaway: "Real industrial connector insertion learned from images with rewards available on the factory floor, rather than from instrumented state and shaped rewards."
+  - key: lee2019visiontouch
+    title: "Making Sense of Vision and Touch: Self-Supervised Learning of Multimodal Representations for Contact-Rich Tasks"
+    authors: "Michelle A. Lee, Yuke Zhu, Krishnan Srinivasan, Parth Shah, Silvio Savarese, Li Fei-Fei, Animesh Garg, Jeannette Bohg"
+    venue: ICRA
+    year: 2019
+    arxiv: "1810.10191"
+    takeaway: "Learns a joint representation of RGB, depth and force via self-supervised objectives, so the policy can lean on whichever modality is informative in the current phase."
+  - key: suh2022diffsim
+    title: "Do Differentiable Simulators Give Better Policy Gradients?"
+    authors: "H. J. Terry Suh, Max Simchowitz, Kaiqing Zhang, Russ Tedrake"
+    venue: ICML
+    year: 2022
+    arxiv: "2202.00817"
+    takeaway: "Characterises when the pathwise gradient beats the zeroth-order one. Discontinuity — which contact produces — makes the pathwise estimator biased, so exact derivatives are not automatically better."
+check:
+  - id: crm_l4_c1
+    prompt: "What is the argument for residual RL on a contact task?"
+    options:
+      - "It converges faster because the network is smaller"
+      - "The conventional controller already handles free-space motion and nominal compliance well, so learning is restricted to the contact-dependent residual — a smaller function to learn, with a safe fallback when the residual is near zero"
+      - "It removes the need for a reward function"
+      - "It makes the policy interpretable"
+    answer: 1
+    explanation: "The base controller encodes real knowledge — kinematics, gravity, a sensible impedance — that RL would otherwise have to rediscover from scratch at the cost of many hardware hours. The residual only covers the part that is genuinely hard to model, which is what happens on contact. The practical bonus is behavioural: an untrained residual near zero leaves the base controller running, so early exploration is far less alarming than a randomly initialised policy commanding torques."
+  - id: crm_l4_c2
+    prompt: "Why does a multimodal vision-and-force representation help beyond either modality alone?"
+    options:
+      - "Force sensors are more accurate than cameras"
+      - "The two are informative at different phases: vision locates the target during approach and is occluded by the gripper at contact, while force is uninformative until contact and then carries the alignment signal"
+      - "Concatenating modalities always improves performance"
+      - "Force provides the reward signal"
+    answer: 1
+    explanation: "The complementarity is temporal, not merely additive. During approach there is nothing to feel and everything to see; during insertion the gripper and workpiece occlude the very region that matters, and the informative signal is the reaction wrench. A representation trained to relate the two lets the policy transfer smoothly across that handover, which is exactly the moment naive concatenation tends to be dominated by whichever modality had larger variance in the training data."
+  - id: crm_l4_c3
+    prompt: "Suh et al. show that exact simulator gradients can be worse than sampling. What is the mechanism?"
+    options:
+      - "Numerical error accumulates over long rollouts"
+      - "Where the objective is discontinuous, the pathwise gradient is exact within one contact mode but carries no information about the mode switch — biased and low-variance, against an unbiased high-variance alternative that more samples can actually fix"
+      - "Differentiable simulators cannot represent friction"
+      - "The gradients are too large and destabilise training"
+    answer: 1
+    explanation: "The estimator is correct for the local piece of a piecewise-smooth landscape, and contact-rich problems are dominated by the choice between pieces — whether to make contact, where, sliding or sticking. The bias points confidently in a direction that ignores that choice, and no sample budget removes it, whereas the zeroth-order estimator's variance shrinks as $1/\\sqrt{N}$. The paper's contribution is the criterion, not a blanket verdict: it tells you when to expect which."
+---
+
+## Keep what already works
+
+<PaperCard refKey="johannink2019residual" />
+
+The framing that makes contact tractable is that you already have a good
+controller for most of the task. Free-space motion, gravity compensation and a
+nominal impedance are solved problems. What is not modelled is what happens on
+contact — friction, jamming, the exact geometry of a chamfer.
+
+So write $\pi(s) = \pi_{\text{base}}(s) + \pi_\theta(s)$ and learn only the
+second term. Smaller function, fewer hardware hours, and a safety property worth
+noting: with $\pi_\theta \approx 0$ at initialisation the system runs the base
+controller, so early exploration perturbs a working policy rather than commanding
+arbitrary torques.
+
+<PaperCard refKey="schoettler2020insertion" />
+
+The industrial case, and a useful reality check on tolerances. Connector
+insertion has clearances well below what a camera plus calibration delivers,
+which is why the interesting part of the work is the reward and the contact
+handling rather than the perception.
+
+## The two modalities hand off
+
+<PaperCard refKey="lee2019visiontouch" />
+
+<Steps>
+<Step title="Approach: vision only">
+Nothing is touching. Force reads zero and carries no information; the camera has
+an unobstructed view of the target.
+</Step>
+
+<Step title="Contact: the handover">
+The gripper and workpiece occlude precisely the region of interest, exactly as
+the reaction wrench becomes informative. Both signals change character at the
+same instant.
+</Step>
+
+<Step title="Insertion: force only">
+Alignment is now measured by the wrench and by axial progress. Vision has nothing
+left to contribute at the relevant scale.
+</Step>
+
+<Step title="Why a joint representation rather than concatenation">
+Naive concatenation lets whichever modality had larger training variance dominate
+throughout. Self-supervised objectives that relate the streams give the policy a
+representation that stays meaningful across the handover.
+</Step>
+</Steps>
+
+## Why the obvious tool does not work
+
+<PaperCard refKey="suh2022diffsim" />
+
+If simulation is differentiable, differentiate the objective and optimise — that
+is the reflex, and for smooth dynamics it is right. Contact makes the objective
+piecewise smooth, and the pathwise gradient is exact only within one piece.
+
+<KeyIdea>
+The trade is bias against variance, and the asymmetry is what decides it. The
+pathwise estimator is low-variance and biased at discontinuities; the zeroth-order
+estimator is unbiased with variance falling as $1/\sqrt{N}$. Variance is a budget
+problem. Bias is not, and it points confidently in a wrong direction. That is the
+principled reason model-free methods stayed competitive on contact tasks long
+after differentiable simulators became available — and it is a much better answer
+than "differentiable sim is immature".
+</KeyIdea>

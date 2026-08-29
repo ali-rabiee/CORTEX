@@ -1,23 +1,162 @@
 ---
 concept: contact_rich_manipulation
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Contact-Rich Manipulation, including the
-    key equations.
+  prompt: "Derive why compliance decouples the robot from the environment, and why contact breaks gradient-based methods."
   keyPoints:
-    - Manipulation tasks involving sustained, complex contact interactions
-      between the robot and objects — e.g., peg insertion, gear meshing, surface
-      wiping, pivoting, in-hand reorientation.
-    - "Contact dynamics are governed by complementarity constraints: $$0 \\leq
-      \\lambda_n \\perp \\phi(q) \\geq 0$$ where $\\lambda_n$ is the normal
-      contact force and $\\phi(q)$ is the signed distance function."
-    - Friction follows Coulomb's law $\|f_t\| \leq \mu \lambda_n$ with the
-      maximum dissipation principle.
-check: []
-papers: []
+    - "Series stiffness gives $1/K_{eff} = 1/K_r + 1/K_e$, and the sensitivity to the unknown is $dK_{eff}/dK_e = (K_{eff}/K_e)^2$ — quadratically small when the robot is the soft element."
+    - "Explicit integration of a contact of stiffness $k$ needs $\\Delta t < 2\\sqrt{m/k}$: 63 microseconds for steel. That is why simulators soften contact, and why the softened contact is what your policy learns."
+    - "Coulomb friction is set-valued at zero relative velocity, so sticking is a constraint rather than a function — the source of the non-smoothness."
+    - "Contact makes the value landscape discontinuous, so the pathwise gradient through a differentiable simulator is low-variance but biased; the zeroth-order estimator is unbiased but high-variance."
+check:
+  - id: crm_l2_c1
+    prompt: "Why is the sensitivity result $dK_{eff}/dK_e = (K_{eff}/K_e)^2$ the important half of the compliance argument?"
+    options:
+      - "It shows compliance reduces the magnitude of contact forces"
+      - "It shows the dependence on the unknown is quadratically suppressed: at $K_r = 10^4$ against $K_e = 10^6$ the sensitivity is $10^{-4}$, so a 100% error in the assumed environment stiffness changes the realised force by 0.01% — the parameter stops needing to be identified"
+      - "It proves the contact is stable"
+      - "It gives the optimal value of $K_r$"
+    answer: 1
+    explanation: "Lower forces are the obvious benefit and would follow from any softening. The sharper consequence is about *identification*: the environment stiffness is the parameter you can least hope to know across every surface a robot will touch, and this says that being much softer than it makes knowing it unnecessary. Robustness by insensitivity rather than by estimation — the same move as designing so a disturbance cannot enter, instead of measuring and cancelling it."
+  - id: crm_l2_c2
+    prompt: "Why do simulators use contact stiffnesses far below physical values, and what does that mean for a learned policy?"
+    options:
+      - "For visual realism"
+      - "Explicit integration needs $\\Delta t < 2\\sqrt{m/k}$, which is 63 µs for steel and prohibitive — so the simulated contact is much softer than reality, and the policy learns to exploit the compliance and penetration of the softened model"
+      - "Because real stiffness values are unknown"
+      - "To reduce memory usage"
+    answer: 1
+    explanation: "Stiff contact is a stiff ODE, and the stability bound scales as $\\sqrt{m/k}$, so honest steel at 1 kg forces roughly 16 kHz stepping. Everyone softens instead. The consequence is specific rather than generic: the policy learns against an environment that yields where the real one does not, and behaviours that lean on penetration or on the soft rebound do not transfer. It is a distinct sim2real failure from the usual visual or dynamics gap, and randomising contact parameters is the standard mitigation."
+  - id: crm_l2_c3
+    prompt: "A differentiable simulator gives exact gradients through contact. Why might a zeroth-order estimator still be preferable?"
+    options:
+      - "Zeroth-order methods are faster to compute"
+      - "Contact makes the objective discontinuous, so the pathwise gradient is correct only within one contact mode and carries no information about switching modes — it is low-variance but biased, while the zeroth-order estimator is unbiased and high-variance, and the bias is the more dangerous one"
+      - "Differentiable simulators cannot handle friction"
+      - "The pathwise gradient is undefined everywhere in contact"
+    answer: 1
+    explanation: "The gradient is exact for the mode you are in — sliding, sticking, separated — and says nothing about the discontinuity you would cross by making contact differently, which is precisely the decision that matters. Variance you can beat with more samples; bias survives every sample you draw and points confidently in a wrong direction. This is why model-free methods remain competitive on contact-rich tasks despite the apparent advantage of exact derivatives."
 ---
 
-## Formal definition
+## Why the soft element wins
 
-Manipulation tasks involving sustained, complex contact interactions between the robot and objects — e.g., peg insertion, gear meshing, surface wiping, pivoting, in-hand reorientation. Contact dynamics are governed by complementarity constraints: $$0 \leq \lambda_n \perp \phi(q) \geq 0$$ where $\lambda_n$ is the normal contact force and $\phi(q)$ is the signed distance function. Friction follows Coulomb's law $\|f_t\| \leq \mu \lambda_n$ with the maximum dissipation principle. These interactions are discontinuous, making contact-rich tasks fundamentally harder to simulate, plan for, and learn.
+Model the robot's controlled stiffness $K_r$ and the environment's $K_e$ as
+springs in series under an imposed displacement $\delta$.
+
+<Derivation title="Series compliance and the sensitivity to what you do not know">
+
+The two springs share the force and split the deflection:
+
+$$
+F = K_r \delta_r = K_e \delta_e, \qquad \delta = \delta_r + \delta_e
+$$
+
+Substituting $\delta_r = F/K_r$ and $\delta_e = F/K_e$ gives
+
+$$
+\frac{1}{K_{\text{eff}}} = \frac{1}{K_r} + \frac{1}{K_e},
+\qquad
+K_{\text{eff}} = \frac{K_r K_e}{K_r + K_e}
+$$
+
+As $K_e \to \infty$, $K_{\text{eff}} \to K_r$. The soft element sets the force.
+Now differentiate with respect to the parameter you cannot measure:
+
+$$
+\frac{\partial K_{\text{eff}}}{\partial K_e}
+= \frac{K_r^2}{(K_r + K_e)^2}
+= \left(\frac{K_{\text{eff}}}{K_e}\right)^{2}
+$$
+
+**The assumption doing the work is $K_r \ll K_e$** — that the robot is the softer
+element. Under it, $K_{\text{eff}}/K_e$ is small and the sensitivity is its
+*square*. At $K_r = 10^4$ against $K_e = 10^6$ the sensitivity is $10^{-4}$: a
+100% error in the assumed environment stiffness moves the realised force by 0.01%.
+
+At $K_r = 10^6$ against the same $K_e$, the sensitivity is $0.25$ and the
+environment is back in your problem.
+
+</Derivation>
+
+Numerically, at 1 mm of penetration across $K_e \in \{10^5, 10^6, 10^8\}$:
+
+| $K_r$ | force range | spread |
+| --- | --- | --- |
+| $10^4$ N/m | 9.1 → 10.0 N | 1.1× |
+| $10^6$ N/m | 91 → 990 N | 10.9× |
+| $10^9$ N/m | 100 N → 91 kN | 909× |
+
+<KeyIdea>
+This is robustness by insensitivity rather than by estimation. Domain
+randomisation makes a policy tolerate a parameter's variation; compliance removes
+the parameter's influence. When you can arrange the second it is strictly better,
+because nothing has to be learned, identified, or covered by a sampling range.
+</KeyIdea>
+
+## Why contact is numerically hard
+
+<Derivation title="The stiffness bound on the timestep">
+
+A mass $m$ against a contact spring $k$ has natural frequency
+$\omega = \sqrt{k/m}$. Explicit integration of $\ddot{x} = -(k/m)x$ is stable only
+for
+
+$$
+\Delta t < \frac{2}{\omega} = 2\sqrt{m/k}
+$$
+
+For $m = 1$ kg:
+
+| material | $k$ (N/m) | transient $\sqrt{m/k}$ | max $\Delta t$ |
+| --- | --- | --- | --- |
+| soft rubber | $10^4$ | 10 ms | 20 ms |
+| hard plastic | $10^6$ | 1 ms | 2 ms |
+| aluminium | $10^8$ | 0.1 ms | 0.2 ms |
+| steel | $10^9$ | 0.03 ms | 63 µs |
+
+Honest steel demands roughly 16 kHz. Nobody pays that, so simulators either
+soften the contact by orders of magnitude or move to an implicit or
+complementarity formulation with its own approximations.
+
+</Derivation>
+
+The same $\sqrt{m/k}$ sets the physical timescale, which is where the control
+architecture comes from: a 10 Hz policy is 100× slower than a plastic contact
+transient and 3000× slower than steel.
+
+## The non-smoothness
+
+Coulomb friction is not a function of velocity — it is a *set-valued* relation:
+
+$$
+f_t \in
+\begin{cases}
+\{-\mu f_n \,\hat{v}\} & \|v_t\| > 0 \quad \text{(sliding)}\\[2pt]
+\{f : \|f\| \le \mu f_n\} & \|v_t\| = 0 \quad \text{(sticking)}
+\end{cases}
+$$
+
+At zero relative velocity the friction force is whatever the constraint requires,
+up to the cone limit $\|f_t\| \le \mu \|f_n\|$ — half-angle $\arctan\mu$, so
+16.7° at $\mu = 0.3$. Sticking is a constraint, not an equation, which is why
+contact simulation is a complementarity problem rather than an ODE.
+
+<Warning>
+The practical consequence for learning: the objective is piecewise smooth with
+discontinuities at mode changes. A differentiable simulator's pathwise gradient is
+exact *within* a mode and carries no information about switching modes — low
+variance, real bias. The zeroth-order estimator is unbiased with high variance.
+Since more samples cure variance and never cure bias, the apparently primitive
+estimator is often the better one here, which is the opposite of the usual
+ordering.
+</Warning>
+
+## When positioning stops being the problem
+
+If the clearance $c$ is below the positioning uncertainty $\sigma$, no open-loop
+command is trustworthy — 50 µm of clearance against ±100 µm of repeatability
+means the target is smaller than the error bar. The task becomes a search under
+compliance: a chamfer converts lateral offset into a restoring force, and a
+spiral sweeps the uncertainty disc while compliance bounds the forces. Perception
+supplies the neighbourhood; contact supplies the measurement.

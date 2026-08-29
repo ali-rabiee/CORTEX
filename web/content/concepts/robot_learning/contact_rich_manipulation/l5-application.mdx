@@ -1,26 +1,160 @@
 ---
 concept: contact_rich_manipulation
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Contact-Rich Manipulation fail in practice, and how would you
-    present it in an interview?
+  prompt: "Give your interview answer on contact-rich manipulation. What is the framing and the number you would quote?"
   keyPoints:
-    - "Sim2real gap is worst for contact-rich tasks because simulators poorly
-      model: (1) contact patch geometry (point contact vs. distributed), (2)
-      stick-slip friction transitions, (3) deformable object dynamics, (4)
-      force-torque sensor noise and bias."
-    - "The gap in contact forces can be orders of magnitude: $\\|F_{\\text{sim}}
-      - F_{\\text{real}}\\| \\gg 0$."
-    - "Symptoms: policy jams, applies excessive force, or oscillates at contact."
-check: []
-papers: []
+    - "Frame contact as a different regime, not a harder version of free space — the physics changes, so the architecture must."
+    - "Quote the force: 1 mm against $10^6$ N/m is 1000 N, so position control in contact is physically wrong rather than imprecise."
+    - "Give compliance's real benefit: it removes the unknown environment stiffness, not just the magnitude of the force."
+    - "Close with the timescale argument — contact runs at 1 ms and the policy at 100 ms, which is why the policy commands setpoints and stiffness rather than forces."
+interview:
+  answer: >-
+    The framing I'd start with is that contact isn't a harder version of
+    free-space motion, it's a different regime, and most of the engineering
+    follows from that. In free space the robot's dynamics are smooth and the
+    environment doesn't enter. The moment you touch something, a constraint
+    appears and position error turns into force through the environment's
+    stiffness — which you neither chose nor know. The number that makes it
+    concrete: a millimetre of penetration against hard plastic at ten to the six
+    newtons per metre is a thousand newtons. A Franka's payload is three
+    kilograms. So a position-controlled arm commanding a target a millimetre past
+    a surface isn't slightly inaccurate, it's commanding a force two orders of
+    magnitude beyond what the parts survive. That's why you go to impedance
+    control, but I'd be careful about why. The usual reason given is that
+    compliance lowers the forces, which is true and is the less interesting half.
+    The robot and the environment are springs in series, so the softer one sets
+    the force, and if you differentiate the effective stiffness with respect to
+    the environment's you get the ratio of the two, squared. At ten to the four
+    against ten to the six that's ten to the minus four — a hundred percent error
+    in your assumed environment stiffness moves the realised force by a hundredth
+    of a percent. So compliance doesn't just reduce the force, it removes the
+    parameter you had no way of identifying. That's robustness by insensitivity
+    rather than by estimation, and it's the reason contact sim2real is tractable
+    at all. The last piece is timescales. A contact transient is root m over k —
+    about a millisecond against plastic, thirty microseconds against steel. A
+    vision-based policy runs at ten to fifty hertz. So the policy is two to three
+    orders of magnitude too slow to react to contact and cannot be the contact
+    controller, no matter how good it is. What it can do is command a setpoint
+    and a stiffness to a one-kilohertz inner loop — where to aim and how firmly
+    to insist — and let that loop resolve what happens on contact. That split
+    isn't an engineering convenience, it's dictated by the physics, and it's the
+    thing I'd want to get across.
+  followUps:
+    - q: "How would you pick the stiffness?"
+      a: >-
+        From a force budget rather than by tuning. I ask what force the parts and
+        the arm tolerate, and what position error I actually expect given
+        calibration and repeatability, and take K as the ratio. Five newtons at
+        two millimetres of expected error is twenty-five hundred newtons per
+        metre. Then per-axis, because the axes have different jobs: soft on the
+        ones that must comply, stiff on the one that must make progress. And I'd
+        damp critically, because overshoot against a stiff surface is an impact,
+        and impact forces aren't bounded by K times delta at all — that's the
+        case the stiffness calculation doesn't cover.
+    - q: "Your policy works in sim and fails on the real robot. Contact-specific reasons?"
+      a: >-
+        The first one I'd check is that simulated contact is much softer than
+        real contact, and for a numerical reason rather than a modelling
+        oversight. Explicit integration needs a timestep under two root m over k,
+        which is sixty microseconds for steel, so everybody softens contact by
+        orders of magnitude. The policy then learns against an environment that
+        yields where the real one doesn't, and anything that leaned on
+        penetration or on the soft rebound doesn't transfer. Second is friction —
+        it's set-valued at zero velocity, it's the least identifiable parameter
+        you have, and it varies with surface condition on the same parts. Both
+        argue for randomising contact parameters specifically, not just visuals
+        and masses, and for making the policy compliant enough that the
+        difference stops mattering.
+    - q: "Differentiable simulators give exact gradients. Doesn't that solve this?"
+      a: >-
+        Not for contact, and the reason is nice. Contact makes the objective
+        piecewise smooth — sliding, sticking, separated are different pieces — so
+        the pathwise gradient is exact within a mode and tells you nothing about
+        crossing between modes, which is exactly the decision that matters. It's
+        low variance and biased. The zeroth-order estimator is unbiased with
+        variance falling as one over root N. Variance is a sample-budget problem;
+        bias isn't, and it points confidently in a wrong direction no matter how
+        much compute you spend. Suh and Tedrake have a paper giving the criterion
+        for when each wins. It's the principled reason model-free methods stayed
+        competitive here, rather than differentiable sim just being immature.
+    - q: "What if the clearance is tighter than the robot's repeatability?"
+      a: >-
+        Then it stops being a positioning problem, and I'd say that explicitly,
+        because the instinct is to improve the estimate. Fifty microns of
+        clearance against plus or minus a hundred microns of repeatability means
+        the target is smaller than the error bar, so no open-loop command can be
+        trusted and no amount of better perception closes it. What works is
+        substituting a different information source: make contact deliberately
+        and let force do the measuring. A chamfer converts lateral offset into a
+        restoring force; a spiral search sweeps the uncertainty disc while
+        compliance bounds the forces; and the success signal is axial position
+        dropping, which is a direct observation of alignment. Vision gets you to
+        the neighbourhood and contact finishes it.
+  traps:
+    - "Describing contact as needing 'more precision'. It needs different control — a more accurate arm pressing into a jam still generates the jam force."
+    - "Giving compliance only as force reduction. The insensitivity result is the half that explains why contact sim2real works at all."
+    - "Proposing that the learned policy handle contact reactively. At 10 Hz against a 1 ms transient it is a hundred times too slow, and no architecture fixes a timescale."
+    - "Assuming exact gradients through a differentiable simulator are strictly better. Discontinuity makes them biased, and bias does not shrink with more samples."
+check:
+  - id: crm_l5_c1
+    prompt: "An interviewer says: 'Our insertion policy works in sim and jams on hardware.' What do you check first?"
+    options:
+      - "Whether the vision encoder transfers"
+      - "Whether the simulated contact stiffness and friction match reality — sim contact is softened by orders of magnitude for integrator stability, so policies routinely learn to rely on penetration and compliance the real parts do not offer"
+      - "Whether the reward function is shaped correctly"
+      - "Whether the policy needs more training steps"
+    answer: 1
+    explanation: "Jamming is a contact-mode symptom rather than a perception one, which narrows the search immediately. The stability bound $\\Delta t < 2\\sqrt{m/k}$ makes honest stiffness unaffordable, so the simulated environment yields where the real one does not, and friction — set-valued at zero velocity and barely identifiable — is the other prime suspect. Both point at randomising contact parameters and at lowering the robot's stiffness so the mismatch stops mattering."
+  - id: crm_l5_c2
+    prompt: "Why is 'let the learned policy output joint torques at 20 Hz' a poor design for contact tasks?"
+    options:
+      - "Torque control requires expensive hardware"
+      - "A torque command is held for 50 ms, across contact transients lasting about 1 ms — the policy is specifying open-loop force through events it never observes, which is exactly how the large impact forces occur"
+      - "Torques are harder to normalise than positions"
+      - "Joint torques do not map cleanly to Cartesian space"
+    answer: 1
+    explanation: "The hold interval is the problem. Torque is a statement about force at this instant, and holding it through an unobserved impact defeats the compliance it was meant to provide. A setpoint-and-stiffness command instead specifies a *relationship* between motion and force that stays valid across the whole interval whether or not contact happens, letting the 1 kHz loop resolve the transient. The Cartesian mapping is a real inconvenience and not the structural objection."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Sim2real gap is worst for contact-rich tasks because simulators poorly model: (1) contact patch geometry (point contact vs. distributed), (2) stick-slip friction transitions, (3) deformable object dynamics, (4) force-torque sensor noise and bias. The gap in contact forces can be orders of magnitude: $\|F_{\text{sim}} - F_{\text{real}}\| \gg 0$. Symptoms: policy jams, applies excessive force, or oscillates at contact. Fix: use compliant control as the base layer (impedance/admittance control with gains $K_p, K_d$), add tactile sensing, collect real-world corrections via DAgger, and use low-frequency control ($\leq 20$ Hz) so contact transients are filtered.
+<Steps>
+<Step title="Large forces, parts damaged → position control in contact">
+Check the effective stiffness. If the arm is stiffer than the environment, the
+environment is setting the force and you have no authority over it.
+</Step>
 
-## Interview-ready answer
+<Step title="Jams part-way in → contact-mode mismatch or a friction gap">
+The classic sim2real failure for insertion. Suspect softened simulated contact
+and unidentified friction before suspecting perception.
+</Step>
 
-Contact-rich manipulation is the frontier challenge in robot learning because contact dynamics are discontinuous ($\phi(q) = 0$ boundary), hard to simulate, and require tight coupling of perception and force control. My approach: (1) Use impedance control $F = K_p e + K_d \dot{e}$ as the compliant base layer for safety and passivity, (2) Learn a residual policy on top that handles task strategy, conditioned on force-torque observations $f \in \mathbb{R}^6$, (3) Train in sim with domain randomization on contact parameters ($\mu, K_{\text{contact}}, \text{damping}$), then refine with real-world DAgger. Tactile sensing (e.g., GelSight providing contact geometry at $\sim$30 Hz) is a game-changer for tasks where vision is occluded during contact. The key insight: don't try to learn contact dynamics end-to-end — let classical compliance handle the physics, and let learning handle the strategy.
+<Step title="Works at high stiffness, fails at low → gravity compensation or actuator friction">
+Sag makes every setpoint mean something else; stiffness below the arm's own
+friction makes the setpoint a suggestion. Both read as a policy failure.
+</Step>
+
+<Step title="Policy 'ignores' the force channel → it is being aliased">
+An instantaneous sample at 10 Hz misses a 1 ms impact. Aggregate over the
+interval — max, mean, contact fraction — before concluding it is uninformative.
+</Step>
+
+<Step title="Cannot find the hole at all → the tolerance is below the uncertainty">
+Stop improving the estimate. Switch to a compliant search where contact supplies
+the measurement.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The strongest version of this answer refuses the "manipulation needs precision"
+framing and replaces it with three physical facts: the force a millimetre of
+error produces, the squared insensitivity that makes compliance more than
+softness, and the three-decade timescale gap that puts contact handling below the
+policy. Each one implies a design decision, and giving the implication rather
+than the fact is what separates having read about contact from having debugged
+it.
+</Warning>

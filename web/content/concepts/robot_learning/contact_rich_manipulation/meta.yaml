@@ -1,16 +1,17 @@
 id: contact_rich_manipulation
 title: Contact-Rich Manipulation
 domain: robot_learning
-summary: "Imagine threading a needle: you can't just plan a trajectory in free
-  space — you must feel the needle against the fabric, adjust force and angle
-  based on tactile feedback, and maintain precise force control while moving."
+summary: Contact changes the physics, not just the difficulty. Stiff, discontinuous
+  dynamics break position control, break gradients, and run three orders of
+  magnitude faster than any learned policy — which dictates the architecture.
 tags:
   - robot_learning
   - systems
-difficulty: 4
+difficulty: 3
 importance: 5
 related_concept_ids:
   - sim2real_transfer
+  - visuomotor_policy
   - behavior_cloning
-  - dagger
   - domain_randomization
+  - diffusion_policy

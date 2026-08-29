@@ -1,0 +1,173 @@
+---
+concept: contact_rich_manipulation
+level: 3
+status: final
+recall:
+  prompt: "How do you structure the control stack and the action space for a contact-rich task?"
+  keyPoints:
+    - "Two loops: impedance at ~1 kHz, policy at 10–50 Hz. The rates come from the contact timescale, not from convenience."
+    - "The policy's action is a setpoint and a stiffness, not a torque — it says where to aim and how firmly, and delegates what happens on contact."
+    - "Derive stiffness from a force budget: K = F_max / e_expected. Tolerating 5 N at 2 mm of error means 2500 N/m."
+    - "Aggregate force over the policy interval rather than sampling it — an instantaneous sample at 10 Hz aliases a signal whose structure is at 1 kHz."
+check:
+  - id: crm_l3_c1
+    prompt: "Why should the policy output a setpoint and stiffness rather than a joint torque?"
+    options:
+      - "Torque control is unavailable on most arms"
+      - "Because torque is the fast loop's job: at 10 Hz a commanded torque is held for 100 ms across contact events lasting 1 ms, so the policy would be specifying open-loop force through transients it cannot observe. A setpoint remains meaningful for the whole interval"
+      - "Setpoints are lower-dimensional and easier to learn"
+      - "Torques cannot be normalised"
+    answer: 1
+    explanation: "The problem is the hold interval. A torque command is a statement about force right now, and holding it through an unobserved impact is how you get the 1000 N events the compliance was meant to prevent. A setpoint-plus-stiffness command is a statement about a *relationship* between motion and force, which stays valid whether or not contact occurs during the interval — the inner loop resolves the details. Lower dimensionality is a genuine side benefit and not the reason."
+  - id: crm_l3_c2
+    prompt: "How should force reach a 10 Hz policy?"
+    options:
+      - "As an instantaneous reading at each policy step"
+      - "As statistics aggregated over the interval — max, mean, and contact fraction — since a single sample at 10 Hz aliases a 1 kHz signal and can miss an impact entirely"
+      - "Not at all; force belongs only in the inner loop"
+      - "Filtered with a long low-pass to remove noise"
+    answer: 1
+    explanation: "A 1 ms impact is invisible to a 100 ms sampler except by luck, so an instantaneous reading is a random draw from the interval rather than a summary of it. Max captures whether anything was struck, mean captures sustained loading, and contact fraction distinguishes a tap from a press — three numbers that answer different questions the policy actually needs. Heavy low-pass filtering is the same mistake as sampling: it removes exactly the transient that carried the information."
+  - id: crm_l3_c3
+    prompt: "What does a spiral search primitive accomplish that a better pose estimate would not?"
+    options:
+      - "It is faster than re-estimating the pose"
+      - "It works when the clearance is below the positioning uncertainty, where no estimate can be trusted — it sweeps the uncertainty region and uses the drop in contact force as the measurement that the estimate could not supply"
+      - "It avoids the need for a force sensor"
+      - "It handles rotational misalignment"
+    answer: 1
+    explanation: "Better perception raises accuracy up to a limit set by calibration and arm repeatability, and when the tolerance sits below that limit the gap cannot be closed by estimating harder. The search substitutes a different information source: contact itself. The axial position dropping as the peg enters is a direct, unambiguous observation of alignment, available exactly when vision has run out of resolution."
+---
+
+## The two loops
+
+<CodeWalk title="Impedance control at 1 kHz">
+
+```python title="impedance.py"
+import numpy as np
+
+class CartesianImpedance:
+    """Runs at ~1 kHz. The policy never sees this loop; it only sets x_d and K.
+
+    K comes from a force budget, not from tuning: to tolerate F_max newtons at
+    the position error you actually expect, K = F_max / e_expected. Five newtons
+    at 2 mm is 2500 N/m — far below the arm's native position-control stiffness,
+    which is the entire point.
+    """
+    def __init__(self, K, damping_ratio=1.0, m_eff=1.0):
+        self.K = np.asarray(K, float)
+        # Critical damping: overshoot in contact means an impact.
+        self.D = 2.0 * damping_ratio * np.sqrt(self.K * m_eff)
+
+    def wrench(self, x, xdot, x_d, xdot_d=0.0):
+        return self.K * (x_d - x) + self.D * (xdot_d - xdot)
+
+    def torque(self, J, x, xdot, x_d, q, qdot, gravity):
+        # Gravity compensation is separate: it must be exact regardless of the
+        # impedance, or the arm sags and the setpoint means something else.
+        return J.T @ self.wrench(x, xdot, x_d) + gravity(q)
+```
+
+</CodeWalk>
+
+Critical damping matters more here than in free space: an overshoot against a
+stiff surface is an impact, and the peak force during an impact is not bounded by
+$K\delta$ at all.
+
+## What the policy actually emits
+
+<CodeWalk title="Setpoint and stiffness as the action space">
+
+```python title="action.py"
+import numpy as np
+
+K_MIN, K_MAX = 100.0, 3000.0          # N/m, per axis
+DELTA_MAX = 0.01                      # m, per policy step
+
+def decode(a, x_now):
+    """a in [-1, 1]^6: three for the setpoint delta, three for log-stiffness.
+
+    The policy says WHERE to aim and HOW FIRMLY to insist. It does not say what
+    force to apply — at 10 Hz that command would be held across contact events
+    lasting 1 ms, which is how you get the forces compliance was meant to avoid.
+    """
+    x_d = x_now + np.clip(a[:3], -1, 1) * DELTA_MAX
+    # Log-space so the policy can span a decade of stiffness with uniform
+    # resolution; linear interpolation would spend most of its range near K_MAX.
+    t = (np.clip(a[3:], -1, 1) + 1.0) / 2.0
+    K = K_MIN * (K_MAX / K_MIN) ** t
+    return x_d, K
+```
+
+</CodeWalk>
+
+Low stiffness on the axes that must comply, high on the axes that must make
+progress — a policy that learns to *lower* stiffness laterally while inserting
+axially has discovered the same structure a remote-centre-of-compliance device
+implements mechanically.
+
+## Force, aggregated rather than sampled
+
+<CodeWalk title="Summarising a 1 kHz signal for a 10 Hz consumer">
+
+```python title="obs.py"
+class ForceWindow:
+    """One sample per policy step is a random draw from a 100 ms window, and a
+    1 ms impact is invisible to it except by luck. Three statistics answer three
+    different questions the policy has."""
+
+    def __init__(self, contact_threshold=2.0):
+        self.buf, self.thr = [], contact_threshold
+
+    def push(self, f):            # called from the fast loop
+        self.buf.append(float(np.linalg.norm(f)))
+
+    def summarize(self):
+        b = np.asarray(self.buf) if self.buf else np.zeros(1)
+        self.buf = []
+        return np.array([
+            b.max(),                       # did anything get hit
+            b.mean(),                      # sustained loading
+            float((b > self.thr).mean()),  # tap vs. press
+        ])
+```
+
+</CodeWalk>
+
+## Search when the tolerance is below the uncertainty
+
+<CodeWalk title="Compliant spiral, with contact as the measurement">
+
+```python title="search.py"
+def spiral_insert(robot, ctrl, x0, radius=0.004, pitch=0.0004,
+                  push=6.0, drop=0.002, timeout=20.0):
+    """Sweeps the uncertainty disc while compliance bounds the forces.
+
+    The success test is axial position, not force: when the peg finds the hole
+    it descends. That is a direct observation of alignment, available precisely
+    where a pose estimate has run out of resolution.
+    """
+    ctrl.K = np.array([800., 800., 3000., 50., 50., 50.])   # soft laterally
+    theta, z0 = 0.0, x0[2]
+    while robot.elapsed() < timeout:
+        r = min(pitch * theta / (2 * np.pi), radius)
+        x_d = x0 + np.array([r * np.cos(theta), r * np.sin(theta),
+                             -push / ctrl.K[2]])
+        robot.step(ctrl, x_d)
+        if z0 - robot.x()[2] > drop:
+            return True
+        theta += 0.25
+    return False
+```
+
+</CodeWalk>
+
+<Warning>
+Two failure modes hide in this stack. Gravity compensation must stay exact
+independently of the impedance — otherwise lowering stiffness makes the arm sag
+and every setpoint silently means something else, which reads as "the policy got
+worse at low stiffness". And a stiffness so low the arm cannot overcome its own
+friction turns the setpoint into a suggestion: the commanded motion stops
+happening at all, which looks like a policy failure rather than an actuation
+limit.
+</Warning>
