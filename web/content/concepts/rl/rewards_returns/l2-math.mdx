@@ -1,23 +1,232 @@
 ---
 concept: rewards_returns
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Rewards and Returns, including the key
-    equations.
+  prompt: "Prove that potential-based shaping preserves the optimal policy, and characterise when a proxy reward is safe to optimise."
   keyPoints:
-    - The reward $r_t = R(s_t, a_t, s_{t+1})$ is the immediate scalar feedback
-      signal at each timestep.
-    - "The (discounted) return from time $t$ is the cumulative discounted sum of
-      future rewards: $$G_t = \\sum_{k=0}^{\\infty} \\gamma^k r_{t+k} = r_t +
-      \\gamma r_{t+1} + \\gamma^2 r_{t+2} + \\cdots$$ where $\\gamma \\in [0,1)$
-      is the discount factor."
-    - "The goal of RL is to find a policy $\\pi^*$ that maximizes the expected
-      return: $\\pi^* = \\arg\\max_\\pi \\mathbb{E}_{\\tau \\sim \\pi}[G_0]$."
-check: []
-papers: []
+    - "With $F = \\gamma\\Phi(s') - \\Phi(s)$, the shaped value function is exactly $V'(s) = V(s) - \\Phi(s)$ — a constant offset per state, so the argmax over actions is unchanged."
+    - "The telescoping is the mechanism: along any trajectory the intermediate potentials cancel, so a closed cycle contributes $\\gamma\\Phi(s)-\\Phi(s) \\le 0$ and no loop can be made profitable."
+    - "The reward's *scale* is a free parameter that interacts with everything — values live on a scale of $R_{\\max}/(1-\\gamma)$, so an unnormalised reward silently rescales the critic's targets."
+    - "A proxy is safe only over the behaviour distribution where it was validated; a stronger optimiser explores outside it, which is why capability can make misspecification worse."
+check:
+  - id: rr_l2_c1
+    prompt: "Under potential-based shaping, what is the relationship between the shaped and original optimal value functions?"
+    options:
+      - "They are equal"
+      - "$V'^*(s) = V^*(s) - \\Phi(s)$ — a state-dependent offset. Since the offset does not depend on the action, the greedy policy is identical, which is exactly why the optimal policy is preserved"
+      - "$V'^*(s) = V^*(s) + \\Phi(s)$"
+      - "They differ by a multiplicative constant"
+    answer: 1
+    explanation: "Substituting the shaped reward into the Bellman optimality equation and rearranging shows $V^* - \\Phi$ satisfies the shaped equation, so by uniqueness of the fixed point that *is* the shaped optimal value. The important part is the shape of the difference: it is a function of state alone. Adding any state-dependent quantity to every action's value cannot change which action is largest, so the greedy policy is untouched — the same structural reason a state-dependent baseline leaves a policy gradient unbiased."
+  - id: rr_l2_c2
+    prompt: "Why must the shaping term be $\\gamma\\Phi(s') - \\Phi(s)$ rather than $\\Phi(s') - \\Phi(s)$?"
+    options:
+      - "It is a convention"
+      - "Because the value function discounts future rewards: the shaped term at step $t$ is discounted by $\\gamma^t$, and the $\\gamma$ on $\\Phi(s')$ is what makes consecutive terms cancel exactly rather than approximately"
+      - "To keep the reward bounded"
+      - "Because $\\gamma < 1$ makes the sum converge"
+    answer: 1
+    explanation: "The discounted sum of $\\gamma\\Phi(s_{t+1}) - \\Phi(s_t)$ over $t$ contributes $\\gamma^{t}\\cdot\\gamma\\Phi(s_{t+1}) = \\gamma^{t+1}\\Phi(s_{t+1})$, which is exactly cancelled by the $-\\gamma^{t+1}\\Phi(s_{t+1})$ from the next term. Without the $\\gamma$ the cancellation is off by a factor and residual terms accumulate — so the telescoping, and hence the guarantee, breaks. It is a small detail that carries the entire theorem."
+  - id: rr_l2_c3
+    prompt: "Why does the reward's absolute scale matter even though the optimal policy is invariant to positive scaling?"
+    options:
+      - "It does not; only relative rewards matter"
+      - "Because everything downstream is not scale-invariant: value targets live on a scale of $R_{\\max}/(1-\\gamma)$, so the critic's outputs, its loss, gradient magnitudes, and any fixed learning rate all shift with the reward's units"
+      - "Because large rewards cause overflow"
+      - "Because the discount factor depends on the reward scale"
+    answer: 1
+    explanation: "The *policy* is invariant to $r \\mapsto cr$ for $c>0$ — that much is true and is why people believe scale does not matter. What is not invariant is the optimisation. At $\\gamma = 0.99$ a reward of order 100 gives value targets of order $10^4$, so a critic initialised near zero spends a long time just reaching the right magnitude, and a learning rate tuned at one scale is wrong at another. That is why return normalisation exists, and why an unnormalised reward is a common cause of a run that looks like an optimiser problem."
 ---
 
-## Formal definition
+## The objects
 
-The reward $r_t = R(s_t, a_t, s_{t+1})$ is the immediate scalar feedback signal at each timestep. The (discounted) return from time $t$ is the cumulative discounted sum of future rewards: $$G_t = \sum_{k=0}^{\infty} \gamma^k r_{t+k} = r_t + \gamma r_{t+1} + \gamma^2 r_{t+2} + \cdots$$ where $\gamma \in [0,1)$ is the discount factor. The goal of RL is to find a policy $\pi^*$ that maximizes the expected return: $\pi^* = \arg\max_\pi \mathbb{E}_{\tau \sim \pi}[G_0]$. Rewards can be sparse ($r = +1$ only at goal, 0 otherwise) or dense ($r_t = -\|x_t - x_{\text{goal}}\|$). The discount factor determines the effective planning horizon: $T_{\text{eff}} = \frac{1}{1-\gamma}$.
+$$
+G_t = \sum_{k \ge 0} \gamma^k\, r_{t+k},
+\qquad
+V^\pi(s) = \mathbb{E}_\pi\big[G_t \mid s_t = s\big]
+$$
+
+The reward function $r$ is the complete specification of the task; everything
+else in reinforcement learning is machinery for maximising it.
+
+## Potential-based shaping
+
+Replace $r$ with $r' = r + F$ where
+
+$$
+F(s, a, s') = \gamma\,\Phi(s') - \Phi(s)
+$$
+
+for an arbitrary $\Phi: \mathcal{S} \to \mathbb{R}$.
+
+<Derivation title="The shaped optimal value is $V^* - \Phi$, so the policy is unchanged">
+
+**Step 1 — write the shaped Bellman optimality equation.**
+
+$$
+V'^*(s) = \max_a \sum_{s'} P(s'\mid s,a)\Big[r(s,a,s') + \gamma\Phi(s') - \Phi(s) + \gamma V'^*(s')\Big]
+$$
+
+**Step 2 — guess $V'^* = V^* - \Phi$ and verify.** Substitute on the right:
+
+$$
+\max_a \sum_{s'} P\Big[r + \gamma\Phi(s') - \Phi(s) + \gamma\big(V^*(s') - \Phi(s')\big)\Big]
+$$
+
+The $\gamma\Phi(s')$ terms cancel — this is where the $\gamma$ on the first term
+earns its place — and $\Phi(s)$ does not depend on $a$ or $s'$, so it comes out
+of both the max and the sum:
+
+$$
+= \max_a \sum_{s'} P\big[r + \gamma V^*(s')\big] \;-\; \Phi(s)
+\;=\; V^*(s) - \Phi(s)
+$$
+
+So $V^* - \Phi$ satisfies the shaped equation, and by uniqueness of the Bellman
+fixed point it *is* $V'^*$.
+
+**Step 3 — read why the policy is preserved.** The difference is a function of
+**state alone**. Adding a state-dependent constant to every action's value cannot
+change which is largest:
+
+$$
+\arg\max_a Q'^*(s,a) = \arg\max_a \big[Q^*(s,a) - \Phi(s)\big] = \arg\max_a Q^*(s,a)
+$$
+
+**And note the structural echo.** This is the same reason a state-dependent
+baseline leaves a policy gradient unbiased — a quantity that does not depend on
+the action cannot change a comparison between actions. The same fact appears in
+three different places in this material.
+
+</Derivation>
+
+<Derivation title="Why no cycle can be made profitable">
+
+Sum the shaping term along a trajectory $s_0, s_1, \ldots, s_T$ with the
+appropriate discounting:
+
+$$
+\sum_{t=0}^{T-1}\gamma^t\Big(\gamma\Phi(s_{t+1}) - \Phi(s_t)\Big)
+= \sum_{t=0}^{T-1}\Big(\gamma^{t+1}\Phi(s_{t+1}) - \gamma^t\Phi(s_t)\Big)
+= \gamma^T\Phi(s_T) - \Phi(s_0)
+$$
+
+Every intermediate term cancels — the telescoping — leaving only the endpoints.
+
+**For a closed cycle**, $s_T = s_0$, so the total shaping reward is
+
+$$
+\big(\gamma^T - 1\big)\Phi(s_0) \;\le\; 0 \quad\text{when } \Phi(s_0) \ge 0
+$$
+
+and in general it is bounded rather than unbounded. Compare the naive bonus,
+where each traversal of a loop adds a fixed positive amount with nothing
+cancelling it, so the total grows without limit.
+
+**This is why the form is the only safe one.** Any $F$ that does not telescope
+leaves a residual per cycle, and a residual per cycle is a reward for cycling.
+
+</Derivation>
+
+<KeyIdea>
+The practical consequence is a strong one: the guarantee holds for *any* $\Phi$,
+so you can encode a heuristic that is completely wrong and still not change the
+task. A bad potential slows learning; it cannot make the optimal behaviour
+different. Very few practical techniques come with an unconditional guarantee,
+and this makes "is my shaping potential-based?" a question worth asking before
+adding any bonus at all.
+</KeyIdea>
+
+## The scale nobody thinks about
+
+The optimal policy is invariant under $r \mapsto cr$ for $c > 0$ — which is true,
+and is why people conclude the scale does not matter. Everything downstream is
+not invariant.
+
+$$
+|V^\pi(s)| \le \frac{R_{\max}}{1-\gamma}
+$$
+
+<Warning>
+At $\gamma = 0.99$ that factor is 100. A reward of order 100 gives value targets
+of order $10^4$, so a critic initialised near zero spends a long time reaching the
+right order of magnitude before it can start being accurate — and a learning rate
+tuned at one reward scale is wrong at another.
+
+This is a common cause of a run that presents as an optimiser problem. Normalise
+the returns, or the value targets, and the symptom disappears. It is the same
+reasoning that makes advantage normalisation worth having, one level down.
+</Warning>
+
+## When is a proxy safe to optimise?
+
+Let $r^\star$ be what you want and $\tilde r$ the proxy you can compute. The
+question is not whether they are equal but *where* they agree.
+
+$$
+\pi^\star = \arg\max_\pi J_{r^\star}(\pi),
+\qquad
+\tilde\pi = \arg\max_\pi J_{\tilde r}(\pi)
+$$
+
+<Derivation title="Why capability makes misspecification worse">
+
+Suppose the proxy is accurate on a set of behaviours $\mathcal{B}$ — the ones you
+observed while validating it:
+
+$$
+\big|J_{\tilde r}(\pi) - J_{r^\star}(\pi)\big| \le \epsilon
+\qquad\text{for } \pi \in \mathcal{B}
+$$
+
+and unconstrained outside $\mathcal{B}$.
+
+**A weak optimiser stays inside $\mathcal{B}$.** It cannot find behaviours far
+from what you observed, so the proxy's error stays bounded and optimising it
+approximately optimises the true objective. This is why the proxy looked fine.
+
+**A strong optimiser leaves $\mathcal{B}$.** Maximising $\tilde r$ over *all*
+policies actively seeks the region where $\tilde r$ is largest, which — since
+$\tilde r$ is unconstrained outside $\mathcal{B}$ — is exactly where the two
+diverge most.
+
+$$
+\tilde\pi = \arg\max_\pi J_{\tilde r}(\pi)
+\quad\text{is drawn toward}\quad
+\arg\max_\pi \big[J_{r^\star}(\pi) + \text{error}(\pi)\big]
+$$
+
+so the optimiser is partly maximising the *error*.
+
+**The inversion.** $J_{r^\star}(\tilde\pi)$ can decrease as the optimiser
+improves, while $J_{\tilde r}(\tilde\pi)$ rises. Reported reward goes up and
+actual performance goes down.
+
+**Why this is structurally uncomfortable.** Your validation covers a region that
+the thing being validated is actively trying to leave, so the usual defence —
+test it and see — does not extend to a stronger version of the same system.
+
+</Derivation>
+
+<Steps>
+<Step title="Track the true objective separately">
+If you optimise a proxy, measure what you care about on a held-out basis.
+Divergence between the two curves is the only visible signal that the proxy has
+been found out, and it is invisible if you plot only the training reward.
+</Step>
+
+<Step title="Prefer sparse-and-true over dense-and-approximate">
+A sparse reward for genuine task completion cannot be gamed the way a dense proxy
+can. It converts a specification problem into an exploration problem, which has
+its own tools — demonstrations, curricula, hindsight relabelling — and those are
+better understood.
+</Step>
+
+<Step title="Constrain rather than penalise, where you can">
+A penalty term is another proxy and can be traded against the main reward. A hard
+constraint enforced outside the objective — the safety-filter pattern — cannot
+be, which is why anything that must never happen belongs there rather than in the
+reward.
+</Step>
+</Steps>

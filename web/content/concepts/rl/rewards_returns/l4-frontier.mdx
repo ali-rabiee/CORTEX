@@ -1,0 +1,188 @@
+---
+concept: rewards_returns
+level: 4
+status: final
+recall:
+  prompt: "What has been established about reward specification, and what are the routes around designing one by hand?"
+  keyPoints:
+    - "Ng, Harada and Russell (1999) proved potential-based shaping preserves the optimal policy and is the only form that does — a rare unconditional guarantee in practice."
+    - "Amodei et al. (2016) named the failure modes and made them discussable: reward hacking, negative side effects, safe exploration."
+    - "Pan et al. (2022) showed misspecification can get *worse* with capability — the proxy and the true objective diverge outside the region a weak agent explores."
+    - "The routes around hand-designed reward are learning it from preferences or demonstrations — which replaces a specification problem with a different one rather than removing it."
+papers:
+  - key: ng1999shaping
+    title: "Policy Invariance Under Reward Transformations: Theory and Application to Reward Shaping"
+    authors: "Andrew Y. Ng, Daishi Harada, Stuart Russell"
+    venue: ICML
+    year: 1999
+    takeaway: "Proves that shaping of the form $\\gamma\\Phi(s') - \\Phi(s)$ leaves the optimal policy unchanged for any potential $\\Phi$, and that it is the only form with that property — turning shaping from a heuristic into a technique with a guarantee."
+  - key: amodei2016concrete
+    title: "Concrete Problems in AI Safety"
+    authors: "Dario Amodei, Chris Olah, Jacob Steinhardt, Paul Christiano, John Schulman, Dan Mané"
+    year: 2016
+    arxiv: "1606.06565"
+    takeaway: "Names and separates the failure modes of objective specification — reward hacking, negative side effects, scalable oversight, safe exploration — providing the vocabulary that lets a practitioner say which failure they are looking at."
+  - key: leike2018rewardmodeling
+    title: "Scalable agent alignment via reward modeling: a research direction"
+    authors: "Jan Leike, David Krueger, Tom Everitt, Miljan Martic, Vishal Maini, Shane Legg"
+    year: 2018
+    arxiv: "1811.07871"
+    takeaway: "Proposes learning the reward from human feedback rather than writing it, and is explicit that this moves the specification problem into the feedback process rather than eliminating it."
+  - key: pan2022misspecification
+    title: "The Effects of Reward Misspecification: Mapping and Mitigating Misaligned Models"
+    authors: "Alexander Pan, Kush Bhatia, Jacob Steinhardt"
+    venue: ICLR
+    year: 2022
+    arxiv: "2201.03544"
+    takeaway: "Studies how misspecification interacts with capability, finding regimes where a more capable agent scores higher on the proxy and worse on the true objective — sometimes as a sharp phase transition rather than a gradual drift."
+check:
+  - id: rr_l4_c1
+    prompt: "The shaping theorem says potential-based shaping is the *only* form preserving the optimal policy. Why does uniqueness matter practically?"
+    options:
+      - "It does not; the existence result is what you use"
+      - "Because it converts 'is my shaping safe?' into a question with a yes-or-no answer: any bonus not of that form changes the task, whether or not the designer intended it — so there is no need to reason case by case about whether a particular heuristic is harmless"
+      - "Because it proves other shaping methods are useless"
+      - "Because it implies the potential must be the value function"
+    answer: 1
+    explanation: "Existence tells you a safe option is available; uniqueness tells you everything else is unsafe. That is what makes it a usable rule rather than one technique among several — you do not have to analyse each proposed bonus, because if it does not telescope it modifies the objective. And it is a strong claim: 'this bonus is small so it probably will not matter' is exactly the reasoning the theorem rules out, since a small per-cycle residual is still unbounded over enough cycles."
+  - id: rr_l4_c2
+    prompt: "Pan et al. found misspecification effects that appear suddenly rather than gradually. Why is that worse than a gradual drift?"
+    options:
+      - "It is not; the magnitude is what matters"
+      - "Because a gradual degradation is visible in monitoring and can be caught before deployment, while a phase transition means a model that behaved acceptably at one capability level can behave qualitatively differently at the next — so testing the smaller version provides no assurance about the larger one"
+      - "Because sudden changes are harder to reproduce"
+      - "Because it implies the reward function is discontinuous"
+    answer: 1
+    explanation: "The practical question about any failure mode is whether your testing regime would catch it, and a sharp transition is designed to defeat exactly that. Gradual drift shows up as a trend you can extrapolate and act on. A transition means the proxy's exploit becomes reachable only once the optimiser is strong enough to find it, so all your evidence comes from the regime before the exploit existed. It is the same structural problem as validating on a distribution the system is trying to leave."
+  - id: rr_l4_c3
+    prompt: "Learning the reward from human preferences is often presented as solving reward specification. What does it actually do?"
+    options:
+      - "It solves it — humans know what they want"
+      - "It relocates the problem: the learned reward is now a model fitted to a finite set of comparisons, so it is a proxy with its own out-of-distribution behaviour — and optimising it hard finds where it diverges from the preferences it was fitted to"
+      - "It makes the reward differentiable"
+      - "It removes the need for exploration"
+    answer: 1
+    explanation: "Every reward you did not derive from ground truth is a proxy, including a learned one, and the argument about capability finding the divergence applies unchanged. A preference model is fitted on comparisons of behaviours a particular policy generated; optimising against it drives the policy outside that distribution, where the model is extrapolating. That is precisely why the practice includes a penalty keeping the policy near the one that generated the training comparisons — an explicit acknowledgement that the learned reward is only valid locally."
+---
+
+## A guarantee, which is rare
+
+<PaperCard refKey="ng1999shaping" />
+
+Shaping had been folklore: add intermediate rewards to help learning, and hope
+you have not changed the problem. This paper made it a technique.
+
+$$
+F(s,a,s') = \gamma\,\Phi(s') - \Phi(s)
+$$
+
+leaves the optimal policy unchanged for *any* $\Phi$ — and no other form does.
+
+<KeyIdea>
+The uniqueness half is what makes it usable. Existence says a safe option is
+available; uniqueness says everything else is unsafe, so you never have to reason
+case by case about whether a particular heuristic bonus is harmless. "It's only a
+small bonus, it probably won't matter" is exactly the reasoning the theorem rules
+out — a small residual per cycle is still unbounded over enough cycles.
+</KeyIdea>
+
+It is also unusual in that the guarantee is unconditional. A wrong potential
+slows learning and cannot change what the optimal behaviour is, so encoding a
+heuristic you are unsure about carries no correctness risk.
+
+## Naming the failures
+
+<PaperCard refKey="amodei2016concrete" />
+
+Before this, "the agent did something weird" was a single undifferentiated
+category. Separating it into reward hacking, negative side effects, scalable
+oversight, and safe exploration is what lets a practitioner say which failure
+they are looking at — and different failures have different fixes.
+
+<Steps>
+<Step title="Reward hacking">
+The objective is satisfied in an unintended way. Fixed by changing what the
+reward measures, not by penalising the specific exploit — which usually just
+moves it.
+</Step>
+
+<Step title="Negative side effects">
+The agent achieves the objective and damages something the reward does not
+mention. Not a hacking problem: the reward is silent rather than wrong, and
+adding a penalty for every possible side effect does not scale.
+</Step>
+
+<Step title="Safe exploration">
+The behaviour that must be avoided must also be *learned about*. This is why
+anything catastrophic belongs in a constraint layer rather than in the reward —
+a penalty has to be experienced to be learned from.
+</Step>
+</Steps>
+
+## Capability makes it worse
+
+<PaperCard refKey="pan2022misspecification" />
+
+The finding that changes how you should think about validation: a more capable
+agent can score *higher* on the proxy and *worse* on the true objective.
+
+<Warning>
+The mechanism is that the proxy was validated over the behaviours a weaker agent
+produced, and says nothing outside that region. A stronger optimiser explores
+further and finds where the two diverge — because maximising the proxy is partly
+maximising its error.
+
+Worse, some of these appear as **phase transitions** rather than gradual drift. A
+gradual degradation is visible in monitoring and can be caught; a transition
+means the exploit becomes reachable only once the optimiser is strong enough,
+so all your evidence comes from the regime before it existed. Testing a smaller
+model provides no assurance about a larger one.
+</Warning>
+
+## Not writing the reward at all
+
+<PaperCard refKey="leike2018rewardmodeling" />
+
+If specifying a reward is the problem, learn it — from human comparisons of
+behaviours, or from demonstrations.
+
+<KeyIdea>
+This relocates the problem rather than removing it, and the paper is explicit
+about that. A learned reward is a model fitted to a finite set of comparisons, so
+it is a proxy with its own out-of-distribution behaviour — and the argument about
+capability finding the divergence applies unchanged.
+
+The tell is in the practice: methods that optimise a learned reward almost always
+include a penalty keeping the policy near the one that generated the training
+comparisons. That penalty is an explicit acknowledgement that the learned reward
+is only valid locally, which is the same structure as a trust region and for the
+same reason.
+</KeyIdea>
+
+## What this means for a robot
+
+<Steps>
+<Step title="Sparse and true beats dense and approximate">
+A sparse reward for genuine completion cannot be gamed the way a dense proxy can.
+It converts a specification problem into an exploration problem, and exploration
+has better-understood tools — demonstrations, curricula, hindsight relabelling.
+</Step>
+
+<Step title="Shape only potential-based">
+Four lines, an unconditional guarantee, and it removes a whole failure class.
+There is little reason to use any other form.
+</Step>
+
+<Step title="Constraints outside the reward">
+A penalty is tradeable against the main objective by construction — an agent will
+accept it if the reward is large enough. Anything that must never happen belongs
+in a layer that cannot be traded against, which is the safety-filter argument
+arriving from a different direction.
+</Step>
+
+<Step title="Measure the true objective independently">
+Reward hacking makes the optimised curve go up. The only visible signal is a
+separate measurement of what you wanted, judged by something the agent is not
+optimising.
+</Step>
+</Steps>

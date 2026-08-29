@@ -1,0 +1,208 @@
+---
+concept: rewards_returns
+level: 3
+status: final
+recall:
+  prompt: "Implement potential-based shaping and the instrumentation that catches reward hacking. What do you log?"
+  keyPoints:
+    - "Shaping is four lines and the $\\gamma$ on $\\Phi(s')$ is load-bearing — omit it and the telescoping fails, taking the guarantee with it."
+    - "Handle terminal states explicitly: the bootstrap $\\Phi(s')$ must be zero at a true terminal, or the shaping leaks reward at episode boundaries."
+    - "Log the *unshaped* return alongside the shaped one, and the true objective separately from the proxy. Divergence is the only visible sign of hacking."
+    - "Log the per-component reward breakdown. A composite reward that is 90% one term is a single-objective problem wearing a multi-objective costume."
+check:
+  - id: rr_l3_c1
+    prompt: "Why must $\\Phi(s')$ be forced to zero at a true terminal state?"
+    options:
+      - "To avoid a division by zero"
+      - "Because the episode ends there, so there is no future for the potential to be redeemed against — leaving $\\Phi(s')$ non-zero gives a one-off bonus or penalty at termination that does not telescope, which breaks the invariance"
+      - "Because terminal states have no actions"
+      - "It does not matter; terminals are handled by the discount"
+    answer: 1
+    explanation: "The telescoping argument works because each $+\\gamma\\Phi(s_{t+1})$ is cancelled by the $-\\Phi(s_{t+1})$ of the following step. At a terminal there is no following step, so the final $\\gamma\\Phi(s_T)$ is uncancelled and becomes a real change to the return — an agent can then be rewarded or penalised purely for how it ends the episode. It is the same class of bug as forgetting to zero the bootstrap in a GAE computation, and it is silent."
+  - id: rr_l3_c2
+    prompt: "What is the single most useful thing to log when you suspect reward hacking?"
+    options:
+      - "The gradient norm"
+      - "The true objective measured separately from the proxy being optimised — hacking presents as the two curves diverging, and it is completely invisible if you only track the reward being maximised"
+      - "The entropy"
+      - "The value function loss"
+    answer: 1
+    explanation: "By construction the optimised reward goes *up* when the agent hacks it — that is what hacking means — so the training curve looks like success. The only signal is an independent measurement of what you actually wanted: task completion judged by a rule the agent is not optimising, or a human looking at rollouts. Entropy and gradient norms describe the optimisation and say nothing about whether the objective is the right one."
+  - id: rr_l3_c3
+    prompt: "Your composite reward has five terms and the agent behaves oddly. What do you check first?"
+    options:
+      - "Whether the learning rate is too high"
+      - "The per-component contribution to the total return — a composite where one term supplies 90% of the magnitude is effectively a single-objective problem, and the terms you thought were shaping the behaviour are not"
+      - "The discount factor"
+      - "Whether the terms are differentiable"
+    answer: 1
+    explanation: "Weighted sums of rewards are chosen by intuition about relative importance and the *realised* contributions are rarely checked, so a term with a large natural magnitude can dominate everything regardless of its coefficient. Logging each term's mean absolute contribution takes one line and routinely reveals that the carefully-tuned balance is a single term plus noise. It also tells you which coefficient to change, which staring at total reward does not."
+---
+
+## Shaping, with the details that matter
+
+<CodeWalk title="Potential-based shaping">
+
+```python title="shaping.py"
+def potential_shaping(phi, gamma):
+    """F(s, a, s') = gamma * Phi(s') - Phi(s).
+
+    Two details carry the guarantee:
+      - the gamma on Phi(s') is what makes consecutive terms cancel exactly;
+        drop it and the telescoping fails and so does the invariance
+      - Phi(s') must be ZERO at a true terminal, or the final term is
+        uncancelled and becomes a real change to the return
+    """
+    def shape(s, a, s_next, done):
+        phi_next = 0.0 if done else phi(s_next)
+        return gamma * phi_next - phi(s)
+    return shape
+
+
+# Example: a distance-to-goal potential. Note it can be arbitrarily wrong
+# without changing the optimal policy — only the learning speed.
+def distance_potential(goal, scale=1.0):
+    return lambda s: -scale * np.linalg.norm(s[:3] - goal)
+```
+
+</CodeWalk>
+
+<Warning>
+A time-limit truncation is **not** a terminal. If the episode was cut off rather
+than ending, the future exists and $\Phi(s')$ should be evaluated normally —
+zeroing it there tells the agent the world stops at the step limit. This is the
+same termination-versus-truncation distinction that appears in advantage
+estimation, and it is wrong in the same silent way.
+</Warning>
+
+## Instrument the reward, not just the optimisation
+
+<CodeWalk title="What to log">
+
+```python title="reward_logging.py"
+class RewardTracker:
+    """Three things, and the second is the one that matters.
+
+    1. Per-component contributions — a composite reward where one term is 90%
+       of the magnitude is a single-objective problem in disguise.
+    2. The TRUE objective, measured independently of the proxy. Hacking makes
+       the optimised reward go up, so it is invisible in the training curve.
+    3. The unshaped return, so you can tell whether progress is real or is
+       the shaping term being collected.
+    """
+
+    def __init__(self, component_names):
+        self.components = {n: [] for n in component_names}
+        self.shaped, self.unshaped, self.true_objective = [], [], []
+
+    def log_step(self, components, shaping_term):
+        for name, v in components.items():
+            self.components[name].append(v)
+        base = sum(components.values())
+        self.unshaped.append(base)
+        self.shaped.append(base + shaping_term)
+
+    def log_episode(self, success_by_independent_rule):
+        # Judged by something the agent is NOT optimising: a scripted check,
+        # a held-out detector, a human watching rollouts.
+        self.true_objective.append(float(success_by_independent_rule))
+
+    def report(self):
+        total = sum(abs(np.mean(v)) for v in self.components.values()) + 1e-9
+        return {
+            "share": {n: abs(np.mean(v)) / total for n, v in self.components.items()},
+            "shaped_return": float(np.sum(self.shaped)),
+            "unshaped_return": float(np.sum(self.unshaped)),
+            "true_success_rate": float(np.mean(self.true_objective)),
+        }
+```
+
+</CodeWalk>
+
+<KeyIdea>
+Plot `unshaped_return` and `true_success_rate` on the same axes. When they
+diverge — reward rising while success falls — the agent has found something. That
+divergence is the entire diagnostic, and it does not exist if you only track the
+quantity being maximised.
+</KeyIdea>
+
+## Normalising the scale
+
+```python title="normalize.py"
+class ReturnNormalizer:
+    """The optimal policy is invariant to r -> c*r, and nothing downstream is.
+
+    At gamma = 0.99 values live on a scale of 100x the per-step reward, so an
+    unnormalised reward of order 100 gives targets of order 1e4 — and a critic
+    initialised near zero spends a long time just reaching the right order of
+    magnitude. This presents as an optimiser problem and is not one.
+    """
+
+    def __init__(self, gamma, eps=1e-8):
+        self.gamma, self.eps = gamma, eps
+        self.ret = 0.0
+        self.mean, self.var, self.count = 0.0, 1.0, 1e-4
+
+    def __call__(self, reward, done):
+        self.ret = reward + self.gamma * self.ret * (0.0 if done else 1.0)
+        # Track the variance of the RETURN, not of the per-step reward: the
+        # return is what the critic has to fit.
+        self.count += 1
+        delta = self.ret - self.mean
+        self.mean += delta / self.count
+        self.var += (delta * (self.ret - self.mean) - self.var) / self.count
+        return reward / (self.var ** 0.5 + self.eps)
+```
+
+## Auditing a composite reward
+
+```python title="audit.py"
+def component_audit(episodes):
+    """Weighted sums of reward terms are chosen by intuition about relative
+    importance, and the REALISED contributions are almost never checked.
+
+    Routinely reveals that a carefully-tuned five-term balance is one term
+    plus noise — and it tells you which coefficient to change, which staring
+    at the total does not.
+    """
+    rows = {}
+    for name in episodes[0].components:
+        vals = np.array([np.sum(ep.components[name]) for ep in episodes])
+        rows[name] = {
+            "mean_per_episode": float(vals.mean()),
+            "share_of_magnitude": None,      # filled below
+            "std": float(vals.std()),
+            # A term that never varies is not shaping anything.
+            "is_constant": bool(vals.std() < 1e-6),
+        }
+    total = sum(abs(r["mean_per_episode"]) for r in rows.values()) + 1e-9
+    for r in rows.values():
+        r["share_of_magnitude"] = abs(r["mean_per_episode"]) / total
+    return rows
+```
+
+## The habit that catches the most
+
+<Steps>
+<Step title="Watch the rollouts">
+Not the curves. Reward hacking is almost always visually obvious and almost
+never visible in a plot of the quantity being maximised. Ten minutes of video
+beats a day of metric analysis for this specific failure.
+</Step>
+
+<Step title="Read absurd behaviour as a bug report on the specification">
+A policy doing something ridiculous that scores well has found a real gap.
+Penalising that particular behaviour usually moves the exploit rather than
+removing it — the productive fix is upstream, in what the reward is measuring.
+</Step>
+
+<Step title="Check every bonus is potential-based">
+It is a yes-or-no question with a four-line answer, and it removes an entire
+class of failure at no cost.
+</Step>
+
+<Step title="Put must-never-happen constraints outside the reward">
+A penalty is tradeable against the main objective by construction. A hard
+constraint enforced in a separate layer is not.
+</Step>
+</Steps>

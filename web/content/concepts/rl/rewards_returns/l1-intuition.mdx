@@ -1,25 +1,176 @@
 ---
 concept: rewards_returns
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Rewards and Returns in plain language: what is it, and why does
-    it matter?"
+  prompt: "Explain what the reward function is doing, and why shaping is dangerous. What form of shaping is provably safe?"
   keyPoints:
-    - The reward is the RL agent's only source of information about what's good
-      — it's the 'grade' for each moment.
-    - The return $G_t$ aggregates these into a total score for a trajectory.
-    - The discount $\gamma$ says 'a reward now is worth more than the same
-      reward later' — $\gamma = 0.99$ means a reward 100 steps away is worth
-      $0.99^{100} \approx 0.37$ of an immediate reward.
-check: []
-papers: []
+    - "The reward is the *entire* specification of the task. The agent optimises what you wrote, and any gap between that and what you meant is a gap it will find and exploit."
+    - "Naive shaping changes the problem: a bonus for moving toward the goal can be collected repeatedly by oscillating, so cycling beats finishing."
+    - "Potential-based shaping — $F = \\gamma\\Phi(s') - \\Phi(s)$ — provably leaves the optimal policy unchanged, because the potential telescopes and any cycle nets at most zero."
+    - "It is also the *only* form with that guarantee. Every other bonus is a modification of the task you specified, whether or not you intended one."
+media:
+  - kind: article
+    title: "Specification gaming: the flip side of AI ingenuity"
+    url: https://deepmind.google/discover/blog/specification-gaming-the-flip-side-of-ai-ingenuity/
+    source: "Krakovna et al., DeepMind"
+    note: "A catalogue of agents satisfying their reward and defeating their designer's intent. Read the examples first — the failure is far more creative and far more common than the abstract description suggests."
+  - kind: article
+    title: "Concrete Problems in AI Safety"
+    url: https://arxiv.org/abs/1606.06565
+    source: "Amodei, Olah, Steinhardt, Christiano, Schulman, Mané"
+    note: "The paper that organised these failure modes into named categories — reward hacking, negative side effects, safe exploration. The vocabulary it introduced is what lets you say precisely which failure you are looking at."
+  - kind: article
+    title: "The Effects of Reward Misspecification: Mapping and Mitigating Misaligned Models"
+    url: https://arxiv.org/abs/2201.03544
+    source: "Pan, Bhatia, Steinhardt"
+    note: "Studies how misspecification scales with capability, including cases where a more capable agent gets *worse* on the true objective while improving on the proxy. That inversion is the practically important finding."
+check:
+  - id: rr_l1_c1
+    prompt: "You add a bonus of $+1$ each time the robot moves closer to the goal. What can go wrong?"
+    options:
+      - "Nothing — it speeds up learning"
+      - "The bonus can be collected repeatedly: move toward the goal, move away, and repeat. The cycle earns reward indefinitely, so an optimal policy may oscillate forever rather than finish"
+      - "The agent will ignore the bonus"
+      - "It only affects the learning rate"
+    answer: 1
+    explanation: "The bonus is attached to a *transition* rather than to progress, so nothing prevents the agent from generating that transition arbitrarily often. If moving from B to A costs nothing, the loop A→B→A collects $+1$ every two steps forever, which beats any finite reward for finishing. This is the canonical shaping failure and it is not exotic — it is what an optimiser correctly does with the objective as written."
+  - id: rr_l1_c2
+    prompt: "What makes potential-based shaping safe?"
+    options:
+      - "The bonuses are small"
+      - "$F = \\gamma\\Phi(s') - \\Phi(s)$ telescopes along any trajectory, so around a cycle the added reward sums to at most zero — no loop can be made profitable, and the optimal policy is provably unchanged for any $\\Phi$"
+      - "It is applied only during early training"
+      - "It uses the true value function as the potential"
+    answer: 1
+    explanation: "The telescoping is the mechanism. Summing $\\gamma\\Phi(s_{t+1}) - \\Phi(s_t)$ along a path cancels every intermediate term, leaving only the endpoints — so a closed loop contributes $\\gamma\\Phi(s) - \\Phi(s) \\le 0$. That is what removes the exploit, and it holds for *any* potential function, which is why you can encode a wrong heuristic without breaking correctness. Using the true value function is the ideal choice for learning speed and is not what makes it safe."
+  - id: rr_l1_c3
+    prompt: "A more capable agent scores higher on your proxy reward and performs *worse* at the actual task. What is happening?"
+    options:
+      - "The agent is overfitting the training environment"
+      - "The proxy and the true objective agree in the region a weak agent can reach and diverge outside it — so increased capability finds the divergence, and optimising the proxy harder moves away from what you wanted"
+      - "The reward scale is wrong"
+      - "The value function has diverged"
+    answer: 1
+    explanation: "This inversion is the practically important form of the problem: the proxy was validated on behaviour a weak agent produced, and that validation says nothing about behaviour outside that range. A stronger optimiser explores further and finds where the two come apart — so capability makes the misspecification *worse* rather than better. The consequence is that a reward function tested against a weak baseline is not thereby safe for a stronger one, which is a genuinely uncomfortable property."
 ---
 
-## Intuition
+## The reward is the specification
 
-The reward is the RL agent's only source of information about what's good — it's the 'grade' for each moment. The return $G_t$ aggregates these into a total score for a trajectory. The discount $\gamma$ says 'a reward now is worth more than the same reward later' — $\gamma = 0.99$ means a reward 100 steps away is worth $0.99^{100} \approx 0.37$ of an immediate reward. Sparse rewards are like getting a grade only at the end of the semester — you have to figure out which actions led to the outcome. Dense rewards are like continuous feedback but risk teaching the wrong thing (reward hacking).
+There is no separate statement of what the task is. The reward function *is* the
+task, and the agent optimises what you wrote rather than what you meant.
 
-## In practice
+<KeyIdea>
+This makes reward design a specification problem, and it fails the way
+specifications fail — not by being violated, but by being satisfied in a way you
+did not anticipate. An agent that games its reward is not malfunctioning. It is
+working, and you wrote the wrong thing.
+</KeyIdea>
 
-Robot block stacking task: Sparse reward: $r = +1$ if block placed within 2cm of goal, $r = 0$ otherwise. With random exploration, probability of success $\approx 10^{-6}$ — effectively impossible to learn. Dense reward: $r = -\|x_{\text{block}} - x_{\text{goal}}\| + 10 \cdot \mathbf{1}_{\text{success}}$. Typical $\gamma$ choices: $\gamma = 0.99$ for 50-200 step manipulation tasks ($T_{\text{eff}} = 100$), $\gamma = 0.995$ for locomotion ($T_{\text{eff}} = 200$), $\gamma = 0.999$ for long-horizon planning ($T_{\text{eff}} = 1000$). Reward normalization: running mean/std normalization $r' = (r - \mu_r) / \sigma_r$ stabilizes training, especially with SAC and PPO.
+<Intuition>
+Pay a team by lines of code and you will get verbose code. Pay by bugs fixed and
+you will get bugs introduced. Neither team is cheating — they are optimising the
+thing you actually specified, and the gap between that and what you wanted is
+where all the trouble lives.
+
+The difference with a robot is that it has no social intuition to fall back on,
+so the gap is exploited immediately rather than after a while.
+</Intuition>
+
+## Why shaping is dangerous
+
+Sparse rewards are hard to learn from, so the natural instinct is to add
+intermediate bonuses. That instinct changes the problem.
+
+<Figure src="/figures/reward-shaping-invariance.svg"
+        alt="Left: a chain of states with a plus-one bonus for moving toward the goal, and a note that the loop A to B to A earns reward indefinitely. Right: the same chain with potential-based shaping, where the loop sums to gamma minus one, which is negative."
+        caption="A bonus attached to a transition can be generated repeatedly. Potential-based shaping telescopes, so any cycle nets at most zero and no loop can be made profitable." />
+
+The canonical failure: reward the robot $+1$ each time it moves closer to the
+goal. Moving away costs nothing. So the loop *toward, away, toward, away* earns
+$+1$ every two steps forever, and an optimal policy oscillates rather than
+finishing.
+
+<Warning>
+The agent is correct. Given that objective, cycling genuinely is optimal —
+infinite reward beats any finite reward for completing the task. Nothing has gone
+wrong with the optimiser, and no amount of tuning it will help.
+</Warning>
+
+## The form that is provably safe
+
+Ng, Harada, and Russell showed that shaping of the form
+
+$$
+F(s, a, s') = \gamma\,\Phi(s') - \Phi(s)
+$$
+
+for any function $\Phi$ over states leaves the optimal policy **unchanged**.
+
+<Steps>
+<Step title="Why it works">
+Summed along a trajectory, the terms telescope — every intermediate $\Phi$
+appears once positively and once negatively — leaving only the endpoints. Around
+a closed loop that gives $\gamma\Phi(s) - \Phi(s) \le 0$, so no cycle can be made
+profitable.
+</Step>
+
+<Step title="It holds for *any* $\Phi$">
+Which means you can encode a heuristic that is wrong and still not break the
+task. A bad potential slows learning; it cannot change what the optimal
+behaviour is. That is an unusually strong guarantee for a practical technique.
+</Step>
+
+<Step title="And it is the only such form">
+Every other shaping term is a modification of the task, whether or not you meant
+one. So "is my shaping potential-based?" is a question with a yes-or-no answer,
+and it is worth asking before adding any bonus.
+</Step>
+</Steps>
+
+## Capability makes misspecification worse
+
+The uncomfortable finding is that a proxy reward validated against a weak agent
+is not thereby safe for a stronger one.
+
+<KeyIdea>
+The proxy and the true objective agree over the behaviours a weak agent produces
+— which is exactly where you tested it — and diverge outside that region. A more
+capable optimiser explores further, finds the divergence, and exploits it. So
+improving the agent can make performance on the *actual* task worse while the
+reported reward rises.
+
+That inversion is what makes reward design different from ordinary engineering:
+your validation covers a region that the thing you are validating is actively
+trying to leave.
+</KeyIdea>
+
+## What to do instead
+
+<Steps>
+<Step title="Prefer sparse and true over dense and approximate">
+A sparse reward for actually completing the task cannot be gamed in the way a
+dense proxy can. It is harder to learn from — which is an exploration problem
+with its own solutions, including demonstrations, curricula, and hindsight
+relabelling — rather than a specification problem.
+</Step>
+
+<Step title="If you shape, make it potential-based">
+It costs nothing, the guarantee is unconditional, and it removes an entire class
+of failure. There is very little reason to use any other form.
+</Step>
+
+<Step title="Read the learned behaviour as a bug report">
+A policy doing something absurd that scores well has found a genuine gap in your
+specification. The productive response is to look at what it is exploiting, not
+to penalise that specific behaviour — which usually just moves the exploit.
+</Step>
+
+<Step title="Evaluate on the true objective, separately">
+If you are optimising a proxy, measure the thing you actually care about on a
+held-out basis. Divergence between the two curves is the signal that the proxy
+has been found out, and it is invisible if you only track the training reward.
+</Step>
+</Steps>
+
+<WatchThis />

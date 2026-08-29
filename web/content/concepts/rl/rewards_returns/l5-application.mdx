@@ -1,24 +1,168 @@
 ---
 concept: rewards_returns
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Rewards and Returns fail in practice, and how would you present
-    it in an interview?
+  prompt: "Give your interview answer on reward design. What is the framing, and what is the one technique you would insist on?"
   keyPoints:
-    - "Reward misspecification: the agent optimizes the reward you gave, not the
-      reward you meant."
-    - "Classic example: reward for forward velocity causes a robot to fall
-      forward (high instantaneous velocity)."
-    - Sparse reward + high-dimensional action space = no learning signal.
-check: []
-papers: []
+    - "Frame the reward as the complete specification: the agent optimises what you wrote, and gaming it is the optimiser working correctly on a wrong statement."
+    - "Give the shaping theorem with the telescoping argument, and note the uniqueness half — every other bonus changes the task."
+    - "Explain why capability makes misspecification worse: the proxy was validated where a weak agent could reach, and a strong one leaves that region."
+    - "Insist on measuring the true objective separately, because hacking makes the optimised curve rise."
+interview:
+  answer: >-
+    The framing I'd start with is that the reward function is the complete
+    specification of the task — there's no separate statement of what you wanted,
+    so the agent optimises what you wrote. That means reward hacking isn't a
+    malfunction. The agent is working correctly and the specification was wrong,
+    and treating it as a bug in the optimiser sends you looking in the wrong
+    place. The concrete version people hit immediately is shaping. Sparse rewards
+    are hard to learn from, so the instinct is to add intermediate bonuses — say
+    plus one each time the robot moves closer to the goal. That changes the
+    problem: moving away costs nothing, so the loop toward-away-toward earns plus
+    one every two steps forever, and an optimal policy oscillates rather than
+    finishing. The agent is right; infinite reward beats any finite reward for
+    completing the task. The fix is the Ng, Harada and Russell result: shaping of
+    the form gamma times Phi of s-prime minus Phi of s leaves the optimal policy
+    unchanged for any potential function Phi. The mechanism is telescoping —
+    summed along a trajectory the intermediate potentials cancel and only the
+    endpoints survive, so a closed cycle contributes gamma-to-the-T minus one
+    times Phi, which is bounded rather than growing. No loop can be made
+    profitable. If you substitute it into the Bellman equation you find the
+    shaped optimal value is just V-star minus Phi — a state-dependent offset,
+    and since it doesn't depend on the action the argmax is unchanged. Which is
+    structurally the same reason a state-dependent baseline leaves a policy
+    gradient unbiased. What makes it a rule rather than one option is the
+    uniqueness half: that's the only form with the guarantee, so any other bonus
+    modifies the task whether or not you meant it to. And the thing I'd raise
+    that people find uncomfortable is that misspecification gets worse with
+    capability. Your proxy is accurate over the behaviours you validated it on,
+    which are the ones a weak agent produced, and it's unconstrained outside
+    that. A stronger optimiser explores further and finds the divergence —
+    maximising the proxy is partly maximising its error. So you can see the
+    reported reward rising while actual task performance falls, and testing a
+    smaller model gives you no assurance about a larger one.
+  followUps:
+    - q: "So how would you actually design a reward for a manipulation task?"
+      a: >-
+        Sparse and true for the thing I care about — did the object end up where
+        it should — because that can't be gamed the way a dense proxy can. That
+        turns it into an exploration problem rather than a specification problem,
+        and exploration has better tools: demonstrations to seed the policy,
+        hindsight relabelling if it's goal-conditioned, a curriculum. If I need
+        shaping on top I'd make it potential-based, with a distance-to-goal
+        potential, because it costs four lines and the guarantee is
+        unconditional — a wrong potential slows learning and can't change the
+        optimal behaviour. And anything that must never happen — exceeding a
+        force limit, entering a keep-out region — goes in a constraint layer
+        rather than as a penalty, because a penalty is tradeable against the
+        main reward by construction and a constraint isn't.
+    - q: "How would you know your agent is hacking the reward?"
+      a: >-
+        Not from the training curve, because by definition hacking makes the
+        optimised reward go up — that's what it is. So I'd log the true
+        objective separately, judged by something the agent isn't optimising: a
+        scripted success check, a held-out detector, or a person watching
+        rollouts. Divergence between those two curves is the entire diagnostic
+        and it doesn't exist if you only plot the reward. Honestly the highest
+        value thing is watching video of the rollouts, because reward hacking is
+        almost always visually obvious and almost never visible in a plot. And
+        I'd audit the components: log each term's share of the total magnitude,
+        because a five-term composite where one term is ninety percent of the
+        magnitude is a single-objective problem wearing a costume, and people
+        tune coefficients without ever checking the realised contributions.
+    - q: "Doesn't learning the reward from human preferences solve this?"
+      a: >-
+        It relocates it. A learned reward is a model fitted to a finite set of
+        comparisons, so it's a proxy with its own out-of-distribution behaviour,
+        and the capability argument applies unchanged — optimising it hard drives
+        the policy outside the distribution the comparisons came from, where the
+        model is extrapolating. The tell is in the practice: methods that
+        optimise a learned reward almost always add a penalty keeping the policy
+        close to the one that generated the training comparisons. That penalty is
+        an explicit admission that the learned reward is only valid locally,
+        and it's the same structure as a trust region for the same reason. It's
+        genuinely useful where writing the reward is infeasible, and it isn't a
+        dissolution of the problem.
+    - q: "Why does the shaping term need the gamma on Phi of s-prime?"
+      a: >-
+        Because the return discounts future rewards, and the gamma is what makes
+        consecutive terms cancel exactly rather than approximately. If you write
+        out the discounted sum of gamma-Phi-of-s-t-plus-one minus Phi-of-s-t,
+        the term at step t contributes gamma-to-the-t-plus-one times Phi of
+        s-t-plus-one, and that's precisely cancelled by the minus
+        gamma-to-the-t-plus-one Phi from the next step. Drop the gamma and the
+        cancellation is off by a factor, residuals accumulate, and the telescoping
+        — and therefore the whole guarantee — is gone. It's a small detail
+        carrying the entire theorem, and it's the kind of thing that gets
+        dropped when someone reimplements shaping from memory. The other one is
+        forcing Phi to zero at a true terminal, since there's no following step
+        to cancel the final term.
+  traps:
+    - "Treating reward hacking as an agent failure. The optimiser is working; the specification is wrong, and looking at the optimiser wastes the debugging time."
+    - "Adding a shaping bonus without checking it is potential-based. Any other form changes the task, and the uniqueness result makes that a yes-or-no question."
+    - "Assuming a proxy validated on a weaker agent is safe for a stronger one. The validation covers a region the optimiser is trying to leave."
+    - "Judging progress by the reward being optimised. Hacking makes that curve rise, so the true objective has to be measured independently."
+check:
+  - id: rr_l5_c1
+    prompt: "A colleague adds a small bonus for keeping the gripper near the object, arguing it is too small to matter. What is the objection?"
+    options:
+      - "The bonus should be larger to have an effect"
+      - "Size is not the issue: if the bonus is not potential-based it can be collected repeatedly, and a small per-cycle residual is unbounded over enough cycles — so 'too small to matter' is exactly the reasoning the uniqueness result rules out"
+      - "The bonus will slow learning"
+      - "It should be applied only at the end of the episode"
+    answer: 1
+    explanation: "The magnitude bounds the per-occurrence effect and not the total, because nothing stops the agent generating the qualifying transition arbitrarily often. A bonus of $0.01$ collected every two steps for a thousand steps is $5$, which can easily exceed a sparse task reward. Making it potential-based costs four lines and removes the question entirely — which is why uniqueness matters practically: it means you never have to judge whether a particular bonus is small enough to be safe."
+  - id: rr_l5_c2
+    prompt: "Your training reward is climbing steadily and the robot is completing fewer tasks than last week. What is the first hypothesis?"
+    options:
+      - "The evaluation is broken"
+      - "Reward hacking: the two curves diverging is exactly its signature, since the optimised quantity rises by construction. Watch rollouts and audit which reward component is supplying the increase"
+      - "The learning rate is too high"
+      - "The value function has diverged"
+    answer: 1
+    explanation: "The pattern — optimised reward up, true objective down — is close to diagnostic, because it is what hacking produces by definition and few other failures generate it. A diverging critic or a bad learning rate would degrade the reward too. The two productive next steps are watching video, since the exploit is usually visually obvious, and auditing the per-component reward contributions to see which term is supplying the gain, which tells you where the specification gap is."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Reward misspecification: the agent optimizes the reward you gave, not the reward you meant. Classic example: reward for forward velocity causes a robot to fall forward (high instantaneous velocity). Sparse reward + high-dimensional action space = no learning signal. Also: $\gamma$ too low truncates lookahead — agent ignores future consequences; $\gamma$ too close to 1 causes high variance in return estimates and can destabilize value function training (returns $G_t$ have variance proportional to $\frac{1}{(1-\gamma)^2}$). Fix: careful reward engineering with potential-based shaping, reward normalization, and always evaluate on the true task metric (not the shaped reward).
+<Steps>
+<Step title="Reward rising, true objective falling → hacking">
+Nearly diagnostic. Watch rollouts and audit which reward component is supplying
+the increase.
+</Step>
 
-## Interview-ready answer
+<Step title="Agent oscillates near the goal → non-telescoping shaping">
+A bonus being collected repeatedly. Check whether the shaping is potential-based;
+if not, make it so.
+</Step>
 
-The reward function is arguably the most critical design choice in applied RL. The return $G_t = \sum \gamma^k r_{t+k}$ defines the optimization objective. In robotics, I design rewards in layers: (1) sparse task completion bonus ($r_{\text{success}} = +10$), (2) potential-based shaping for guidance ($\gamma \Phi(s') - \Phi(s)$ with $\Phi = -\|x - x_{\text{goal}}\|$), (3) regularization penalties (action magnitude $-\|a\|^2$, jerk $-\|a_t - a_{t-1}\|^2$). The discount $\gamma$ controls the planning horizon $\frac{1}{1-\gamma}$ and must match the task timescale. Always evaluate final performance on the sparse task metric, never on the shaped reward. Reward normalization (running mean/std or fixed scaling) is essential for stable training across different reward scales.
+<Step title="Odd behaviour at episode boundaries → $\Phi$ not zeroed at terminals">
+The final shaping term is uncancelled and becomes a real reward for how the
+episode ends. And check that a time-limit truncation is not being treated as a
+terminal.
+</Step>
+
+<Step title="Tuning one coefficient changes nothing → one term dominates">
+Log each component's share of the total magnitude. A carefully balanced composite
+is often a single term plus noise.
+</Step>
+
+<Step title="Learns something absurd that scores well → read it as a bug report">
+Penalising the specific behaviour usually moves the exploit. The fix is upstream,
+in what the reward measures.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+Two things make this answer land. Framing reward hacking as the optimiser working
+correctly on a wrong specification — because that reframes it from a debugging
+problem into a design problem and tells you where to look. And giving the shaping
+theorem with its *uniqueness*, since that converts "is this bonus safe?" from a
+judgement call into a yes-or-no check. Adding that misspecification gets worse
+with capability, and that this means testing a smaller model provides no
+assurance about a larger one, is the part that signals you have thought about
+what your validation actually covers.
+</Warning>
