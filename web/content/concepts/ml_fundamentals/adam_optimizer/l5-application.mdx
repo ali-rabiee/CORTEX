@@ -1,24 +1,170 @@
 ---
 concept: adam_optimizer
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Adam Optimizer — Adaptive Learning Rates with Momentum fail in
-    practice, and how would you present it in an interview?
+  prompt: "Give your interview answer on Adam. What is the one-sentence characterisation, and what does it explain?"
   keyPoints:
-    - Adam can converge to sharp minima with poor generalization.
-    - The adaptive learning rate effectively reduces the learning rate for
-      frequently-updated parameters, which can be suboptimal.
-    - "Symptoms: training loss is very low but validation loss is high relative
-      to SGD+momentum on the same architecture."
-check: []
-papers: []
+    - "Say what the update is: $\\mu/\\sqrt{\\mu^2+\\sigma^2}$, a per-coordinate signal-to-noise ratio bounded in $[-1,1]$ — not a rescaled gradient."
+    - "Derive the two consequences: scale invariance per coordinate, and a learning rate that means a distance in parameter space and therefore transfers."
+    - "Give the bias-correction derivation and note it matters far more for $\\hat v$, since $\\beta_2 = 0.999$ leaves $v$ a hundredfold under-estimated at step 10."
+    - "Explain AdamW mechanically: L2 in the loss gets divided by $\\sqrt{\\hat v}$, so the busiest parameters are regularised least."
+interview:
+  answer: >-
+    The characterisation I'd lead with is that Adam's update isn't a rescaled
+    gradient — it's a signal-to-noise ratio. The first moment estimates the
+    gradient's mean and the second estimates its second moment, not its
+    variance, so the ratio m-hat over root v-hat converges to mu over root of mu
+    squared plus sigma squared. That's bounded in minus one to one, and you can
+    verify it numerically — it matches to three decimal places. Two things
+    follow and they explain almost everything about the optimiser. First,
+    per-coordinate scale invariance: multiply any coordinate's gradient by a
+    constant and both moments scale, one linearly and one quadratically, so the
+    ratio is unchanged. A consistent gradient of a thousandth and a consistent
+    gradient of a thousand both produce an update of exactly one. That means
+    layers whose gradients differ by orders of magnitude — normal in a deep
+    network — all get comparable steps with no per-layer tuning. Second, the
+    learning rate means something portable. In SGD the step is eta times the
+    gradient, so a good eta depends on how big the gradient happens to be, which
+    changes with the loss scale, the depth, and the layer. In Adam the update is
+    at most one, so eta is a distance to move in parameter space. That's why
+    three-times-ten-to-the-minus-four is a sensible starting point across wildly
+    different transformers, and why the same claim would be meaningless for SGD.
+    On the bias correction: the moments start at zero, so unrolling gives
+    expectation of m equal to one minus beta-one to the t times the true mean —
+    dividing by that is an exact correction. What's worth adding is that it
+    matters far more for v, because beta-two is 0.999. At step ten, one minus
+    beta-one to the ten is 0.65 and one minus beta-two to the ten is about 0.01,
+    so v is under-estimated a hundredfold, its square root tenfold, and an
+    uncorrected update is ten times too large. People usually patch that with a
+    warmup instead of noticing it's a bug. And AdamW: adding L2 to the loss puts
+    lambda-theta in the gradient, which then gets divided by root v-hat like
+    everything else — so coordinates with large gradients receive less decay,
+    meaning the parameters doing the most work are regularised the least. That
+    inverts the intent. Decoupling applies the decay to the parameters directly,
+    outside the adaptive scaling. Under plain SGD the two are equivalent up to a
+    factor of the learning rate, which is why nobody noticed for years.
+  followUps:
+    - q: "When would you use SGD with momentum instead?"
+      a: >-
+        When I'm chasing the last point of accuracy on a vision benchmark and
+        can afford the tuning, because there's a real and repeatedly observed
+        generalisation gap on some of those problems — well-tuned SGD with
+        momentum ends up in flatter or otherwise better-generalising solutions.
+        I'd be careful about how I state it, though: the effect is
+        problem-dependent, it mostly hasn't shown up for transformers on
+        language, and "well-tuned" is doing a lot of work, since SGD's learning
+        rate doesn't transfer the way Adam's does. So my default is AdamW and
+        my reason is robustness rather than a claim that it optimises better.
+        If someone tells me SGD generalises better, I'd want to know on which
+        problem and whether both were tuned equally hard.
+    - q: "Your model diverges in the first hundred steps. Walk me through it."
+      a: >-
+        First I'd look at update-to-parameter norm ratios per layer, because
+        that's scale-free, comparable across layers, and has a known healthy
+        range around ten to the minus three. Uniformly large says the learning
+        rate is too high; large in one layer localises it immediately. Then
+        specifically for early divergence I'd check the bias correction is
+        actually applied, since without it the first few hundred steps are
+        roughly ten times too large and that's exactly the window that fails.
+        Then epsilon against my precision — one-times-ten-to-the-minus-eight is
+        below the smallest normal fp16 number, so the guard silently vanishes
+        when a small v makes it necessary, which is why mixed-precision recipes
+        keep the optimiser state in fp32. And I'd check clipping is applied
+        after unscaling, because clipping a scaled gradient clips at the wrong
+        threshold and either never fires or always fires, neither of which
+        announces itself.
+    - q: "Why does Adam need so much memory, and what would you do about it?"
+      a: >-
+        Two extra tensors the size of the parameters — the two moments — so in
+        fp32 it's sixteen bytes per parameter counting the weight, the gradient,
+        and both moments. A seven-billion-parameter model is a hundred and
+        twelve gigabytes before a single activation, which doesn't fit on any
+        single accelerator. So sharding the optimiser state across devices is a
+        precondition rather than an optimisation. Beyond that there are two
+        directions. Factor the second moment into row and column statistics,
+        which is Adafactor, taking state from order n-times-m to order n-plus-m
+        per matrix — the approximation being that the second moment is roughly
+        rank one. Or drop it entirely and take the sign, which is what Lion
+        does, keeping only momentum. That Lion is competitive is itself
+        informative: Adam's update already tends to plus or minus one for
+        consistent gradients, so the second moment's main job may be producing
+        that boundedness rather than encoding curvature.
+    - q: "How do you know whether a bad run is the optimiser or the data?"
+      a: >-
+        Log Adam's own signal-to-noise quantity — the mean absolute value of
+        m-hat over root v-hat. It's exactly what the optimiser is computing and
+        it separates the two cases cleanly. If it's near one, the gradients are
+        consistent and Adam is taking full steps, so a problem is elsewhere. If
+        it's near zero, the gradients are mostly noise and Adam is correctly
+        refusing to move — and no learning rate fixes that. That points at
+        batch size, augmentation being too aggressive, label noise, or
+        something wrong with the data pipeline. I find that a much better first
+        question than "what learning rate should I try", because it tells you
+        whether the optimiser is even the right thing to be adjusting.
+  traps:
+    - "Describing Adam as 'momentum plus per-parameter learning rates' and stopping. That is true and omits the signal-to-noise property, which is what explains why it works."
+    - "Saying L2 regularisation and weight decay are the same. They are, under SGD; under an adaptive optimiser the decay is divided by $\\sqrt{\\hat v}$."
+    - "Treating the bias correction as a minor detail. Without it, $v$ is under-estimated a hundredfold at step 10 and the early updates are an order of magnitude too large."
+    - "Claiming Adam is simply better than SGD. It is far more forgiving and transfers better; the generalisation gap on some vision problems is real and worth acknowledging."
+check:
+  - id: ao_l5_c1
+    prompt: "A candidate says 'Adam adapts the learning rate per parameter based on gradient magnitude'. What is the sharper version?"
+    options:
+      - "It is correct as stated"
+      - "It divides by the root *second moment*, not the magnitude — so the update is $\\mu/\\sqrt{\\mu^2+\\sigma^2}$, a signal-to-noise ratio bounded in $[-1,1]$, which is why it is scale-invariant and why the learning rate is a distance in parameter space"
+      - "It adapts the momentum, not the learning rate"
+      - "It normalises the parameters rather than the gradients"
+    answer: 1
+    explanation: "The loose version is not wrong and it does not distinguish between dividing by $|g|$ and dividing by $\\sqrt{\\mathbb{E}[g^2]}$ — and the difference is the whole mechanism. Dividing by the root second moment means the denominator contains the noise as well as the signal, which is what makes the update a confidence measure rather than a normalisation, and what makes it damp unreliable coordinates automatically. That is also the property that makes the learning rate portable."
+  - id: ao_l5_c2
+    prompt: "You inherit a codebase using `Adam` with `weight_decay=0.01` and observe that regularisation seems to have almost no effect. What is the likely explanation?"
+    options:
+      - "The coefficient is too small"
+      - "`Adam`'s `weight_decay` is L2 in the loss, so the decay term is divided by $\\sqrt{\\hat v}$ — on high-gradient coordinates it is heavily attenuated, so the effective regularisation is much weaker and non-uniform. `AdamW` applies it outside the adaptive scaling"
+      - "Weight decay does not work with momentum"
+      - "The parameter groups are misconfigured"
+    answer: 1
+    explanation: "The observation — regularisation with little apparent effect at a coefficient that should do something — is the characteristic symptom. Under L2-in-the-loss the decay competes with the gradient inside the same adaptive scaling, so wherever the gradient is large it is proportionally diminished. Switching to `AdamW` typically requires re-tuning the coefficient because the effective strength changes, which is itself a good confirmation that the mechanism was what you thought."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Adam can converge to sharp minima with poor generalization. The adaptive learning rate effectively reduces the learning rate for frequently-updated parameters, which can be suboptimal. Symptoms: training loss is very low but validation loss is high relative to SGD+momentum on the same architecture. Fixes: use AdamW (decoupled weight decay) instead of Adam with L2, increase weight decay to $10^{-2}$, use learning rate warmup (linear for 1-5% of training), and cosine annealing schedule. For transformers, $\beta_2 = 0.95$ can be more stable than $0.999$ during early training.
+<Steps>
+<Step title="Diverges in the first hundred steps → bias correction, or $\epsilon$ in low precision">
+Without the correction, $v$ is under-estimated a hundredfold at step 10 and
+updates are ten times too large. And $\epsilon = 10^{-8}$ is below fp16's
+smallest normal, so the guard vanishes exactly when needed.
+</Step>
 
-## Interview-ready answer
+<Step title="Regularisation seems to do nothing → `Adam` rather than `AdamW`">
+L2 in the loss is attenuated by $\sqrt{\hat v}$, most where gradients are
+largest. Switching requires re-tuning the coefficient, which confirms the
+diagnosis.
+</Step>
 
-Adam combines momentum ($\beta_1$) for gradient direction smoothing with RMSProp-style ($\beta_2$) adaptive per-parameter learning rates. The bias correction terms $1/(1 - \beta^t)$ are essential early in training when the moving averages are still warming up. In practice, I almost always use AdamW (decoupled weight decay) with cosine schedule and linear warmup. Key differences from SGD: Adam converges faster but SGD+momentum can find flatter minima with better generalization, which is why some vision training still uses SGD. For transformers and diffusion models, AdamW with $\alpha = 10^{-4}$, $\beta_1 = 0.9$, $\beta_2 = 0.95$, and weight decay $0.01$-$0.1$ is the standard recipe.
+<Step title="One layer's updates are enormous → check per-layer update ratios">
+Around $10^{-3}$ is healthy. This localises what a global gradient norm cannot.
+</Step>
+
+<Step title="Mean Adam SNR near zero → not an optimiser problem">
+The gradients are inconsistent. Batch size, augmentation, label noise, data
+pipeline. No learning rate fixes it, and Adam is behaving correctly.
+</Step>
+
+<Step title="Out of memory before training starts → optimiser state">
+16 bytes per parameter in fp32. Shard it, or factor the second moment.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The sentence that distinguishes this answer is that the update is a
+signal-to-noise ratio rather than a rescaled gradient. Everyone can say "adaptive
+per-parameter learning rates", and that phrasing does not distinguish dividing by
+$|g|$ from dividing by $\sqrt{\mathbb{E}[g^2]}$ — which is the entire mechanism.
+From the sharper version, scale invariance, the portability of the learning rate,
+and the automatic damping of noisy coordinates all follow in one step each, and
+the AdamW argument becomes obvious rather than something to memorise.
+</Warning>

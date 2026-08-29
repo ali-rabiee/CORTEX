@@ -1,0 +1,194 @@
+---
+concept: adam_optimizer
+level: 4
+status: final
+recall:
+  prompt: "Trace Adam from 2015 to now. Which criticisms stuck, which fixes were adopted, and what is the current state?"
+  keyPoints:
+    - "Adam (2015) combined momentum with per-coordinate second-moment scaling; the signal-to-noise reading is in the original paper and is what explains its robustness."
+    - "AMSGrad (2018) found a genuine flaw in the convergence proof and its fix was largely not adopted — the theoretical problem and the practical one turned out to be different."
+    - "AdamW (2019) is the criticism that stuck: L2 in the loss and weight decay diverge under adaptive scaling, and decoupling is now the default everywhere."
+    - "Since then the pressure has been memory and simplicity — factored second moments, and sign-based optimisers that keep the scale invariance while dropping a state tensor."
+papers:
+  - key: kingma2015adam
+    title: "Adam: A Method for Stochastic Optimization"
+    authors: "Diederik P. Kingma, Jimmy Ba"
+    venue: ICLR
+    year: 2015
+    arxiv: "1412.6980"
+    takeaway: "Combines momentum with per-coordinate second-moment normalisation and bias correction, and states the signal-to-noise reading of the update explicitly — the property that explains its robustness to gradient scale."
+  - key: reddi2018amsgrad
+    title: "On the Convergence of Adam and Beyond"
+    authors: "Sashank J. Reddi, Satyen Kale, Sanjiv Kumar"
+    venue: ICLR
+    year: 2018
+    arxiv: "1904.09237"
+    takeaway: "Exhibits a convex problem where Adam fails to converge, traces it to the exponential moving average allowing the effective learning rate to increase, and proposes AMSGrad — a maximum over past second moments — as the fix."
+  - key: loshchilov2019adamw
+    title: "Decoupled Weight Decay Regularization"
+    authors: "Ilya Loshchilov, Frank Hutter"
+    venue: ICLR
+    year: 2019
+    arxiv: "1711.05101"
+    takeaway: "Shows that L2 in the loss and weight decay are not equivalent under an adaptive optimiser, since the decay term is divided by the second-moment estimate — and that decoupling it restores the intended uniform regularisation."
+  - key: shazeer2018adafactor
+    title: "Adafactor: Adaptive Learning Rates with Sublinear Memory Cost"
+    authors: "Noam Shazeer, Mitchell Stern"
+    venue: ICML
+    year: 2018
+    arxiv: "1804.04235"
+    takeaway: "Factors the second-moment matrix into row and column statistics, reducing optimiser state from $O(nm)$ to $O(n+m)$ per weight matrix — the memory-frugal branch of the family."
+  - key: chen2023lion
+    title: "Symbolic Discovery of Optimization Algorithms"
+    authors: "Xiangning Chen, Chen Liang, Da Huang, Esteban Real, Kaiyuan Wang, Yao Liu, Hieu Pham, et al."
+    year: 2023
+    arxiv: "2302.06675"
+    takeaway: "Searches a space of optimiser programs and finds Lion, which keeps only a momentum buffer and takes the sign of an interpolated update — half Adam's state, and evidence that the sign-like behaviour is the load-bearing part."
+check:
+  - id: ao_l4_c1
+    prompt: "AMSGrad fixed a real flaw in Adam's convergence proof, and is rarely used. What does that tell you?"
+    options:
+      - "The flaw was not real"
+      - "That the counterexample's failure mode — the effective learning rate increasing because the exponential average can forget a large past gradient — is not what limits Adam on the problems people actually train, so a fix targeting it buys little in practice"
+      - "That convergence proofs are worthless"
+      - "That AMSGrad is harder to implement"
+    answer: 1
+    explanation: "The analysis is correct and the constructed problem is genuine; what did not follow is that this is the binding difficulty in deep learning. AMSGrad's fix — take a running maximum of the second moment — makes the effective rate monotonically non-increasing, which is conservative and slows adaptation. It is a good example of a valid theoretical result whose practical importance had to be established separately and was not, and it is worth citing when someone treats a convergence guarantee as evidence about behaviour."
+  - id: ao_l4_c2
+    prompt: "Why did AdamW's criticism stick where AMSGrad's did not?"
+    options:
+      - "It was published in a better venue"
+      - "Because it identified a mechanism producing a wrong effect on every real training run — decay strength varying inversely with gradient magnitude — rather than a failure on a constructed problem, and the fix is two lines with no downside"
+      - "Because AMSGrad was mathematically incorrect"
+      - "Because weight decay matters more than convergence"
+    answer: 1
+    explanation: "The distinction is between a failure that occurs in the problems people run and one that occurs in a problem constructed to exhibit it. Every model trained with L2-in-the-loss under Adam was getting non-uniform regularisation inversely proportional to gradient magnitude — quietly, on every run. And the fix costs nothing: no extra state, no slower adaptation, no hyperparameter. A correct diagnosis of a universal problem with a free fix is adopted; a correct diagnosis of a rare problem with a costly fix is not."
+  - id: ao_l4_c3
+    prompt: "Lion keeps only a momentum buffer and takes the sign of the update. What does its competitiveness suggest about Adam?"
+    options:
+      - "That momentum is unnecessary"
+      - "That the load-bearing property is the bounded, scale-invariant update rather than a precise per-coordinate second-moment estimate — since taking a sign achieves the same boundedness with half the optimiser state"
+      - "That second moments are harmful"
+      - "That symbolic search outperforms human design"
+    answer: 1
+    explanation: "Adam's update is already close to a sign in the consistent-gradient case: $\\hat m/\\sqrt{\\hat v} \\to \\pm 1$. If an optimiser that takes the sign directly is competitive, the second moment's contribution is largely to *produce* that boundedness rather than to encode useful per-coordinate curvature — with the residual benefit being the graded damping of noisy coordinates. That halves the optimiser state, which at 7B parameters is 28 GB, so the practical stake is substantial."
+---
+
+## The original, and the property that mattered
+
+<PaperCard refKey="kingma2015adam" />
+
+Momentum for the direction, per-coordinate second-moment normalisation for the
+scale, and a bias correction for the zero initialisation. What most summaries
+omit — and the paper states explicitly — is the signal-to-noise reading: the
+update $\hat m/\sqrt{\hat v}$ estimates $\mu/\sqrt{\mu^2+\sigma^2}$, bounded in
+$[-1,1]$.
+
+<KeyIdea>
+That reading explains the adoption. It makes the update **scale-invariant per
+coordinate**, so a single learning rate works across layers whose gradients differ
+by orders of magnitude, and it makes the learning rate a distance in parameter
+space rather than a multiplier on an unknown gradient scale. Robustness, not
+speed, is what made Adam the default.
+</KeyIdea>
+
+## The criticism that did not stick
+
+<PaperCard refKey="reddi2018amsgrad" />
+
+A genuine flaw: the exponential moving average of the second moment can *forget* a
+large past gradient, so the effective learning rate can increase, and on a
+constructed convex problem Adam fails to converge. AMSGrad's fix is to take a
+running maximum of $v$, making the effective rate monotonically non-increasing.
+
+<Warning>
+The analysis is correct and the fix is rarely used. The failure mode it targets
+is not what limits Adam on the problems people actually train, and the fix is
+conservative — a running maximum never forgets, so adaptation slows permanently
+after any large gradient.
+
+Worth citing whenever someone treats a convergence guarantee as evidence about
+behaviour. A valid theoretical result still needs its practical relevance
+established separately, and here it was not.
+</Warning>
+
+## The criticism that did
+
+<PaperCard refKey="loshchilov2019adamw" />
+
+L2 regularisation in the loss adds $\lambda\theta$ to the gradient, which then
+passes through the $1/\sqrt{\hat v}$ scaling — so the effective decay is
+inversely proportional to gradient magnitude, and the parameters doing the most
+work are regularised the least.
+
+<Steps>
+<Step title="Why this one was adopted">
+It happens on every run, not on a constructed problem. Every model trained with
+L2-in-the-loss under Adam was silently getting non-uniform regularisation.
+</Step>
+
+<Step title="And the fix costs nothing">
+Two lines, no extra state, no slower adaptation, no new hyperparameter. A correct
+diagnosis of a universal problem with a free fix is adopted; a correct diagnosis
+of a rare problem with a costly fix is not.
+</Step>
+
+<Step title="Why it went unnoticed for years">
+Under plain SGD the two forms are equivalent up to a factor of $\eta$. The
+distinction only exists once the optimiser is adaptive, so it was invisible for
+the whole period during which the equivalence was learned.
+</Step>
+</Steps>
+
+## The pressure since: memory and simplicity
+
+<PaperGrid>
+<PaperCard refKey="shazeer2018adafactor" />
+<PaperCard refKey="chen2023lion" />
+</PaperGrid>
+
+Adam stores two tensors the size of the parameters. At 16 bytes per parameter in
+fp32, a 7B model is 112 GB of parameters, gradients, and optimiser state before
+any activations — so the state is a first-class cost, not an implementation
+detail.
+
+Adafactor attacks it directly, factoring the second-moment matrix into row and
+column statistics so state drops from $O(nm)$ to $O(n+m)$ per weight matrix. The
+approximation is that the second moment is approximately rank one, which holds
+well enough in practice.
+
+Lion attacks it differently: keep only momentum, and take the **sign** of an
+interpolation between the gradient and the momentum.
+
+<KeyIdea>
+Lion's competitiveness is informative about Adam. The update $\hat m/\sqrt{\hat v}$
+already tends to $\pm 1$ for consistent gradients, so if taking the sign outright
+works nearly as well, the second moment's main contribution was *producing* that
+boundedness rather than encoding useful per-coordinate curvature — with the
+residual benefit being graded damping of noisy coordinates. That halves the
+optimiser state, which at 7B parameters is 28 GB.
+</KeyIdea>
+
+## What is settled and what is not
+
+<Steps>
+<Step title="Settled">
+Decoupled weight decay. Bias correction. That the learning rate is a distance in
+parameter space, which is why Adam's hyperparameters transfer. That normalisation
+gains and biases should be excluded from decay.
+</Step>
+
+<Step title="Contested">
+Whether adaptive methods generalise worse than well-tuned SGD with momentum on
+some problems. The effect is real enough on some vision benchmarks to be taken
+seriously and small enough that it rarely justifies the tuning burden — the honest
+answer is that it depends on the problem and is worth measuring if you are chasing
+the last point.
+</Step>
+
+<Step title="Open">
+Whether the second moment is needed at all, given that sign-based methods with
+half the state are competitive. And whether any of this survives at the next
+scale, where optimiser memory increasingly dominates the design.
+</Step>
+</Steps>

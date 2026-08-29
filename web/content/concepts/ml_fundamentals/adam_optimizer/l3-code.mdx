@@ -1,0 +1,255 @@
+---
+concept: adam_optimizer
+level: 3
+status: final
+recall:
+  prompt: "Implement Adam and AdamW from scratch. What are the implementation traps, and what do you log to tell whether it is behaving?"
+  keyPoints:
+    - "The bias correction can be folded into the learning rate — $\\eta_t = \\eta\\sqrt{1-\\beta_2^t}/(1-\\beta_1^t)$ — which is what real implementations do and why the code looks different from the paper."
+    - "AdamW's decay is applied to the parameters directly, before or outside the adaptive step. Passing `weight_decay` to plain Adam gives you the L2-in-the-loss behaviour instead."
+    - "Exclude biases, normalisation gains, and embeddings from weight decay. Decaying a LayerNorm gain toward zero is actively harmful."
+    - "Log the update-to-parameter norm ratio per layer. It should sit around $10^{-3}$; orders of magnitude away in either direction is the fastest signal that something is wrong."
+check:
+  - id: ao_l3_c1
+    prompt: "You pass `weight_decay=0.1` to `torch.optim.Adam` rather than `AdamW`. What have you configured?"
+    options:
+      - "Decoupled weight decay, the same as AdamW"
+      - "L2 regularisation added to the gradient, which then passes through the $1/\\sqrt{\\hat v}$ scaling — so coordinates with large gradients get less decay, inverting what a regulariser should do"
+      - "No regularisation at all"
+      - "Weight decay applied only to the momentum buffer"
+    answer: 1
+    explanation: "`Adam`'s `weight_decay` adds $\\lambda\\theta$ to the gradient before the moments are updated, which is L2 in the loss. `AdamW` subtracts $\\eta\\lambda\\theta$ from the parameters outside the adaptive scaling. The two APIs look identical and do different things, which is a real source of silently wrong regularisation — and it usually presents as a decay coefficient that has to be tuned to a strange value to have any effect at all."
+  - id: ao_l3_c2
+    prompt: "Why exclude LayerNorm gains and biases from weight decay?"
+    options:
+      - "They have too few parameters to matter"
+      - "Decay pulls them toward zero, and a normalisation gain of zero annihilates the layer's output entirely — these parameters are not capacity to be constrained, they are calibration, and their natural scale is 1 rather than 0"
+      - "They are not differentiable"
+      - "Because they are updated by a different optimiser"
+    answer: 1
+    explanation: "Weight decay expresses a prior that small weights are better, which is sensible for matrices whose magnitude is capacity. A normalisation gain has a meaningful default of 1, and pushing it toward 0 scales the layer's output down toward nothing — the opposite of harmless. Biases are similar: their scale is not a proxy for complexity. Every serious training script has a parameter-group split for this, and it is a common omission when writing one from scratch."
+  - id: ao_l3_c3
+    prompt: "What single diagnostic most quickly reveals that an optimiser is misconfigured?"
+    options:
+      - "The training loss curve"
+      - "The ratio of update norm to parameter norm per layer — it should sit around $10^{-3}$, and orders of magnitude away in either direction localises the problem to a layer and a cause"
+      - "The gradient norm"
+      - "The learning rate schedule"
+    answer: 1
+    explanation: "The loss tells you something is wrong and not where. The update-to-parameter ratio is scale-free, comparable across layers, and has a well-known healthy range — around $10^{-3}$ per step. Much larger means the layer is being rewritten every step, which is divergence in progress; much smaller means it is frozen. Because it is per layer, it also localises the problem, which the gradient norm — a single number aggregating everything — cannot do."
+---
+
+## Adam, written out
+
+<CodeWalk title="The reference implementation, and where it differs from the paper">
+
+```python title="adam.py"
+import torch
+
+class Adam:
+    def __init__(self, params, lr=3e-4, betas=(0.9, 0.999), eps=1e-8):
+        self.params = list(params)
+        self.lr, (self.b1, self.b2), self.eps = lr, betas, eps
+        self.t = 0
+        self.m = [torch.zeros_like(p) for p in self.params]
+        self.v = [torch.zeros_like(p) for p in self.params]
+
+    @torch.no_grad()
+    def step(self):
+        self.t += 1
+        # Fold the bias correction into the step size rather than correcting
+        # the moments. Algebraically identical, one fewer temporary per tensor,
+        # and the reason real implementations look unlike the paper.
+        bc1 = 1 - self.b1 ** self.t
+        bc2 = 1 - self.b2 ** self.t
+        step_size = self.lr * (bc2 ** 0.5) / bc1
+
+        for p, m, v in zip(self.params, self.m, self.v):
+            if p.grad is None:
+                continue
+            g = p.grad
+            m.mul_(self.b1).add_(g, alpha=1 - self.b1)
+            v.mul_(self.b2).addcmul_(g, g, value=1 - self.b2)
+            # eps is OUTSIDE the sqrt here, matching the paper. Frameworks
+            # differ, so an eps tuned in one does not transfer to another.
+            p.addcdiv_(m, v.sqrt().add_(self.eps), value=-step_size)
+```
+
+</CodeWalk>
+
+The folded correction is worth recognising, because it is why library code does
+not look like the equations. $\hat m/\sqrt{\hat v} = (m/\text{bc}_1)/\sqrt{v/\text{bc}_2}
+= (m/\sqrt v)\cdot\sqrt{\text{bc}_2}/\text{bc}_1$, so the correction can multiply
+the learning rate instead of the buffers.
+
+## AdamW, and why it is a different line
+
+```python title="adamw.py"
+@torch.no_grad()
+def step(self):
+    self.t += 1
+    bc1, bc2 = 1 - self.b1 ** self.t, 1 - self.b2 ** self.t
+    step_size = self.lr * (bc2 ** 0.5) / bc1
+
+    for p, m, v, decay in zip(self.params, self.m, self.v, self.decays):
+        if p.grad is None:
+            continue
+        # DECOUPLED: applied to the parameter, outside the adaptive scaling,
+        # so every coordinate decays at the same rate. Adding lambda*theta to
+        # p.grad instead would put it through the 1/sqrt(v) division, giving
+        # high-gradient coordinates LESS decay.
+        if decay:
+            p.mul_(1 - self.lr * decay)
+
+        g = p.grad
+        m.mul_(self.b1).add_(g, alpha=1 - self.b1)
+        v.mul_(self.b2).addcmul_(g, g, value=1 - self.b2)
+        p.addcdiv_(m, v.sqrt().add_(self.eps), value=-step_size)
+```
+
+<Warning>
+`torch.optim.Adam(..., weight_decay=0.1)` and `torch.optim.AdamW(..., weight_decay=0.1)`
+have identical signatures and do different things. The first is L2 in the loss;
+only the second is decoupled. The usual symptom of the confusion is a decay
+coefficient that has to be set to a strange value to have any visible effect.
+</Warning>
+
+## Parameter groups
+
+```python title="groups.py"
+def param_groups(model, weight_decay=0.1):
+    """Weight decay expresses 'smaller is better', which is right for matrices
+    whose magnitude is capacity and wrong for parameters whose natural value
+    is 1. A LayerNorm gain decayed toward zero scales its layer's output
+    toward nothing."""
+    decay, no_decay = [], []
+    for name, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        # Biases, normalisation gains, and embeddings: calibration, not capacity.
+        if p.dim() < 2 or "norm" in name or "embed" in name:
+            no_decay.append(p)
+        else:
+            decay.append(p)
+    return [
+        {"params": decay, "weight_decay": weight_decay},
+        {"params": no_decay, "weight_decay": 0.0},
+    ]
+```
+
+## The diagnostic that localises problems
+
+<CodeWalk title="Update-to-parameter norm ratio">
+
+```python title="monitor.py"
+@torch.no_grad()
+def update_ratios(model, optimizer, lr):
+    """||update|| / ||parameter||, per layer. Scale-free, comparable across
+    layers, and it has a known healthy range of roughly 1e-3 per step.
+
+    Much larger: the layer is being rewritten every step — divergence in
+    progress. Much smaller: it is frozen. And because it is per layer, it
+    says WHERE, which a single gradient norm cannot.
+    """
+    out = {}
+    for name, p in model.named_parameters():
+        if p.grad is None:
+            continue
+        st = optimizer.state.get(p, {})
+        if "exp_avg" not in st:
+            continue
+        m, v, t = st["exp_avg"], st["exp_avg_sq"], st["step"]
+        b1, b2 = optimizer.param_groups[0]["betas"]
+        upd = lr * (m / (1 - b1 ** t)) / ((v / (1 - b2 ** t)).sqrt() + 1e-8)
+        out[name] = (upd.norm() / (p.norm() + 1e-12)).item()
+    return out
+```
+
+</CodeWalk>
+
+```python title="snr.py"
+@torch.no_grad()
+def adam_snr(optimizer):
+    """The quantity Adam is actually computing: m_hat / sqrt(v_hat), which is
+    a per-coordinate signal-to-noise ratio bounded in [-1, 1].
+
+    Mean |SNR| near 1 means gradients are consistent and the optimiser is
+    taking full steps. Near 0 means the gradients are mostly noise and Adam
+    is correctly refusing to move — which is a data or batch-size problem,
+    not an optimiser one.
+    """
+    stats = {}
+    for group in optimizer.param_groups:
+        b1, b2 = group["betas"]
+        for p in group["params"]:
+            st = optimizer.state.get(p, {})
+            if "exp_avg" not in st:
+                continue
+            t = st["step"]
+            mh = st["exp_avg"] / (1 - b1 ** t)
+            vh = st["exp_avg_sq"] / (1 - b2 ** t)
+            stats[id(p)] = (mh / (vh.sqrt() + 1e-8)).abs().mean().item()
+    return stats
+```
+
+<KeyIdea>
+A low mean SNR is diagnostic in a way the loss is not: it says the gradients
+themselves are inconsistent, so the fix is a larger batch, less aggressive
+augmentation, or a look at the data — not a different learning rate. Adam is
+behaving correctly by refusing to move, and tuning the optimiser will not
+help.
+</KeyIdea>
+
+## Mixed precision
+
+```python title="precision.py"
+# Keep the optimiser state in fp32 even when the forward pass is bf16.
+#
+# In fp16, eps = 1e-8 is below the smallest normal number, so
+# sqrt(v) + eps rounds to sqrt(v) and the guard silently disappears —
+# exactly when a small v makes it necessary.
+#
+# Common at scale: eps = 1e-6, and fp32 master weights.
+scaler = torch.amp.GradScaler()
+with torch.autocast("cuda", dtype=torch.bfloat16):
+    loss = model(batch)
+scaler.scale(loss).backward()
+scaler.unscale_(optimizer)                       # unscale BEFORE clipping
+torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+scaler.step(optimizer)
+scaler.update()
+```
+
+<Warning>
+`unscale_` before clipping is not optional. Clipping a scaled gradient clips at
+the wrong threshold — off by the loss scale, which is dynamic — so the clip
+either never fires or fires constantly, and neither failure announces itself.
+</Warning>
+
+## What to check when it will not train
+
+<Steps>
+<Step title="Update ratios">
+Around $10^{-3}$ is healthy. Uniformly large means the learning rate is too high;
+uniformly tiny means it is too low or the gradients are not arriving. Large in
+one layer only localises the problem immediately.
+</Step>
+
+<Step title="Mean Adam SNR">
+Near zero means the gradients are inconsistent — a data or batch-size problem
+that no optimiser setting fixes.
+</Step>
+
+<Step title="Which optimiser, and which decay">
+`Adam` with `weight_decay` is not `AdamW`. Check which one you constructed.
+</Step>
+
+<Step title="Parameter groups">
+Norm gains and biases excluded from decay. Easy to omit and quietly harmful.
+</Step>
+
+<Step title="$\epsilon$ against your precision">
+$10^{-8}$ is meaningless in fp16. Keep the optimiser state fp32, or raise
+$\epsilon$.
+</Step>
+</Steps>

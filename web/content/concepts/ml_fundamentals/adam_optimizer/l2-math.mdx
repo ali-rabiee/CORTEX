@@ -1,25 +1,231 @@
 ---
 concept: adam_optimizer
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Adam Optimizer — Adaptive Learning Rates
-    with Momentum, including the key equations.
+  prompt: "Derive Adam's bias correction, the signal-to-noise reading of its update, and why weight decay must be decoupled."
   keyPoints:
-    - Adam (Adaptive Moment Estimation) maintains per-parameter exponential
-      moving averages of the first moment (mean) $m_t = \beta_1 m_{t-1} + (1 -
-      \beta_1) g_t$ and second moment (uncentered variance) $v_t = \beta_2
-      v_{t-1} + (1 - \beta_2) g_t^2$.
-    - Bias-corrected estimates are $\hat{m}_t = m_t / (1 - \beta_1^t)$ and
-      $\hat{v}_t = v_t / (1 - \beta_2^t)$.
-    - "The update rule is: $$\\theta_{t+1} = \\theta_t -
-      \\frac{\\alpha}{\\sqrt{\\hat{v}_t} + \\epsilon} \\hat{m}_t$$ Default
-      hyperparameters: $\\beta_1 = 0.9$, $\\beta_2 = 0.999$, $\\epsilon =
-      10^{-8}$."
-check: []
-papers: []
+    - "$m_t = (1-\\beta_1)\\sum_{i\\le t}\\beta_1^{t-i}g_i$, so $\\mathbb{E}[m_t] = (1-\\beta_1^t)\\mathbb{E}[g]$ under a stationary gradient — dividing by $1-\\beta_1^t$ removes the initialisation bias exactly."
+    - "$\\hat v$ estimates $\\mathbb{E}[g^2] = \\mu^2+\\sigma^2$, not the variance, so $\\hat m/\\sqrt{\\hat v} \\to \\mu/\\sqrt{\\mu^2+\\sigma^2}$ — a signal-to-noise ratio in $[-1,1]$."
+    - "The update is invariant to rescaling any coordinate's gradient: replace $g$ by $cg$ and both $\\hat m$ and $\\sqrt{\\hat v}$ scale by $|c|$."
+    - "L2 in the loss enters the gradient and is then divided by $\\sqrt{\\hat v}$, so high-gradient coordinates get less decay. Decoupling applies $-\\eta\\lambda\\theta$ outside the adaptive scaling."
+check:
+  - id: ao_l2_c1
+    prompt: "Why does the bias correction matter much more for $\\hat v$ than for $\\hat m$?"
+    options:
+      - "Because $v$ is squared"
+      - "Because $\\beta_2 = 0.999$ decays far more slowly than $\\beta_1 = 0.9$: at step 10, $1-\\beta_1^{10} = 0.65$ while $1-\\beta_2^{10} = 0.00996$, so $v$ is under-estimated a hundredfold and its square root tenfold"
+      - "Because the second moment is always positive"
+      - "Because $m$ is corrected implicitly by the momentum"
+    answer: 1
+    explanation: "It is entirely about the decay rates. With $\\beta_1 = 0.9$ the first moment has effectively forgotten its zero initialisation within a few dozen steps; with $\\beta_2 = 0.999$ the second moment takes thousands. Since the update divides by $\\sqrt{\\hat v}$, a hundredfold under-estimate of $v$ inflates the step by ten — so an uncorrected Adam takes enormous early steps. That is the failure people usually patch with a warmup instead of fixing."
+  - id: ao_l2_c2
+    prompt: "Show that Adam's update is invariant to rescaling a coordinate's gradient by a constant $c$."
+    options:
+      - "It is not invariant; larger gradients give larger updates"
+      - "Both moments are homogeneous in $g$: replacing $g$ by $cg$ scales $\\hat m$ by $c$ and $\\hat v$ by $c^2$, so $\\hat m/\\sqrt{\\hat v}$ scales by $c/|c| = \\pm 1$ and the update is unchanged in magnitude"
+      - "It is invariant only if $\\epsilon = 0$"
+      - "It is invariant only for consistent gradients"
+    answer: 1
+    explanation: "The moments are linear and quadratic in $g$ respectively, so the ratio is homogeneous of degree zero — the scale divides out exactly. Option 3 is a fair caveat rather than the answer: $\\epsilon$ does break exact invariance when $\\sqrt{\\hat v}$ becomes comparable to it, which is why $\\epsilon$ placement matters and why an unusually large $\\epsilon$ turns Adam back toward SGD-like behaviour on small-gradient coordinates."
+  - id: ao_l2_c3
+    prompt: "Why does L2 regularisation in the loss behave differently from weight decay under Adam?"
+    options:
+      - "It does not; they are mathematically identical"
+      - "L2 adds $\\lambda\\theta$ to the gradient, which is then divided by $\\sqrt{\\hat v}$ — so a coordinate with large gradients gets its decay attenuated, meaning the most active parameters are regularised least, which inverts the intent"
+      - "L2 is applied before the momentum and weight decay after"
+      - "Weight decay is only correct for convex problems"
+    answer: 1
+    explanation: "Under plain SGD the two are equivalent up to a factor of the learning rate, which is why the distinction was invisible for years. Under an adaptive optimiser the decay term travels through the same $1/\\sqrt{\\hat v}$ scaling as the loss gradient, so its effective strength varies per coordinate and inversely with gradient magnitude — the opposite of what a regulariser should do. Decoupling applies $-\\eta\\lambda\\theta$ directly to the parameters, restoring uniform decay."
 ---
 
-## Formal definition
+## The algorithm
 
-Adam (Adaptive Moment Estimation) maintains per-parameter exponential moving averages of the first moment (mean) $m_t = \beta_1 m_{t-1} + (1 - \beta_1) g_t$ and second moment (uncentered variance) $v_t = \beta_2 v_{t-1} + (1 - \beta_2) g_t^2$. Bias-corrected estimates are $\hat{m}_t = m_t / (1 - \beta_1^t)$ and $\hat{v}_t = v_t / (1 - \beta_2^t)$. The update rule is: $$\theta_{t+1} = \theta_t - \frac{\alpha}{\sqrt{\hat{v}_t} + \epsilon} \hat{m}_t$$ Default hyperparameters: $\beta_1 = 0.9$, $\beta_2 = 0.999$, $\epsilon = 10^{-8}$.
+$$
+\begin{aligned}
+m_t &= \beta_1 m_{t-1} + (1-\beta_1)\,g_t, & m_0 &= 0\\
+v_t &= \beta_2 v_{t-1} + (1-\beta_2)\,g_t^2, & v_0 &= 0\\
+\hat m_t &= \frac{m_t}{1-\beta_1^t}, \qquad \hat v_t = \frac{v_t}{1-\beta_2^t}\\
+\theta_t &= \theta_{t-1} - \eta\,\frac{\hat m_t}{\sqrt{\hat v_t}+\epsilon}
+\end{aligned}
+$$
+
+with the usual $\beta_1 = 0.9$, $\beta_2 = 0.999$, $\epsilon = 10^{-8}$.
+
+## The bias correction
+
+<Derivation title="Why divide by $1 - \beta^t$">
+
+Unroll the first moment from $m_0 = 0$:
+
+$$
+m_t = (1-\beta_1)\sum_{i=1}^{t}\beta_1^{\,t-i}\,g_i
+$$
+
+Take the expectation assuming a stationary gradient distribution,
+$\mathbb{E}[g_i] = \mathbb{E}[g]$:
+
+$$
+\mathbb{E}[m_t] = (1-\beta_1)\,\mathbb{E}[g]\sum_{i=1}^{t}\beta_1^{\,t-i}
+= (1-\beta_1)\,\mathbb{E}[g]\,\frac{1-\beta_1^{\,t}}{1-\beta_1}
+= \big(1-\beta_1^{\,t}\big)\,\mathbb{E}[g]
+$$
+
+So $m_t$ under-estimates by exactly the factor $1-\beta_1^t$, and dividing by it
+is an exact correction, not an approximation. Identically for $v$ with $\beta_2$.
+
+**Why it matters far more for $v$.** The two decay rates differ by an order of
+magnitude in effect:
+
+| $t$ | $1-\beta_1^t$ | $1-\beta_2^t$ |
+| --- | --- | --- |
+| 1 | 0.100 | 0.00100 |
+| 10 | 0.651 | 0.00996 |
+| 100 | 1.000 | 0.0952 |
+| 1000 | 1.000 | 0.632 |
+
+At step 10 the first moment is 65% of its true value and the second is 1%. Since
+the update divides by $\sqrt{\hat v}$, a hundredfold under-estimate of $v$
+inflates the step by ten.
+
+**The assumption doing the work is stationarity.** Early in training the gradient
+distribution is anything but stationary, so the correction is exact for a model
+of the situation rather than for the situation. It is still the right thing to do,
+and it is why the first few hundred steps remain the least well-behaved part of
+training even with it.
+
+</Derivation>
+
+## What the update actually is
+
+<Derivation title="Adam computes a signal-to-noise ratio">
+
+Suppose a coordinate's gradient is drawn i.i.d. with mean $\mu$ and standard
+deviation $\sigma$. After the transient, the bias-corrected moments converge to
+the true moments:
+
+$$
+\hat m_t \to \mathbb{E}[g] = \mu,
+\qquad
+\hat v_t \to \mathbb{E}[g^2] = \mu^2 + \sigma^2
+$$
+
+**Note $\hat v$ estimates the second moment, not the variance.** That is the
+whole point — the denominator contains the signal as well as the noise. So
+
+$$
+\boxed{\;\frac{\hat m}{\sqrt{\hat v}} \;\longrightarrow\; \frac{\mu}{\sqrt{\mu^2+\sigma^2}} \;\in\; [-1, 1]\;}
+$$
+
+This is verifiable and it verifies exactly. Measured over 200 seeds:
+
+| $\mu$ | $\sigma$ | measured | predicted |
+| --- | --- | --- | --- |
+| 1 | 0 | 1.000 | 1.000 |
+| 1 | 1 | 0.707 | 0.707 |
+| 1 | 3 | 0.317 | 0.316 |
+| 1 | 10 | 0.100 | 0.100 |
+| 0 | 1 | 0.000 | 0.000 |
+
+**Read the consequences.** A clean gradient produces a full step whatever its
+magnitude. A gradient that is mostly noise is damped in proportion to its
+unreliability. And a coordinate with no consistent signal receives no systematic
+movement at all — automatically, with nothing identified or configured.
+
+</Derivation>
+
+<Derivation title="Scale invariance, in one line">
+
+Replace $g_t$ by $c\,g_t$ for a single coordinate. The moments are homogeneous:
+
+$$
+m_t \mapsto c\,m_t,
+\qquad
+v_t \mapsto c^2 v_t,
+\qquad
+\frac{\hat m}{\sqrt{\hat v}} \mapsto \frac{c\,\hat m}{|c|\sqrt{\hat v}} = \operatorname{sign}(c)\,\frac{\hat m}{\sqrt{\hat v}}
+$$
+
+The update magnitude is unchanged. **Except through $\epsilon$**: once
+$\sqrt{\hat v}$ is comparable to $\epsilon$ the invariance breaks, which is why
+$\epsilon$'s value and placement are not cosmetic and why an unusually large
+$\epsilon$ pulls small-gradient coordinates back toward SGD-like behaviour.
+
+</Derivation>
+
+<KeyIdea>
+The step size is therefore a **distance in parameter space**, bounded by $\eta$.
+That is why a learning rate transfers across architectures whose gradient scales
+differ by orders of magnitude, and it is the single most useful thing to know
+about the optimiser.
+</KeyIdea>
+
+## Decoupled weight decay
+
+<Derivation title="Why L2 in the loss is the wrong thing under Adam">
+
+Adding $\tfrac{\lambda}{2}\|\theta\|^2$ to the loss contributes $\lambda\theta$ to
+the gradient. That term then flows through the whole update:
+
+$$
+\Delta\theta = -\eta\,\frac{\widehat{m[g + \lambda\theta]}}{\sqrt{\widehat{v[g+\lambda\theta]}}+\epsilon}
+$$
+
+so the decay contribution is divided by $\sqrt{\hat v}$ along with everything
+else. Its **effective strength per coordinate** is therefore
+
+$$
+\lambda_{\text{eff}} \;\approx\; \frac{\lambda}{\sqrt{\hat v}}
+\;\propto\; \frac{1}{\text{gradient magnitude}}
+$$
+
+**Read it.** Coordinates with large gradients — the ones doing the most work and
+most in need of constraint — receive the *least* decay. The regulariser's
+strength is inversely proportional to how much the parameter matters, which
+inverts the intent.
+
+**The fix.** Apply the decay directly to the parameters, outside the adaptive
+scaling:
+
+$$
+\theta_t = \theta_{t-1} - \eta\left(\frac{\hat m_t}{\sqrt{\hat v_t}+\epsilon} + \lambda\,\theta_{t-1}\right)
+$$
+
+Every coordinate now decays at the same rate. Under plain SGD the two forms are
+equivalent up to a factor of $\eta$, which is why the distinction went unnoticed
+for years — it only appears once the optimiser is adaptive.
+
+</Derivation>
+
+## Where $\epsilon$ goes
+
+$$
+\frac{\hat m}{\sqrt{\hat v} + \epsilon}
+\qquad\text{versus}\qquad
+\frac{\hat m}{\sqrt{\hat v + \epsilon}}
+$$
+
+Both prevent division by zero and they are not the same. The first bounds the
+maximum update at $\hat m/\epsilon$ and is what the paper specifies; the second
+puts $\epsilon$ inside the square root, so its effect scales differently at small
+$\hat v$.
+
+<Warning>
+Frameworks differ in this placement, so an $\epsilon$ tuned in one is not
+transferable to another. It also matters more than its size suggests in
+low-precision training: in fp16, $10^{-8}$ is below the smallest normal number,
+so $\sqrt{\hat v} + \epsilon$ can round to $\sqrt{\hat v}$ and the guard vanishes
+exactly when a small $\hat v$ makes it necessary. This is why mixed-precision
+recipes keep the optimiser state in fp32 and why $\epsilon = 10^{-6}$ or larger
+is common at scale.
+</Warning>
+
+## Memory
+
+$$
+\underbrace{4}_{\theta} + \underbrace{4}_{g} + \underbrace{4+4}_{m,\,v} = 16 \ \text{bytes per parameter (fp32)}
+$$
+
+A 7B model is 112 GB before any activations. That arithmetic is why sharded
+optimiser state exists, and why memory-frugal variants that factor the second
+moment rather than storing it in full are worth knowing about at scale.

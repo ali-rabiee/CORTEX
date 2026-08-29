@@ -1,26 +1,160 @@
 ---
 concept: adam_optimizer
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Adam Optimizer — Adaptive Learning Rates with Momentum in plain
-    language: what is it, and why does it matter?"
+  prompt: "Explain what Adam's update actually is. Why is it not a rescaled gradient, and what follows from that?"
   keyPoints:
-    - Adam is like a hiker with a compass (momentum $m_t$ pointing in the
-      average gradient direction) and terrain awareness (variance $v_t$
-      measuring how bumpy each dimension is).
-    - On flat dimensions with consistent gradients, the effective learning rate
-      $\alpha / \sqrt{v}$ is large — take big steps.
-    - On noisy dimensions with erratic gradients, $v$ is large, so steps are
-      small and cautious.
-check: []
-papers: []
+    - "The update is $\\hat m/\\sqrt{\\hat v}$, and for a coordinate with gradient mean $\\mu$ and noise $\\sigma$ that equals $\\mu/\\sqrt{\\mu^2+\\sigma^2}$ — a signal-to-noise ratio, bounded in $[-1,1]$."
+    - "It is scale-invariant per coordinate: a consistent gradient of $10^{-3}$ or $10^{3}$ both produce an update of exactly 1. Multiply a coordinate's gradient by any constant and nothing changes."
+    - "So the learning rate is a *step size in parameter space*, not a multiplier on an unknown gradient scale. That is why Adam transfers across architectures where SGD needs retuning."
+    - "It also means a noisy coordinate is stepped less automatically, with no per-layer tuning — each coordinate derives its own effective rate from its own history."
+media:
+  - kind: article
+    title: "Adam: A Method for Stochastic Optimization"
+    url: https://arxiv.org/abs/1412.6980
+    source: "Kingma, Ba"
+    note: "Short and readable. Section 2.1 is the bias-correction derivation and Section 2.2 makes the signal-to-noise reading explicit — the part most summaries omit and the part that explains why it works."
+  - kind: article
+    title: "Decoupled Weight Decay Regularization"
+    url: https://arxiv.org/abs/1711.05101
+    source: "Loshchilov, Hutter"
+    note: "Why L2 in the loss and weight decay are not the same thing under an adaptive optimiser. The argument is two lines and it changed the default optimiser everyone uses."
+  - kind: article
+    title: "An overview of gradient descent optimization algorithms"
+    url: https://www.ruder.io/optimizing-gradient-descent/
+    source: "Sebastian Ruder"
+    note: "The standard survey of the family, useful for placing Adam among its neighbours. Read it after Level 2 rather than before — the derivations there make the differences between the variants legible."
+check:
+  - id: ao_l1_c1
+    prompt: "A coordinate has a perfectly consistent gradient. What size update does Adam produce if that gradient is $10^{-3}$, and if it is $10^{3}$?"
+    options:
+      - "Proportional to the gradient in each case"
+      - "Exactly the same — a magnitude of 1 times the learning rate in both cases, because $\\hat m/\\sqrt{\\hat v} = g/|g| = \\pm 1$ when the gradient is consistent"
+      - "Larger for the larger gradient, but sub-linearly"
+      - "Zero for the small gradient, since it is below epsilon"
+    answer: 1
+    explanation: "With a constant gradient $g$, the first moment estimates $g$ and the second estimates $g^2$, so the ratio is $g/|g|$ — the sign, magnitude one, regardless of scale. That per-coordinate scale invariance is the single most important property of the optimiser: it means the learning rate is a distance to move in parameter space rather than a multiplier on a gradient whose scale you would otherwise have to know. It is why one learning rate works across layers whose gradients differ by orders of magnitude."
+  - id: ao_l1_c2
+    prompt: "For a coordinate whose gradient has mean $\\mu = 1$ and noise $\\sigma = 3$, what is Adam's expected update magnitude?"
+    options:
+      - "About 1, since the mean is 1"
+      - "About 0.32 — the update tracks $\\mu/\\sqrt{\\mu^2+\\sigma^2}$, a signal-to-noise ratio, so a coordinate that is mostly noise gets stepped much less"
+      - "About 3, tracking the noise"
+      - "About 0, since the noise dominates"
+    answer: 1
+    explanation: "$1/\\sqrt{1 + 9} = 0.316$, which matches measurement closely. The second moment estimates $\\mathbb{E}[g^2] = \\mu^2 + \\sigma^2$ rather than the variance, so the denominator includes the signal as well as the noise — and the ratio is exactly a signal-to-noise measure. This is the mechanism behind Adam's robustness: it damps the coordinates whose gradients are unreliable without anyone having to identify which those are."
+  - id: ao_l1_c3
+    prompt: "Why does Adam's learning rate transfer between architectures far better than SGD's?"
+    options:
+      - "Because Adam converges faster"
+      - "Because the update magnitude is bounded by 1 regardless of gradient scale, so the learning rate specifies a distance to move in parameter space — whereas SGD's step is the learning rate times a gradient whose scale depends on the loss, the architecture, and the depth"
+      - "Because Adam uses momentum"
+      - "Because Adam normalises the parameters"
+    answer: 1
+    explanation: "In SGD the step is $\\eta g$, so a good $\\eta$ depends entirely on how large $g$ happens to be — which changes with the loss scale, the depth, the initialisation, and the layer. Adam divides that scale out per coordinate, so $\\eta$ answers a different and much more portable question: how far should a parameter move per step. That is why $3\\times10^{-4}$ is a sensible starting point across wildly different transformers, and why the same claim would be meaningless for SGD."
 ---
 
-## Intuition
+## The update is not a rescaled gradient
 
-Adam is like a hiker with a compass (momentum $m_t$ pointing in the average gradient direction) and terrain awareness (variance $v_t$ measuring how bumpy each dimension is). On flat dimensions with consistent gradients, the effective learning rate $\alpha / \sqrt{v}$ is large — take big steps. On noisy dimensions with erratic gradients, $v$ is large, so steps are small and cautious. Bias correction fixes the cold-start problem: at $t = 1$, the moving averages are biased toward zero since they are initialized at zero.
+Adam is usually introduced as "momentum plus per-parameter learning rates", which
+is true and hides the property that matters. Look at what the update actually
+computes:
 
-## In practice
+$$
+\Delta\theta = -\eta\,\frac{\hat m_t}{\sqrt{\hat v_t} + \epsilon}
+$$
 
-Training a diffusion policy for robot manipulation: Adam with $\alpha = 10^{-4}$, $\beta_1 = 0.9$, $\beta_2 = 0.999$, weight decay $\lambda = 10^{-6}$ (AdamW variant). The model has 50M parameters with vastly different gradient scales across attention layers and convolutional layers. Adam's per-parameter adaptivity handles this heterogeneity without manual learning rate tuning per layer. Using AdamW (decoupled weight decay) instead of L2 regularization ensures the decay does not interact with the adaptive learning rate.
+where $\hat m$ estimates the gradient's mean and $\hat v$ estimates its *second
+moment*. For a coordinate whose gradient has mean $\mu$ and noise $\sigma$:
+
+$$
+\frac{\hat m}{\sqrt{\hat v}} \;\approx\; \frac{\mu}{\sqrt{\mu^2 + \sigma^2}}
+$$
+
+<KeyIdea>
+That is a **signal-to-noise ratio**, bounded in $[-1, 1]$ — not a gradient. Adam
+does not ask "how steep is it here?" but "how confident am I about the
+direction?", and it moves a fixed distance scaled by that confidence.
+</KeyIdea>
+
+<Figure src="/figures/adam-snr-update.svg"
+        alt="Left: consistent gradients of 0.001, 1 and 1000 all producing an update of exactly 1.000. Right: bars showing update magnitude 1.00, 0.71, 0.32, 0.10 as gradient noise rises, matching mu over root mu-squared plus sigma-squared."
+        caption="Measured over 200 seeds; the prediction is exact. A coordinate with a consistent gradient moves a full step whatever its magnitude, and one that is mostly noise is damped automatically." />
+
+## Two consequences that explain everything else
+
+<Steps>
+<Step title="Per-coordinate scale invariance">
+Multiply any coordinate's gradient by a constant and its update is unchanged. So
+layers whose gradients differ by orders of magnitude — normal in a deep network —
+all receive comparable-sized steps without anyone tuning per-layer rates. This is
+why Adam works on badly-conditioned problems where SGD needs careful scaling.
+</Step>
+
+<Step title="The learning rate means something portable">
+In SGD the step is $\eta g$, so a good $\eta$ depends on how large $g$ happens to
+be — which changes with the loss scale, depth, initialisation, and layer. In Adam
+the update magnitude is at most 1, so $\eta$ is a *distance in parameter space*.
+That is why $3\times10^{-4}$ is a reasonable starting point across wildly
+different transformers, and why the same claim would be meaningless for SGD.
+</Step>
+</Steps>
+
+<Intuition>
+A hiker who takes a fixed stride, and shortens it in proportion to how uncertain
+they are about which way is downhill. On a clear slope they stride confidently
+whether the slope is gentle or steep. In fog they shuffle.
+
+SGD is a hiker whose stride length is proportional to the steepness — fine on
+well-behaved terrain, and it either crawls or leaps depending on units nobody
+chose deliberately.
+</Intuition>
+
+## The bias correction, and why it is not optional
+
+The moment estimates start at zero, so early on they are biased toward zero — at
+step 1, $m_1 = (1-\beta_1)g_1 = 0.1\,g_1$, a tenth of the true gradient. Dividing
+by $1 - \beta_1^t$ removes exactly that.
+
+<Warning>
+The correction matters far more for $\hat v$ than for $\hat m$, because
+$\beta_2 = 0.999$ decays much more slowly. At step 10, $1-\beta_1^{10} = 0.65$
+while $1-\beta_2^{10} = 0.00996$ — so $v$ is under-estimated by a factor of a
+hundred, its square root by ten, and an uncorrected update is roughly ten times
+too large. Omitting the correction produces a violent first few hundred steps
+that people usually respond to by adding a warmup, which is a patch for a bug.
+</Warning>
+
+## The weight-decay trap
+
+Adding $\tfrac{\lambda}{2}\|\theta\|^2$ to the loss contributes $\lambda\theta$ to
+the gradient — and then that term gets divided by $\sqrt{\hat v}$ along with
+everything else.
+
+<KeyIdea>
+So coordinates with large gradients receive *less* weight decay, which is exactly
+backwards: the parameters doing the most work are regularised the least. AdamW
+fixes it by applying the decay directly to the parameters, outside the adaptive
+scaling. It is a two-line change and it is why AdamW rather than Adam is the
+default everywhere.
+</KeyIdea>
+
+## What it costs
+
+Two extra tensors the size of the parameters, so in fp32: 4 bytes for the weight,
+4 for its gradient, and 8 for the two moments — **16 bytes per parameter**. A 7B
+model is 112 GB of optimiser state and parameters before a single activation,
+which is why sharding that state is a precondition rather than an optimisation at
+any serious scale.
+
+<Warning>
+Adam is a strong default and not a universally better optimiser. Well-tuned SGD
+with momentum still generalises better on some vision benchmarks, and the gap has
+been studied enough to be taken seriously rather than dismissed. The honest
+position is that Adam is much more forgiving and transfers far better, which for
+most work is worth more than a small final-accuracy difference — and that if you
+are chasing the last point on a benchmark, the comparison is worth running.
+</Warning>
+
+<WatchThis />

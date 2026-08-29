@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 300" role="img"
+     aria-labelledby="adt add" font-family="system-ui, -apple-system, sans-serif">
+  <title id="adt">Adam's update is a signal-to-noise ratio, not a rescaled gradient</title>
+  <desc id="add">On the left, a consistent gradient of magnitude one thousandth,
+    one, or one thousand all produce an update of exactly one — the update is
+    scale-invariant per coordinate. On the right, when the gradient has mean mu
+    and noise sigma, the update magnitude equals mu over the root of mu squared
+    plus sigma squared, so a coordinate whose gradient is mostly noise is
+    automatically stepped less.</desc>
+
+  <!-- LEFT: scale invariance -->
+  <text x="20" y="26" fill="#e6edf3" font-size="12" font-weight="600">scale invariance</text>
+  <text x="20" y="42" fill="#8b949e" font-size="10.5">consistent gradient, three magnitudes</text>
+
+  <g font-size="10.5" fill="#8b949e" text-anchor="end">
+    <text x="120" y="80">g = 0.001</text>
+    <text x="120" y="118">g = 1</text>
+    <text x="120" y="156">g = 1000</text>
+  </g>
+  <g fill="#6c63ff" opacity="0.85">
+    <rect x="130" y="68" width="110" height="16"/>
+    <rect x="130" y="106" width="110" height="16"/>
+    <rect x="130" y="144" width="110" height="16"/>
+  </g>
+  <g fill="#e6edf3" font-size="10">
+    <text x="248" y="81">update = 1.000</text>
+    <text x="248" y="119">update = 1.000</text>
+    <text x="248" y="157">update = 1.000</text>
+  </g>
+
+  <text x="20" y="192" fill="#3fb950" font-size="10.5">so the learning rate is a step size in parameter space,</text>
+  <text x="20" y="208" fill="#3fb950" font-size="10.5">not a multiplier on an unknown gradient scale</text>
+
+  <line x1="20" y1="228" x2="616" y2="228" stroke="#30363d" stroke-width="1"/>
+
+  <!-- RIGHT: SNR -->
+  <text x="342" y="26" fill="#e6edf3" font-size="12" font-weight="600">noisy gradients</text>
+  <text x="342" y="42" fill="#8b949e" font-size="10.5">update = &#956; / &#8730;(&#956;&#178; + &#963;&#178;), measured and predicted</text>
+
+  <line x1="360" y1="200" x2="612" y2="200" stroke="#484f58" stroke-width="1.2"/>
+  <line x1="360" y1="200" x2="360" y2="58" stroke="#484f58" stroke-width="1.2"/>
+  <text x="352" y="62" fill="#8b949e" font-size="9.5" text-anchor="end">1.0</text>
+  <text x="352" y="204" fill="#8b949e" font-size="9.5" text-anchor="end">0</text>
+
+  <g fill="#8b949e" font-size="9" text-anchor="middle">
+    <text x="380" y="216">&#963;=0</text>
+    <text x="440" y="216">&#963;=1</text>
+    <text x="500" y="216">&#963;=3</text>
+    <text x="560" y="216">&#963;=10</text>
+  </g>
+  <text x="486" y="232" fill="#8b949e" font-size="9.5" text-anchor="middle">gradient noise, at &#956; = 1</text>
+
+  <g fill="#6c63ff" opacity="0.85">
+    <rect x="368" y="59" width="24" height="141"/>
+    <rect x="428" y="100" width="24" height="100"/>
+    <rect x="488" y="155" width="24" height="45"/>
+    <rect x="548" y="186" width="24" height="14"/>
+  </g>
+  <g fill="#e6edf3" font-size="9" text-anchor="middle">
+    <text x="380" y="53">1.00</text>
+    <text x="440" y="94">0.71</text>
+    <text x="500" y="149">0.32</text>
+    <text x="560" y="180">0.10</text>
+  </g>
+
+  <text x="342" y="256" fill="#e6edf3" font-size="11">A coordinate whose gradient is mostly noise is stepped less, automatically.</text>
+  <text x="342" y="274" fill="#8b949e" font-size="10.5">No per-layer tuning: each coordinate gets its own effective rate from its own history.</text>
+  <text x="342" y="292" fill="#8b949e" font-size="10">Measured over 200 seeds; the prediction is exact.</text>
+</svg>
