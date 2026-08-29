@@ -1,25 +1,206 @@
 ---
 concept: backpropagation
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Backpropagation — Chain Rule on
-    Computational Graphs, including the key equations.
+  prompt: "Derive the cost of forward versus reverse mode from the associativity of the chain rule. Then derive the checkpointing schedule and the backward-pass cost."
   keyPoints:
-    - Backpropagation computes the gradient $\nabla_\theta L$ of a scalar loss
-      $L$ with respect to all parameters $\theta$ by recursive application of
-      the chain rule on the computational graph.
-    - "For a composition $L = f_n \\circ f_{n-1} \\circ \\cdots \\circ f_1(x)$,
-      the gradient is: $$\\frac{\\partial L}{\\partial \\theta_i} =
-      \\frac{\\partial L}{\\partial f_n} \\cdot \\frac{\\partial f_n}{\\partial
-      f_{n-1}} \\cdots \\frac{\\partial f_{i+1}}{\\partial f_i} \\cdot
-      \\frac{\\partial f_i}{\\partial \\theta_i}$$ This reverse-mode automatic
-      differentiation has $O(n)$ cost for $n$ parameters, compared to $O(n^2)$
-      for forward-mode when computing full Jacobians."
-check: []
-papers: []
+    - "The chain rule is a product $J_n \\cdots J_1$. Associativity permits either evaluation order, and their costs differ by orders of magnitude when the input and output dimensions differ."
+    - "Reverse mode costs $O(m)$ passes for $m$ outputs, forward mode $O(n)$ for $n$ inputs. A scalar loss makes $m = 1$, which is why reverse mode wins."
+    - "Backward is about twice the forward cost: each layer needs a gradient with respect to its input (to keep propagating) and with respect to its weights (to update)."
+    - "Checkpointing every $k$-th layer stores $L/k + k$ activations, minimised at $k = \\sqrt L$, for one extra forward pass."
+check:
+  - id: bp_l2_c1
+    prompt: "For $f: \\mathbb{R}^n \\to \\mathbb{R}^m$ composed of $L$ layers, when is forward mode the cheaper choice?"
+    options:
+      - "Never; reverse mode always wins"
+      - "When $n \\ll m$ — few inputs, many outputs. Forward mode costs $O(n)$ passes and reverse mode $O(m)$, so the cheap direction is whichever dimension is smaller, and deep learning happens to sit at the extreme where $m = 1$"
+      - "When the network is shallow"
+      - "When the function is linear"
+    answer: 1
+    explanation: "The symmetry is the point, and it is what makes backpropagation an instance of something general rather than a special trick. Forward mode propagates a *column* of the Jacobian per pass and reverse mode a *row*, so you pay for whichever dimension you need to sweep. Sensitivity analysis of one parameter through a large simulation is a genuine forward-mode problem. Deep learning sits at $m = 1$, so reverse mode wins by the full factor of $n$."
+  - id: bp_l2_c2
+    prompt: "Why is the backward pass roughly twice the cost of the forward pass?"
+    options:
+      - "Because gradients are computed in higher precision"
+      - "Because each layer must produce two quantities — the gradient with respect to its input, to keep propagating backwards, and the gradient with respect to its weights, to update them — and each costs about one forward matmul"
+      - "Because the Jacobian must be transposed"
+      - "Because activations are recomputed"
+    answer: 1
+    explanation: "For a linear layer $y = Wx$, the forward pass is one matmul. Backward needs $\\partial L/\\partial x = W^\\top \\bar y$ and $\\partial L/\\partial W = \\bar y x^\\top$, each a matmul of comparable size. Hence forward $2N$ and backward $4N$ FLOPs per token, giving the $6ND$ training-compute rule. The final layer is the exception — it needs no input gradient — which is why freezing early layers saves less than you would expect."
+  - id: bp_l2_c3
+    prompt: "Why is $k = \\sqrt L$ the optimal checkpointing interval?"
+    options:
+      - "It is an empirical finding"
+      - "Storing every $k$-th activation costs $L/k$ checkpoints plus $k$ activations for the segment being recomputed; minimising $L/k + k$ over $k$ gives $k = \\sqrt{L}$ and a total of $2\\sqrt{L}$"
+      - "Because $\\sqrt{L}$ is the number of layers that fit in cache"
+      - "Because recomputation cost scales as $\\sqrt{L}$"
+    answer: 1
+    explanation: "It is a one-line optimisation of a sum of two competing terms. Fewer checkpoints means fewer stored tensors but longer recompute segments, each of which must be held in full while being replayed. Differentiating $L/k + k$ and setting to zero gives $k = \\sqrt L$, so memory falls from $O(L)$ to $O(\\sqrt L)$ — at 96 layers, from 96 activations to about 20. The recompute cost is one extra forward pass regardless of $k$, which is why $k$ only trades memory against memory."
 ---
 
-## Formal definition
+## The chain rule as a matrix product
 
-Backpropagation computes the gradient $\nabla_\theta L$ of a scalar loss $L$ with respect to all parameters $\theta$ by recursive application of the chain rule on the computational graph. For a composition $L = f_n \circ f_{n-1} \circ \cdots \circ f_1(x)$, the gradient is: $$\frac{\partial L}{\partial \theta_i} = \frac{\partial L}{\partial f_n} \cdot \frac{\partial f_n}{\partial f_{n-1}} \cdots \frac{\partial f_{i+1}}{\partial f_i} \cdot \frac{\partial f_i}{\partial \theta_i}$$ This reverse-mode automatic differentiation has $O(n)$ cost for $n$ parameters, compared to $O(n^2)$ for forward-mode when computing full Jacobians.
+A network is a composition $L = f_n \circ \cdots \circ f_1$, and the derivative is
+a product of Jacobians:
+
+$$
+\frac{\partial L}{\partial \theta} = \underbrace{J_n}_{1\times d_n} \underbrace{J_{n-1}}_{d_n \times d_{n-1}} \cdots \underbrace{J_1}_{d_2 \times d_1}
+$$
+
+<Derivation title="Associativity, and why the order costs different amounts">
+
+Matrix multiplication is associative, so this can be bracketed either way:
+
+$$
+\underbrace{\big(\cdots\big((J_n J_{n-1})J_{n-2}\big)\cdots\big)}_{\text{reverse mode: left to right}}
+\qquad
+\underbrace{\big(\cdots\big(J_n\big(J_{n-1}(J_{n-2}\cdots)\big)\big)\cdots\big)}_{\text{forward mode: right to left}}
+$$
+
+**Count the work.** Multiplying an $a\times b$ by a $b\times c$ matrix costs
+$abc$. Suppose all hidden dimensions are $d$, with $n$ inputs and $m$ outputs.
+
+*Reverse mode* starts from the $m \times d$ end. Each product is
+$(m\times d)(d\times d)$, costing $md^2$, and there are $L$ of them:
+$O(L\,m\,d^2)$.
+
+*Forward mode* starts from the $d \times n$ end. Each product is
+$(d\times d)(d\times n)$, costing $nd^2$, for $O(L\,n\,d^2)$.
+
+$$
+\boxed{\;\frac{\text{reverse}}{\text{forward}} = \frac{m}{n}\;}
+$$
+
+**Read it.** Neither mode is inherently better — you pay for whichever dimension
+you must sweep. Forward mode propagates one *column* of the Jacobian per pass;
+reverse mode propagates one *row*.
+
+**Why deep learning uses reverse.** A loss is a scalar, so $m = 1$ and $n$ is the
+parameter count. At $10^9$ parameters the ratio is $10^{-9}$ — reverse mode gives
+every gradient in one backward pass where forward mode would need a billion.
+
+**Where forward mode is correct.** Sensitivity of many outputs to one input:
+propagating a single uncertain parameter through a large simulation. The symmetry
+is real, and recognising it stops backpropagation looking like a special trick.
+
+</Derivation>
+
+## Vector-Jacobian products
+
+The derivation above suggests forming Jacobians, and nothing does. A $d = 4096$
+linear layer's Jacobian is $4096 \times 4096$ — 64 MiB in fp32, per example.
+
+What is actually computed is a **vector-Jacobian product**: given
+$\bar y = \partial L/\partial y$ flowing in, produce $\bar x = \bar y^\top J$
+without forming $J$.
+
+<Derivation title="The VJP for a linear layer, and the factor of two">
+
+For $y = Wx$:
+
+$$
+\bar x = \frac{\partial L}{\partial x} = W^\top \bar y,
+\qquad
+\bar W = \frac{\partial L}{\partial W} = \bar y\, x^\top
+$$
+
+Both are ordinary matrix operations of the same order as the forward matmul, and
+neither materialises $J$.
+
+**Two quantities, hence the factor of two.** $\bar x$ is needed to continue
+propagating backwards; $\bar W$ is needed to update the weights. So
+
+$$
+C_{\text{forward}} \approx 2N,
+\qquad
+C_{\text{backward}} \approx 4N,
+\qquad
+C_{\text{train}} \approx 6ND
+$$
+
+per token, for $N$ parameters and $D$ tokens — the standard training-compute
+rule, and now derived rather than asserted.
+
+**The exception worth knowing.** The first layer needs no $\bar x$, since nothing
+precedes it. More usefully, freezing early layers does *not* save the
+corresponding backward work if any trainable layer sits below them — you still
+need $\bar x$ to propagate through. That is why partial fine-tuning saves less
+than the parameter count suggests, and why freezing the *last* layers saves more
+than freezing the first.
+
+**Also note $\bar W = \bar y x^\top$ requires $x$.** The layer's input must still
+exist when the backward pass arrives, which is the memory cost of reverse mode
+stated precisely.
+
+</Derivation>
+
+## The memory schedule
+
+<Derivation title="Why $\sqrt L$">
+
+Store every $k$-th layer's activation. Two contributions to peak memory:
+
+- **Checkpoints kept for the whole backward pass:** $L/k$ of them.
+- **The segment being recomputed:** up to $k$ activations, held while replaying
+  that segment.
+
+$$
+M(k) = \frac{L}{k} + k,
+\qquad
+\frac{\mathrm{d}M}{\mathrm{d}k} = -\frac{L}{k^2} + 1 = 0
+\quad\Longrightarrow\quad
+k = \sqrt L,\ \ M = 2\sqrt L
+$$
+
+**Memory goes from $O(L)$ to $O(\sqrt L)$** — 96 layers to about 20 activations.
+
+**Compute cost.** Each segment is replayed once, so the total extra work is one
+additional forward pass, independent of $k$. Against a $6N$ baseline that is
+$2N$ more, about 33%.
+
+**And it is exact.** The recomputed activations are bitwise the same
+computation — no approximation, no accuracy question, which is why it can be
+switched on by default when memory is tight.
+
+</Derivation>
+
+## Why long products misbehave
+
+The gradient reaching layer $k$ is $\prod_{j>k} J_j$, and a long product of
+matrices is governed by the product of their singular values.
+
+$$
+\Big\|\prod_{j=k}^{L} J_j\Big\| \;\lesssim\; \prod_{j=k}^{L}\|J_j\|
+$$
+
+If typical $\|J\| = \sigma$, the magnitude goes like $\sigma^{L-k}$ —
+exponential in depth, vanishing for $\sigma < 1$ and exploding for $\sigma > 1$.
+There is no stable middle unless something enforces $\sigma \approx 1$.
+
+<Steps>
+<Step title="Initialisation gets $\sigma$ near 1 at step zero">
+He and Xavier scaling choose the weight variance so that activation and gradient
+variance are preserved layer to layer at initialisation. Necessary and not
+sufficient, since it degrades as training moves the weights.
+</Step>
+
+<Step title="Normalisation keeps it near 1 during training">
+By rescaling activations to a fixed scale at every layer, it removes the
+accumulation that initialisation alone cannot prevent.
+</Step>
+
+<Step title="Residual connections change the structure">
+$\partial(x + F(x))/\partial x = I + J$, so the product expands to
+$I + \sum J_j + \cdots$ — a term that passes through no multiplicative factor.
+This is the structural fix rather than a correction, and it is why depth became
+trainable.
+</Step>
+</Steps>
+
+<KeyIdea>
+The first two keep the product's factors near one; the third removes the need for
+them to be. That is why residual connections mattered so much more than better
+initialisation, and it is the same argument that makes pre-norm the right
+placement in a transformer.
+</KeyIdea>

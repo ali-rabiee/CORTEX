@@ -1,0 +1,192 @@
+---
+concept: backpropagation
+level: 4
+status: final
+recall:
+  prompt: "Where did backpropagation come from, and what has changed about how it is used at scale?"
+  keyPoints:
+    - "Reverse-mode AD predates its use in neural networks by more than a decade; Rumelhart, Hinton and Williams (1986) is the paper that established what it made possible rather than the algorithm."
+    - "The AD survey (2018) is the correction to a common confusion: autodiff is neither symbolic nor numerical differentiation, and conflating them explains several persistent misconceptions."
+    - "Checkpointing (2016) turned activation memory from a hard constraint into a compute trade, at $O(\\sqrt L)$ memory for one extra forward pass."
+    - "The current pressure is entirely about memory and parallelism — sharded optimiser state, activation offload, and where to cut a model across devices are all consequences of what reverse mode must retain."
+papers:
+  - key: baydin2018ad
+    title: "Automatic differentiation in machine learning: a survey"
+    authors: "Atılım Güneş Baydin, Barak A. Pearlmutter, Alexey Andreyevich Radul, Jeffrey Mark Siskind"
+    venue: JMLR
+    year: 2018
+    arxiv: "1502.05767"
+    takeaway: "Separates automatic differentiation from symbolic and numerical differentiation, and derives the forward/reverse mode cost asymmetry that explains why backpropagation is the right algorithm for a scalar loss."
+  - key: chen2016checkpointing
+    title: "Training Deep Nets with Sublinear Memory Cost"
+    authors: "Tianqi Chen, Bing Xu, Chiyuan Zhang, Carlos Guestrin"
+    year: 2016
+    arxiv: "1604.06174"
+    takeaway: "Stores a $\\sqrt{L}$-spaced subset of activations and recomputes the rest during the backward pass, reducing activation memory from $O(L)$ to $O(\\sqrt L)$ for roughly one extra forward pass — exactly."
+  - key: rumelhart1986backprop
+    title: "Learning representations by back-propagating errors"
+    authors: "David E. Rumelhart, Geoffrey E. Hinton, Ronald J. Williams"
+    venue: Nature
+    year: 1986
+    url: https://www.nature.com/articles/323533a0
+    takeaway: "The paper that established backpropagation's significance for learning internal representations in neural networks — the demonstration of what the algorithm made possible rather than the algorithm's origin."
+  - key: dao2022flashattention
+    title: "FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness"
+    authors: "Tri Dao, Daniel Y. Fu, Stefano Ermon, Atri Rudra, Christopher Ré"
+    venue: NeurIPS
+    year: 2022
+    arxiv: "2205.14135"
+    takeaway: "Applies the recompute-rather-than-store trade inside a single operation, avoiding materialising the attention matrix and recomputing tiles in the backward pass — checkpointing's logic at the kernel level."
+check:
+  - id: bp_l4_c1
+    prompt: "What is the most consequential confusion the AD survey corrects?"
+    options:
+      - "That backpropagation is only for neural networks"
+      - "That automatic differentiation is neither symbolic differentiation nor finite differences — it evaluates exact derivatives numerically by composing known local rules, so it has no expression swell and no truncation error"
+      - "That reverse mode is always faster than forward mode"
+      - "That gradients can be computed without a forward pass"
+    answer: 1
+    explanation: "The confusion has practical consequences. People expect either symbolic differentiation's problems — expression swell, needing a closed-form function — or finite differences' problems, namely truncation error and a step-size choice. AD has neither: it is exact to floating-point precision and costs a constant factor over the forward evaluation. Knowing that is what tells you a failed gradient check indicates a *bug* rather than the expected numerical error, which is the practically useful consequence."
+  - id: bp_l4_c2
+    prompt: "Checkpointing and FlashAttention make the same trade at different scales. What is it?"
+    options:
+      - "Precision for speed"
+      - "Recomputation for storage: both discard an intermediate and recompute it in the backward pass rather than holding it, spending arithmetic — which is abundant — to save memory bandwidth and capacity, which are not"
+      - "Parallelism for memory"
+      - "Approximation for exactness"
+    answer: 1
+    explanation: "Both are exact, which rules out option 4 and is what makes them safe to enable by default. Checkpointing does it at the granularity of layers, dropping activations between checkpoints; FlashAttention does it inside one operation, never writing the $n\\times n$ matrix and recomputing tiles. The shared insight is that modern accelerators are far more starved of memory bandwidth than of arithmetic, so any intermediate written only because the naive execution order computed it is a candidate for this trade."
+  - id: bp_l4_c3
+    prompt: "Why does reverse mode determine how a large model is split across devices?"
+    options:
+      - "It does not; sharding is independent of the gradient computation"
+      - "Because the backward pass must revisit every activation in reverse order, so a cut between devices creates a dependency in both directions — the forward activations must be sent one way and the gradients back, which is what pipeline and tensor parallelism are organised around"
+      - "Because gradients are larger than activations"
+      - "Because optimiser state must be replicated"
+    answer: 1
+    explanation: "The bidirectional dependency is what makes model splitting hard. A cut point must hold its activation until the corresponding backward step arrives, which for pipeline parallelism is the source of the bubble — devices idle while waiting for gradients to come back. Every scheme in that area, from micro-batching to interleaved schedules, exists to keep devices busy across that gap, and it is a direct consequence of reverse mode needing the forward pass to still exist."
+---
+
+## Older than its fame
+
+Reverse-mode automatic differentiation was developed in the numerical computing
+literature well before neural networks adopted it — the algorithm is not what
+1986 contributed.
+
+<PaperCard refKey="rumelhart1986backprop" />
+
+What that paper established is what backpropagation made *possible*: that a
+network could learn useful internal representations in its hidden layers rather
+than requiring them to be designed. The algorithm was the vehicle; the claim was
+about representation learning.
+
+<KeyIdea>
+Worth getting right in an interview, because "who invented backprop" has a
+contested answer and "what did the 1986 paper show" has a clear one. The
+algorithm has multiple independent origins in numerical analysis and control; the
+demonstration that it makes hidden-layer representation learning work is the
+contribution being cited.
+</KeyIdea>
+
+## The framing that clears up the confusion
+
+<PaperCard refKey="baydin2018ad" />
+
+Automatic differentiation is routinely confused with two other things, and both
+confusions have practical consequences.
+
+<Steps>
+<Step title="It is not symbolic differentiation">
+Symbolic differentiation manipulates expressions and suffers expression swell —
+the derivative of a modestly nested function can be enormous to write down. AD
+evaluates numerically at a point, composing local rules, so nothing grows.
+</Step>
+
+<Step title="It is not finite differences">
+Finite differences approximate, with a truncation error and a step size to
+choose, and cost one evaluation per input. AD is **exact** to floating-point
+precision and costs a constant factor over the forward pass.
+</Step>
+
+<Step title="Why that matters practically">
+It tells you a failed gradient check indicates a bug rather than expected
+numerical error. If AD were approximate you would have to decide what tolerance
+is acceptable; because it is exact, a real discrepancy means a wrong backward
+rule.
+</Step>
+</Steps>
+
+The survey also derives the forward/reverse cost asymmetry properly — one pass
+per input versus one per output — which is what makes backpropagation an instance
+of a general principle rather than a trick specific to neural networks.
+
+## Turning a constraint into a trade
+
+<PaperCard refKey="chen2016checkpointing" />
+
+Reverse mode's cost is that every activation must survive until the backward pass
+reaches it, and for a long time that was simply a limit on how large a model you
+could train.
+
+Checkpointing converts it: store a $\sqrt L$-spaced subset, recompute the rest.
+Memory falls from $O(L)$ to $O(\sqrt L)$ — 96 layers to about 20 stored
+activations — for roughly one extra forward pass.
+
+<Warning>
+The property that makes this adoptable is exactness. The recomputed activations
+are the same computation, so there is no accuracy question to argue about and it
+can be switched on whenever memory is tight. Compare an approximate method, which
+would need defending per application — the same adoption asymmetry that decided
+the efficient-attention question.
+</Warning>
+
+## The same trade, one level down
+
+<PaperCard refKey="dao2022flashattention" />
+
+FlashAttention applies checkpointing's logic inside a single operation: never
+write the $n\times n$ attention matrix, and recompute tiles in the backward pass.
+It uses *more* arithmetic than the naive implementation and is substantially
+faster, because the binding resource was memory bandwidth.
+
+<KeyIdea>
+The transferable rule: any intermediate that exists only because the naive
+execution order happened to compute it is a candidate for recomputation. Modern
+accelerators are far more starved of memory bandwidth than of arithmetic, so
+spending FLOPs to avoid a write is usually a good trade — and checkpointing and
+FlashAttention are the same idea at two granularities.
+</KeyIdea>
+
+## Where the pressure is now
+
+Reverse mode's memory requirement is what shapes distributed training, and the
+connection is direct rather than incidental.
+
+<Steps>
+<Step title="Optimiser state sharding">
+Not a backprop consequence, but the same memory budget. At 16 bytes per parameter
+in fp32, a 7B model's parameters, gradients and Adam state are 112 GB before any
+activation exists.
+</Step>
+
+<Step title="Activation offload and recomputation">
+Directly a backprop consequence. Activations can be moved to host memory and
+fetched back, or recomputed — the same trade as checkpointing with a different
+resource on the other side.
+</Step>
+
+<Step title="Pipeline parallelism and the bubble">
+Cutting a model across devices creates a bidirectional dependency: activations
+travel forward, gradients travel back, and the cut point must hold its activation
+in between. Devices idle across that gap, which is the pipeline bubble — and
+micro-batching and interleaved schedules exist entirely to fill it.
+</Step>
+</Steps>
+
+<Warning>
+Almost every complication in large-scale training traces to one fact: the
+backward pass needs the forward pass to still exist. That is the price of the
+associative order that makes gradients cheap, and it is worth being able to state
+the connection — it turns a list of distributed-training techniques into
+consequences of a single design choice.
+</Warning>

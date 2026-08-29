@@ -1,0 +1,245 @@
+---
+concept: backpropagation
+level: 3
+status: final
+recall:
+  prompt: "Implement reverse-mode autodiff from scratch. What is a node, what is the backward rule, and what are the practical traps in a real framework?"
+  keyPoints:
+    - "A node stores its value, its parents, and a rule mapping the incoming gradient to gradients for each parent — a vector-Jacobian product, never a Jacobian."
+    - "The backward pass is a reverse topological traversal with gradient *accumulation*: a value used twice receives two contributions and they add."
+    - "In a framework, the traps are retained graphs, in-place operations invalidating saved tensors, and `detach` boundaries that silently stop the gradient."
+    - "Checkpointing is exact and costs one extra forward pass; it is the first thing to reach for when activation memory caps the batch size."
+check:
+  - id: bp_l3_c1
+    prompt: "Why must gradients *accumulate* at a node rather than being assigned?"
+    options:
+      - "For numerical stability"
+      - "Because a value used in more than one place contributes to the loss through every path, and the multivariable chain rule sums over paths — assigning would keep only the last contribution"
+      - "Because backward passes run in parallel"
+      - "To support mini-batching"
+    answer: 1
+    explanation: "If $x$ feeds both $f$ and $g$, then $\\partial L/\\partial x = \\partial L/\\partial f \\cdot \\partial f/\\partial x + \\partial L/\\partial g \\cdot \\partial g/\\partial x$ — the total derivative sums over paths. Since the backward traversal visits those paths at different times, each must add its contribution. It is also why `zero_grad()` exists: PyTorch accumulates into `.grad` by design so multiple backward passes can sum, and forgetting to clear it means you are training on a sum of every batch you have ever seen."
+  - id: bp_l3_c2
+    prompt: "You modify a tensor in place after using it in a computation and get a runtime error about a version counter. Why does autograd care?"
+    options:
+      - "In-place operations are always unsafe"
+      - "Because the backward rule for the operation that consumed it saved a reference to that tensor and needs its *original* value — for example $\\partial L/\\partial W = \\bar y\\,x^\\top$ needs $x$ as it was, and overwriting it would silently produce a wrong gradient"
+      - "Because in-place operations break the topological order"
+      - "Because memory is reused unpredictably"
+    answer: 1
+    explanation: "The version counter exists to turn a silently wrong gradient into a loud error, which is one of autograd's more valuable design decisions. Backward rules save exactly the tensors they need — a linear layer keeps its input, a ReLU keeps a sign mask — and if one of those is mutated between the forward and backward passes, the computed gradient is for a function that was never evaluated. Not every in-place operation is unsafe, which is why the check is on saved tensors specifically."
+  - id: bp_l3_c3
+    prompt: "What is the difference between `.detach()` and `torch.no_grad()`?"
+    options:
+      - "They are equivalent"
+      - "`detach()` cuts one tensor out of the graph while operations around it are still recorded; `no_grad()` disables recording entirely for its scope, so nothing inside builds a graph at all"
+      - "`detach()` frees memory and `no_grad()` does not"
+      - "`no_grad()` is only for inference"
+    answer: 1
+    explanation: "The distinction matters when you need both behaviours at once. Under `no_grad()` nothing is recorded, so no gradient flows anywhere — right for evaluation and for building a target. `detach()` is surgical: it stops the gradient at one point while the rest of the graph is still built, which is exactly what a bootstrapped target or a stop-gradient in a straight-through estimator needs. Using `no_grad()` where you meant `detach()` silently disables learning for everything in the block."
+---
+
+## Reverse-mode autodiff in fifty lines
+
+<CodeWalk title="A minimal autograd engine">
+
+```python title="autograd.py"
+import numpy as np
+
+class Tensor:
+    """Value, parents, and a rule mapping the incoming gradient to gradients
+    for each parent — a vector-Jacobian product. The Jacobian itself is never
+    formed: a d=4096 linear layer's is 64 MiB per example."""
+
+    def __init__(self, data, parents=(), backward_fn=None):
+        self.data = np.asarray(data, dtype=np.float32)
+        self.grad = np.zeros_like(self.data)
+        self._parents = parents
+        self._backward_fn = backward_fn          # takes upstream grad, returns
+                                                 # one grad per parent
+
+    def __add__(self, other):
+        out = Tensor(self.data + other.data, (self, other),
+                     lambda g: (g, g))
+        return out
+
+    def __matmul__(self, other):
+        # The VJP: W^T g and g x^T, both ordinary matmuls. Note the rule needs
+        # the ORIGINAL inputs — which is why they must stay alive, and why
+        # reverse mode costs memory.
+        out = Tensor(self.data @ other.data, (self, other),
+                     lambda g: (g @ other.data.T, self.data.T @ g))
+        return out
+
+    def relu(self):
+        mask = self.data > 0
+        return Tensor(self.data * mask, (self,), lambda g: (g * mask,))
+
+    def sum(self):
+        return Tensor(self.data.sum(), (self,),
+                      lambda g: (np.ones_like(self.data) * g,))
+
+    def backward(self):
+        # Reverse topological order: a node's gradient is only complete once
+        # every consumer has contributed.
+        topo, seen = [], set()
+        def visit(t):
+            if id(t) in seen:
+                return
+            seen.add(id(t))
+            for p in t._parents:
+                visit(p)
+            topo.append(t)
+        visit(self)
+
+        self.grad = np.ones_like(self.data)      # dL/dL = 1
+        for t in reversed(topo):
+            if t._backward_fn is None:
+                continue
+            for parent, g in zip(t._parents, t._backward_fn(t.grad)):
+                # ACCUMULATE. A value used twice contributes through both
+                # paths, and the chain rule sums over paths.
+                parent.grad += g
+```
+
+</CodeWalk>
+
+Two lines carry the algorithm. The reverse topological order guarantees a node's
+gradient is complete before it is used — you cannot propagate through a node
+until every consumer has contributed. And `+=` rather than `=` implements the sum
+over paths, which is also why `zero_grad()` exists in real frameworks.
+
+## The traps in a real framework
+
+```python title="traps.py"
+# 1. Accumulation is the default, not a bug.
+optimizer.zero_grad(set_to_none=True)      # omit this and you train on the sum
+loss.backward()                            # of every batch you have ever seen
+optimizer.step()
+
+# 2. Saved tensors must not be mutated. The backward rule for the matmul
+#    above saved `self.data`; overwriting it produces a gradient for a
+#    function that was never evaluated. PyTorch's version counter turns that
+#    silent error into a loud one.
+h = layer(x)
+h.relu_()                                  # in-place: may invalidate a save
+h = h.relu()                               # safe
+
+# 3. detach() vs no_grad() are not interchangeable.
+with torch.no_grad():
+    target = target_net(next_obs)          # nothing recorded at all
+q_target = reward + gamma * target         # right for a bootstrapped target
+
+adv = (returns - values).detach()          # surgical: cut ONE tensor out
+loss = -(logp * adv).mean()                # while the graph around it lives
+```
+
+<Warning>
+The third is the one that produces working-but-wrong code rather than an error.
+Using `no_grad()` where you meant `detach()` silently disables learning for
+everything in the block; using `detach()` where you meant `no_grad()` still
+builds a graph and wastes memory. In an actor-critic loss, forgetting the
+`detach()` on the advantage backpropagates the policy objective into the critic —
+a different algorithm that trains and does not work.
+</Warning>
+
+## Checkpointing
+
+<CodeWalk title="Trading one forward pass for most of your activation memory">
+
+```python title="checkpoint.py"
+from torch.utils.checkpoint import checkpoint
+
+def forward(blocks, x, use_checkpointing=True):
+    """Store activations at block boundaries only; recompute the interior
+    during the backward pass. EXACT — the recomputed activations are the same
+    computation, so there is no accuracy question and it can be switched on
+    whenever memory is tight.
+
+    Cost: about one extra forward pass, ~33% on top of a 6N baseline.
+    Benefit: memory from O(L) to O(sqrt L) with a sqrt-L interval —
+    96 layers to about 20 stored activations.
+    """
+    for blk in blocks:
+        x = checkpoint(blk, x, use_reentrant=False) if use_checkpointing else blk(x)
+    return x
+```
+
+</CodeWalk>
+
+```python title="memory_probe.py"
+def activation_memory_report(model, batch, device="cuda"):
+    """Parameters are fixed; activations scale with batch and sequence and are
+    what actually caps the batch size. Diagnosing an OOM from the model size
+    is the standard way to spend an afternoon on the wrong problem."""
+    torch.cuda.reset_peak_memory_stats(device)
+    before = torch.cuda.memory_allocated(device)
+
+    loss = model(batch).sum()
+    after_forward = torch.cuda.memory_allocated(device)
+    loss.backward()
+
+    params = sum(p.numel() * p.element_size() for p in model.parameters())
+    return {
+        "parameters_MiB": params / 2**20,
+        "activations_MiB": (after_forward - before) / 2**20,
+        "peak_MiB": torch.cuda.max_memory_allocated(device) / 2**20,
+    }
+```
+
+## Verifying a hand-written backward rule
+
+```python title="gradcheck.py"
+def check(fn, x, eps=1e-4, tol=1e-4):
+    """Central differences against the analytic gradient. Use float64 —
+    in float32 the truncation and rounding errors are comparable and the
+    check fails for the wrong reason.
+    """
+    x = x.double().requires_grad_(True)
+    fn(x).sum().backward()
+    analytic = x.grad.clone()
+
+    numeric = torch.zeros_like(x)
+    flat = x.detach().flatten()
+    for i in range(flat.numel()):
+        orig = flat[i].item()
+        flat[i] = orig + eps; plus = fn(x.detach()).sum().item()
+        flat[i] = orig - eps; minus = fn(x.detach()).sum().item()
+        flat[i] = orig
+        numeric.flatten()[i] = (plus - minus) / (2 * eps)
+
+    rel = (analytic - numeric).abs() / (analytic.abs() + numeric.abs() + 1e-12)
+    return rel.max().item() < tol
+```
+
+<KeyIdea>
+`torch.autograd.gradcheck` does this properly and should be run on every custom
+`autograd.Function` you write. A wrong backward rule does not error — it trains,
+slowly and to the wrong place — and gradient checking is the only cheap way to
+find out before you have spent a week on it.
+</KeyIdea>
+
+## Diagnosing the failures
+
+<Steps>
+<Step title="Loss becomes NaN → exploding gradients">
+Log the global gradient norm. Clip it, and check for a division or log of
+something that reached zero, which is a more common cause than genuine explosion.
+</Step>
+
+<Step title="Early layers barely move → vanishing, or a detached path">
+Print per-layer gradient norms. If an early layer's is exactly zero rather than
+small, something detached it; if it is small and decaying with depth, that is
+vanishing.
+</Step>
+
+<Step title="Out of memory in training but not inference → activations">
+Expected — inference has no backward pass and stores nothing. Checkpoint first,
+then reduce the batch.
+</Step>
+
+<Step title="Gradients look plausible and the model learns the wrong thing → check the detaches">
+A missing or misplaced `detach()` produces a coherent, trainable, wrong
+objective. Gradient checking will not catch it; reading the loss will.
+</Step>
+</Steps>

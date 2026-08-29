@@ -1,25 +1,172 @@
 ---
 concept: backpropagation
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Backpropagation — Chain Rule on Computational Graphs fail in
-    practice, and how would you present it in an interview?
+  prompt: "Give your interview answer on backpropagation. What is the precise characterisation, and what does it explain about training at scale?"
   keyPoints:
-    - "Vanishing gradients in deep networks: the product of many Jacobians with
-      spectral radius $< 1$ causes $\\|\\frac{\\partial L}{\\partial
-      \\theta_1}\\| \\to 0$ exponentially with depth."
-    - "Symptoms: early layers stop learning, loss plateaus with later layers
-      still updating."
-    - Conversely, exploding gradients ($\to \infty$) cause NaN losses.
-check: []
-papers: []
+    - "It is reverse-mode AD — a specific associative order of the chain rule, not the chain rule itself. Forward mode costs one pass per input, reverse one per output."
+    - "A scalar loss makes reverse mode win by the parameter count: all $10^9$ gradients in one pass instead of $10^9$ passes."
+    - "The price is that activations must survive until the backward pass reaches them, which is why activation memory rather than parameters caps batch size."
+    - "Backward is $\\approx 2\\times$ forward because each layer produces two gradients — input and weights — giving the $6ND$ training-compute rule."
+interview:
+  answer: >-
+    The precise statement is that backpropagation is reverse-mode automatic
+    differentiation, and the word doing the work is *reverse*. The chain rule is
+    a product of Jacobians, and matrix products are associative, so you can
+    evaluate that product left-to-right or right-to-left — and the two orders
+    cost completely different amounts. Right-to-left is forward mode: you carry
+    the derivative with respect to one input forward through the network, so you
+    get one column of the Jacobian per pass and you need one pass per parameter.
+    Left-to-right is reverse mode: you carry the derivative of one output
+    backward, so you get one row per pass and you need one pass per output. If
+    you work out the cost ratio it's just m over n, outputs over inputs. Neither
+    mode is inherently better — you pay for whichever dimension you have to
+    sweep. What makes deep learning feasible is that a loss is a scalar, so m
+    equals one and n is the parameter count. At a billion parameters that's a
+    billion-fold difference. I'd flag that as the actual content, because
+    "backprop is the chain rule" doesn't distinguish it from the version that
+    would take a billion passes. The price is memory. The backward pass needs
+    the intermediate activations — the gradient with respect to a weight matrix
+    is the incoming gradient times the layer's input transposed, so that input
+    has to still exist — and they're produced in the forward direction, so
+    everything has to be retained until the backward pass reaches it. That's why
+    a model whose weights fit comfortably still runs out of memory in training,
+    and why diagnosing an OOM by looking at the parameter count is the standard
+    way to spend an afternoon on the wrong problem. Two things follow that I'd
+    want to have ready. Backward is about twice the forward cost, because each
+    layer produces two gradients: one with respect to its input, to keep
+    propagating, and one with respect to its weights, to update them. Forward is
+    2N per token, backward 4N, so training is about 6ND FLOPs — which is where
+    that rule comes from rather than being an empirical constant. And
+    checkpointing buys the memory back: store every root-L-th activation and
+    recompute the rest, which minimises L over k plus k at k equals root L, so
+    memory goes from order L to order root L — 96 layers down to about 20 stored
+    activations — for one extra forward pass. It's exact, so there's no accuracy
+    question, which is why it can just be switched on.
+  followUps:
+    - q: "When would forward mode actually be the right choice?"
+      a: >-
+        When you have few inputs and many outputs — the mirror image. Sensitivity
+        analysis of one uncertain parameter through a large simulation is the
+        canonical case: one input, thousands of outputs, so forward mode gives
+        you the whole column in a single pass where reverse mode would need one
+        pass per output. It also has a real advantage in that it needs no tape
+        and no stored activations, since derivatives are carried alongside values
+        and each intermediate can be discarded as soon as it's used. That makes
+        it attractive in memory-constrained settings even when the dimension
+        ratio is unfavourable. In deep learning it shows up for
+        Jacobian-vector products — computing the effect of a parameter
+        perturbation, which is what some second-order and influence-function
+        methods need.
+    - q: "You get an out-of-memory error in training but inference is fine. Walk me through it."
+      a: >-
+        That's the expected asymmetry rather than a surprise — inference has no
+        backward pass, so it stores nothing beyond the current layer. The memory
+        that appears in training is the retained activations, and they scale with
+        batch size and sequence length while parameters don't. So the first thing
+        I'd do is measure rather than guess: allocated memory after the forward
+        pass minus before, against the parameter footprint, which usually shows
+        activations dominating by a wide margin. Then checkpointing first,
+        because it's exact and costs about a third more compute for a large
+        reduction. Then a fused attention kernel if it's a transformer, since
+        the n-by-n attention matrix alone can be tens of gigabytes per layer.
+        Reducing the batch size is what I'd do last, because it changes the
+        optimisation rather than just the memory profile.
+    - q: "Where does the 6ND training-compute rule come from?"
+      a: >-
+        From counting the matmuls. A matmul against a weight matrix with n
+        entries costs 2n floating-point operations — one multiply and one add per
+        entry — so the forward pass is 2N per token for N parameters. The
+        backward pass needs two things per layer: the gradient with respect to
+        the input, which is W-transpose times the incoming gradient and lets you
+        keep propagating, and the gradient with respect to the weights, which is
+        the incoming gradient times the input transposed. Each is about the cost
+        of the forward matmul, so backward is roughly 4N. Two plus four is six.
+        What it ignores is the attention term, which is quadratic in sequence
+        length — so the estimate is good below the crossover where attention
+        matches the feed-forward block, around eight times the model width, and
+        increasingly optimistic above it.
+    - q: "Why did residual connections matter so much for depth?"
+      a: >-
+        Because the gradient reaching layer k is a product of Jacobians, and a
+        long product of matrices is governed by the product of their singular
+        values — so it goes like sigma to the power of depth, vanishing below one
+        and exploding above one, with no stable middle. Initialisation and
+        normalisation both work by keeping those factors near one, which is a
+        maintenance problem that gets harder with depth. Residual connections
+        change the structure instead: the Jacobian of x plus F of x is I plus J,
+        so the product across layers expands to a sum containing the identity.
+        There's a path from the loss to every layer that passes through no
+        multiplicative factor at all. That's why it was a structural fix rather
+        than a better correction, and it's the same argument that makes pre-norm
+        the right placement in a transformer — putting the normalisation on the
+        residual path reintroduces exactly the factor the identity was there to
+        avoid.
+  traps:
+    - "Saying backpropagation *is* the chain rule. It is one associative order of it, and the order is the entire content — the other order would need one pass per parameter."
+    - "Claiming reverse mode is universally better. It wins when outputs are few and inputs many; the cost ratio is $m/n$, and forward mode is correct for the mirror case."
+    - "Forgetting that reverse mode's advantage is bought with memory. That single fact explains checkpointing, activation offload, and the pipeline bubble."
+    - "Treating $6ND$ as an empirical constant. It is $2N$ forward plus $4N$ backward, and the four is because each layer produces two gradients."
+check:
+  - id: bp_l5_c1
+    prompt: "A candidate says 'backpropagation is just the chain rule applied efficiently'. What is the sharper version?"
+    options:
+      - "It is correct as stated"
+      - "It is reverse-mode AD specifically — the chain rule is a product of Jacobians and associativity permits two evaluation orders whose costs differ by the ratio of outputs to inputs. 'Efficiently' hides the entire content, since the other order would need one pass per parameter"
+      - "It is the chain rule plus gradient descent"
+      - "It is numerical differentiation with a small step size"
+    answer: 1
+    explanation: "The loose statement is true and does not distinguish backpropagation from an algorithm that is a billion times slower on the same problem. What makes it efficient is a specific choice — evaluating the Jacobian product from the output end — and that choice is only right because losses are scalars. Being able to say which order and why is the difference between having used autodiff and having understood it, and it also tells you when the other order is correct."
+  - id: bp_l5_c2
+    prompt: "Your 24-layer model trains at batch size 4 and you need 32. Rank your options."
+    options:
+      - "Reduce the model size, then the sequence length, then the batch"
+      - "Gradient checkpointing first — exact, about 33% more compute, and it cuts stored activations from 24 to roughly 10; then a fused attention kernel if applicable; then gradient accumulation to get the effective batch without the memory"
+      - "Switch to fp16 and hope it fits"
+      - "Use forward-mode differentiation to avoid storing activations"
+    answer: 1
+    explanation: "Checkpointing is first because it is exact, needs no hyperparameter change, and targets the actual constraint. A fused attention kernel is next for a transformer, since the $n\\times n$ matrix can dominate. Gradient accumulation then gets the optimisation behaviour of a large batch without the memory, at the cost of wall-clock. Option 4 is the tempting wrong answer for someone who has just learned the modes — forward mode does avoid storing activations, and it would cost one pass per parameter, so it is unusable here."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Vanishing gradients in deep networks: the product of many Jacobians with spectral radius $< 1$ causes $\|\frac{\partial L}{\partial \theta_1}\| \to 0$ exponentially with depth. Symptoms: early layers stop learning, loss plateaus with later layers still updating. Conversely, exploding gradients ($\to \infty$) cause NaN losses. Fixes: residual connections (additive gradient paths), careful initialization (He/Glorot), gradient clipping ($\|g\| \leq c$), and normalization layers.
+<Steps>
+<Step title="OOM in training, fine in inference → activations, as expected">
+No backward pass means nothing is retained. Measure allocated memory after the
+forward pass rather than inferring from parameter count.
+</Step>
 
-## Interview-ready answer
+<Step title="Loss becomes NaN → exploding gradients, or a numerical trap">
+Log the global gradient norm and clip. Check for a log or division of something
+that reached zero, which is a more common cause than genuine explosion.
+</Step>
 
-Backprop is reverse-mode autodiff on the computational graph — it computes $\nabla_\theta L$ in a single backward pass with cost proportional to the forward pass ($\sim 2\times$ FLOPS). The key insight is that for a scalar output and $n$ parameters, reverse mode is $O(n)$ while forward mode would be $O(n^2)$. In practice, I pay attention to gradient flow: residual connections provide additive gradient highways that mitigate vanishing gradients, and gradient clipping prevents exploding gradients in RNNs and transformers. Mixed-precision training uses FP16 for forward/backward but FP32 for gradient accumulation to avoid underflow.
+<Step title="An early layer's gradient is exactly zero → something detached it">
+Small and decaying with depth is vanishing. Exactly zero is a broken graph — a
+misplaced `no_grad()`, a `detach()`, or a tensor that never required grad.
+</Step>
+
+<Step title="Model trains and learns the wrong objective → check the detaches">
+A missing `detach()` on an advantage or a bootstrapped target produces a
+coherent, trainable, wrong loss. Gradient checking will not catch it.
+</Step>
+
+<Step title="Custom autograd function behaves oddly → gradient check it">
+AD is exact, so a real discrepancy against central differences in float64 is a
+bug in your backward rule, not numerical error.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The sentence that distinguishes this answer is that backpropagation is *reverse*
+mode, and that the choice of direction is the content. "The chain rule applied
+efficiently" is true and does not separate it from an algorithm a billion times
+slower on the same problem. Say that the cost ratio is outputs over inputs, that
+a scalar loss is what makes the cheap direction the useful one, and that the
+price is having to keep the forward pass alive — and then every complication of
+large-scale training, from checkpointing to the pipeline bubble, follows as a
+consequence rather than as a list.
+</Warning>
