@@ -1,15 +1,18 @@
 id: states_observations
 title: States and Observations
 domain: rl
-summary: State is 'ground truth' — the full physics of the world.
+summary: What you feed the policy is a design decision, not a given. The choice
+  determines which failure modes are even possible — and the most expensive one,
+  learning the wrong channel, is invisible in the training loss.
 tags:
   - rl
   - robot_learning
   - perception
-difficulty: 1
+difficulty: 2
 importance: 5
 related_concept_ids:
   - mdp
-  - actions_action_spaces
-  - perception
-  - sim2real
+  - behavior_cloning
+  - sim2real_transfer
+  - dataset_curation
+  - visuomotor_policy

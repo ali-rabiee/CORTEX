@@ -1,0 +1,133 @@
+---
+concept: states_observations
+level: 4
+status: final
+recall:
+  prompt: "Trace the papers on observation design. What did each establish?"
+  keyPoints:
+    - "de Haan et al. named causal confusion and showed the counterintuitive direction: adding information can make an imitation policy worse."
+    - "Song et al. showed the same phenomenon in RL, where the architecture's implicit bias over irrelevant observation dimensions determines generalisation."
+    - "Pinto et al. resolved the sim asymmetry: critic on privileged state, actor on observations, so training uses information the deployed policy cannot have."
+    - "Lee et al. scaled that to teacher-student distillation on hardware — but the student must be able to infer the privileged variable from history, or no distillation recovers it."
+papers:
+  - key: dehaan2019causal
+    title: "Causal Confusion in Imitation Learning"
+    authors: "Pim de Haan, Dinesh Jayaraman, Sergey Levine"
+    venue: NeurIPS
+    year: 2019
+    arxiv: "1905.11979"
+    takeaway: "Access to more information yields worse imitation policies, because the learner latches onto whichever correlate is easiest to fit rather than the causal one."
+  - key: song2020obsoverfit
+    title: "Observational Overfitting in Reinforcement Learning"
+    authors: "Xingyou Song, Yiding Jiang, Stephen Tu, Yilun Du, Behnam Neyshabur"
+    venue: ICLR
+    year: 2020
+    arxiv: "1912.02975"
+    takeaway: "Agents overfit to observation dimensions irrelevant to the dynamics, and which ones they latch onto is set by architectural implicit bias — so generalisation is partly an observation-design question."
+  - key: pinto2018asymmetric
+    title: "Asymmetric Actor Critic for Image-Based Robot Learning"
+    authors: "Lerrel Pinto, Marcin Andrychowicz, Peter Welinder, Wojciech Zaremba, Pieter Abbeel"
+    venue: RSS
+    year: 2018
+    arxiv: "1710.06542"
+    takeaway: "The critic is only used during training, so give it the simulator's full state while the actor sees images. Free variance reduction with no change to what the deployed policy needs."
+  - key: lee2020quadruped
+    title: "Learning Quadrupedal Locomotion over Challenging Terrain"
+    authors: "Joonho Lee, Jemin Hwangbo, Lorenz Wellhausen, Vladlen Koltun, Marco Hutter"
+    venue: Science Robotics
+    year: 2020
+    arxiv: "2010.11251"
+    takeaway: "Train a teacher on privileged terrain state, then distil into a student seeing only proprioceptive history — the student recovers terrain properties it can never measure directly."
+check:
+  - id: so_l4_c1
+    prompt: "What is the central claim of the causal confusion paper, and why is it surprising?"
+    options:
+      - "That imitation policies need more data than expected"
+      - "That access to more information can make an imitation policy worse — the opposite of the usual assumption that a richer observation is at worst neutral"
+      - "That expert demonstrations must be collected at higher frequency"
+      - "That imitation learning requires a causal model of the environment"
+    answer: 1
+    explanation: "The default intuition is that an extra channel can be ignored, so it is at worst wasted capacity. That is false when the extra channel is more predictive of the action than the causal one, because the learner has no reason to prefer causes over correlates — it minimises prediction error. The practical consequence is that observation design has to be justified, not maximised."
+  - id: so_l4_c2
+    prompt: "Why can an asymmetric critic use privileged state without corrupting the deployed policy?"
+    options:
+      - "Because the critic is small enough not to matter"
+      - "Because the critic is discarded after training — it only shapes the actor's gradients, and the actor never reads privileged state, so nothing at deployment depends on information the robot cannot measure"
+      - "Because the privileged state is added as noise"
+      - "Because the critic is trained on a separate dataset"
+    answer: 1
+    explanation: "It exploits the fact that the two networks have different lifetimes. The critic's job is estimating value during training, which is strictly easier with the true state and produces lower-variance advantages; the actor's job is producing actions at deployment, so its input set is constrained by the hardware. Confusing the two — letting privileged state reach the actor — is exactly the bug this design exists to avoid."
+  - id: so_l4_c3
+    prompt: "When does teacher-student distillation from privileged state fail, in a way no amount of training fixes?"
+    options:
+      - "When the teacher is not trained to convergence"
+      - "When the privileged variable is not inferable from the student's observation history — distillation transfers a mapping, and cannot supply information the student's sensors never contained"
+      - "When the student is smaller than the teacher"
+      - "When the two are trained on different terrains"
+    answer: 1
+    explanation: "The quadruped result works because ground friction and geometry leave traces in proprioceptive history — the leg's response to contact is informative about what it stepped on. Where no such trace exists, the student is being asked to output a function of something it cannot observe, and the best it can do is the conditional mean over the posterior, which for a multi-modal posterior is an action nobody would take. The question to ask before building the pipeline is whether the information is recoverable at all."
+---
+
+## The counterintuitive result
+
+<PaperCard refKey="dehaan2019causal" />
+
+The finding worth remembering is directional: **more information, worse policy**.
+Not slower, not marginally worse — worse, with a better fit. The mechanism is
+that a learner minimising prediction error has no preference for causes over
+correlates, and in demonstration data the correlates are often the easier fit.
+
+Their sharpest instance is the one this concept opened with: showing the policy
+the expert's previous action, or a dashboard indicator that lights up *because*
+the expert braked. The indicator predicts braking beautifully and is a
+consequence of it, so a policy relying on it never brakes.
+
+<PaperCard refKey="song2020obsoverfit" />
+
+The same phenomenon in RL, with a useful addition: which irrelevant dimensions an
+agent latches onto is determined by the architecture's implicit bias, not only by
+the data. That makes it partly an architectural question and explains why two
+networks on identical observations can generalise differently.
+
+## The other half: information you have but cannot deploy
+
+<PaperGrid>
+<PaperCard refKey="pinto2018asymmetric" />
+<PaperCard refKey="lee2020quadruped" />
+</PaperGrid>
+
+In simulation you have the full state, and the robot never will. Two ways to
+spend that gap:
+
+<Steps>
+<Step title="Give it to the critic only">
+The critic exists during training and is thrown away. Feeding it privileged state
+makes value estimation strictly easier and lowers advantage variance, while the
+actor's input set stays whatever the hardware provides. The asymmetry is free
+because the two networks have different lifetimes.
+</Step>
+
+<Step title="Train a teacher, then distil">
+Train a policy on privileged state, then supervise a student that sees only what
+the robot sees. The teacher's problem is easy; the student's is a supervised
+mapping rather than an RL problem, which is a much better-conditioned thing to
+optimise.
+</Step>
+
+<Step title="Check the information is recoverable first">
+Distillation moves a mapping, not information. The quadruped student can recover
+terrain properties because contact response encodes them in proprioceptive
+history. Where the privileged variable leaves no trace in the observation
+history, the student's best achievable output is a posterior mean — and for a
+multi-modal posterior that is an action nobody would take.
+</Step>
+</Steps>
+
+<KeyIdea>
+Put together, the four papers say the two directions are not symmetric. Adding a
+channel is dangerous, because the learner may prefer it for reasons unrelated to
+the task. Withholding one is safe but bounded, because you cannot distil what the
+sensors never recorded. The design question is therefore not "how much can I
+provide" but "which channels are causally connected to the action, and is the
+rest inferable from what remains".
+</KeyIdea>

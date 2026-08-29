@@ -1,23 +1,125 @@
 ---
 concept: states_observations
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain States and Observations in plain language: what is it, and why
-    does it matter?"
+  prompt: "What is the difference between state and observation, and what is the characteristic way an observation design fails?"
   keyPoints:
-    - State is 'ground truth' — the full physics of the world.
-    - Observation is what your sensors actually give you.
-    - A robot arm's true state includes all joint angles, velocities, and the
-      exact pose of every object.
-check: []
-papers: []
+    - "State is what determines the future; the observation is what your sensors report. You never choose the state, and you always choose the observation."
+    - "The classic failure is a shortcut: a channel that predicts the expert's action offline but carries no task information online — the previous action being the canonical one."
+    - "It is invisible in the training loss, because the shortcut fits well. That is the whole problem: the loss cannot see it."
+    - "Adding a channel can make the policy worse. More information is not monotonically better once the learner is free to choose what to use."
+media:
+  - kind: lecture
+    title: "CS 285: Lecture 2, Part 2"
+    url: https://www.youtube.com/watch?v=988gLurg01U
+    source: "UC Berkeley CS285 · Sergey Levine (RAIL)"
+    minutes: 15
+    note: "The 'why might we fail to fit the expert' segment. Non-Markovian expert behaviour is exactly the shortcut problem, framed from the other direction."
+  - kind: article
+    title: "Causal Confusion in Imitation Learning"
+    url: https://sites.google.com/view/causal-confusion
+    source: "de Haan, Jayaraman, Levine · NeurIPS 2019"
+    note: "The project page's videos make the point faster than the paper does: the policy with more information performs worse."
+check:
+  - id: so_l1_c1
+    prompt: "A teammate adds the previous action to the observation, reasoning that more information cannot hurt. Training loss drops. What is the concern?"
+    options:
+      - "The observation vector is now larger and training will be slower"
+      - "The previous action is supplied by the expert during training and by the policy during rollout — so the channel is informative offline and a self-loop online, and the improved training loss is evidence the policy is relying on it"
+      - "The previous action breaks the Markov property"
+      - "It will cause overfitting to the training set"
+    answer: 1
+    explanation: "The loss dropping is the warning, not the reassurance: it means the extra channel is being used, and the source of that channel changes between training and deployment. During training it is a genuine record of what the expert did; during rollout it is whatever the policy itself just emitted, which contains no information about the goal. The policy ends up regressing its own output onto itself."
+  - id: so_l1_c2
+    prompt: "Why does the training loss fail to reveal a shortcut, even with a clean held-out split?"
+    options:
+      - "The split is usually made incorrectly"
+      - "The shortcut is genuinely predictive on the expert's data, so both training and held-out loss are low — the split tests generalisation across samples, not across the change of data source that happens at deployment"
+      - "The loss is averaged over too many timesteps"
+      - "Held-out loss is only valid for classification"
+    answer: 1
+    explanation: "An honest split answers 'does this fit unseen data from the same distribution', and the shortcut passes that question because it is a real statistical regularity in the demonstrations. What changes at deployment is not the sample but the *generator* of one input channel. No offline metric computed on expert data can see that, which is why the only reliable check is an ablation or a rollout."
 ---
 
-## Intuition
+## The one you choose
 
-State is 'ground truth' — the full physics of the world. Observation is what your sensors actually give you. A robot arm's true state includes all joint angles, velocities, and the exact pose of every object. But its observation might be a single RGB camera image — it can't see behind objects, can't directly measure velocities, and has noise. The gap between state and observation is the core challenge of real-world RL. In simulation, you often have access to the full state (privileged information); in the real world, you almost never do.
+<Intuition>
+The state is whatever determines the future — the physics. You do not choose it;
+it is a property of the world. The observation is what your sensors report and
+what you decide to pass to the policy, and that is entirely a design decision.
+Most discussion of this concept is about the gap between the two. The more
+useful framing for building systems is that the observation is a *choice with
+consequences*, and the consequences are strange enough to be worth knowing in
+advance.
+</Intuition>
 
-## In practice
+The strangest one: **adding a channel can make the policy worse**. Not slower to
+train, not marginally worse — categorically worse, with a lower training loss.
+That fact is the reason this concept earns its own page.
 
-A manipulation task with a Franka Panda robot: full state $s = (q \in \mathbb{R}^7, \dot{q} \in \mathbb{R}^7, x_{\text{obj}} \in SE(3), v_{\text{obj}} \in \mathbb{R}^6, f_{\text{contact}} \in \mathbb{R}^6)$ — 33 dimensions. Observation options: (1) proprioception only: $(q, \dot{q}) \in \mathbb{R}^{14}$ — can't see objects; (2) proprioception + object pose from perception: $\mathbb{R}^{14+7}$ — noisy pose estimates; (3) raw images: $o \in \mathbb{R}^{H \times W \times 3}$ — partial observability. Common approach: train with privileged state in sim, distill to observation-based policy. Frame stacking ($k=3$ frames) helps recover velocity information from position-only observations.
+## Why more information can hurt
+
+Suppose you are cloning a teleoperator at 100 Hz. Their commands are smooth, so
+the action at one step is close to the action at the previous step. Concretely,
+for a proportional controller at that rate, the previous action alone explains
+about 94% of the variance in the current one.
+
+Now put that previous action into the observation. The learner has two ways to
+predict: extract the goal from a noisy image, or copy the last action. The second
+is easier and almost as accurate, so that is what it learns.
+
+<Figure src="/figures/observation-shortcut.svg" alt="Left: during training the previous-action channel comes from the expert; during rollout it comes from the policy, forming a self-loop. Right: as the vision channel gets noisier, training fit stays flat while closed-loop error rises three orders of magnitude." caption="The two panels are the whole concept. The channel changes source between training and rollout, and no offline metric can see it happen." />
+
+Then you deploy, and the channel changes meaning. During training `a(t-1)` was
+the expert's action — a real signal about the task. During rollout it is the
+policy's own last output. The policy is now regressing its own behaviour onto
+itself, with only a weakly-used vision channel connecting it to the world.
+
+<KeyIdea>
+In a linear version of exactly this setup, sweeping the vision noise from 0.5 cm
+to 1 m moves the training $R^2$ from 0.999 to 0.941 — a rounding error — while
+closed-loop final error goes from 0.05 cm to 37 cm. Roughly a 700-fold
+degradation, under a training metric that barely moved. The offline number is not
+merely a weak proxy here; it is nearly constant across the entire range from
+working to useless.
+</KeyIdea>
+
+## The design decisions, and what each one costs
+
+<Steps>
+<Step title="What goes in">
+Every channel is a hypothesis about what the task needs. A channel that predicts
+the action without being causally connected to it is worse than no channel. The
+test is not "could this be useful" but "is this the reason the expert acted".
+</Step>
+
+<Step title="How it is scaled">
+Joint angles near $0.05$ rad and contact forces near $50$ N differ by a factor of
+a thousand. At initialisation the large-magnitude channel dominates the first
+layer's output entirely, and the small one is effectively invisible. Per-channel
+normalisation is not cosmetic.
+</Step>
+
+<Step title="How velocity is obtained">
+Differencing two consecutive positions amplifies sensor noise by $1/\Delta t$. At
+30 Hz with 1 mm of position noise that is 4 cm/s of velocity noise — and at
+200 Hz, 28 cm/s. Sampling faster makes it *worse*.
+</Step>
+
+<Step title="Whether the channels agree about time">
+A camera 60 ms behind the joint encoders, on an arm moving 0.5 m/s, describes a
+gripper 3 cm from where the encoders say it is. That is a systematic bias, not
+noise, and the policy will learn to compensate for the value it saw in training.
+</Step>
+</Steps>
+
+<Warning>
+Notice that two of these get worse at higher control rates: the shortcut becomes
+more predictive as consecutive actions become more similar, and finite-difference
+velocity noise grows as $\Delta t$ shrinks. The instinct to run the loop faster
+because it feels more responsive makes the observation harder to design, not
+easier.
+</Warning>
+
+<WatchThis />

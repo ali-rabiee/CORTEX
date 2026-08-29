@@ -1,21 +1,181 @@
 ---
 concept: states_observations
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of States and Observations, including the
-    key equations.
+  prompt: "Derive the condition under which a learner prefers a shortcut channel, and show what that choice costs in closed loop."
   keyPoints:
-    - The state $s_t \in \mathcal{S}$ is a complete description of the
-      environment at time $t$ satisfying the Markov property.
-    - "An observation $o_t \\in \\mathcal{O}$ is what the agent actually
-      perceives, which may be a partial or noisy function of the state: $o_t =
-      O(s_t, \\epsilon)$."
-    - When $o_t = s_t$, the problem is fully observable (MDP).
-check: []
-papers: []
+    - "Least squares picks whichever channel leaves less residual variance. The shortcut wins when the causal channel's noise exceeds the expert's action innovation — a comparison the objective makes correctly and that has nothing to do with the task."
+    - "The cost appears as a collapse of the effective feedback gain to $\\alpha/(1-\\beta)$: the policy still tracks, just far too slowly to finish inside the horizon."
+    - "Feature scale enters the first layer's update quadratically, since the change in a channel's contribution is $\\eta \\delta x^2$."
+    - "Finite-difference velocity noise is $\\sigma\\sqrt{2}/\\Delta t$, so it grows as the control rate rises; a $k$-frame least-squares slope falls as $k^{-3/2}$ but adds $(k-1)\\Delta t/2$ of lag."
+check:
+  - id: so_l2_c1
+    prompt: "In the two-channel linear model, what determines whether the fit uses the causal channel or the shortcut?"
+    options:
+      - "Which channel is listed first in the observation vector"
+      - "Which leaves less residual variance: the causal channel's measurement noise against the expert's action innovation. The objective is choosing correctly for the problem it was given, which is a prediction problem, not a control problem"
+      - "The relative dimensionality of the two channels"
+      - "Whichever channel has a larger gradient at initialisation"
+    answer: 1
+    explanation: "Least squares minimises residual variance and nothing else, so the comparison is purely between $\\sigma_v^2$ on the causal side and the innovation variance $(1-\\rho^2)\\mathrm{Var}(a)$ on the shortcut side. Nothing in the objective distinguishes a channel that will still exist at deployment from one that will become a self-loop. That is why this is a specification problem rather than an optimisation problem, and why more capacity or more data does not fix it."
+  - id: so_l2_c2
+    prompt: "A policy learns $a_t = \\alpha(g - x_t) + \\beta a_{t-1}$ with $\\alpha = 0.006$ and $\\beta = 0.968$, where the expert used gain $K = 3$. What happens in rollout?"
+    options:
+      - "The policy is unstable and the action diverges"
+      - "It still converges to the goal, but with effective gain $\\alpha/(1-\\beta) \\approx 0.19$ — sixteen times too slow, so the episode ends with most of the initial error remaining"
+      - "The policy ignores the goal entirely and stays where it starts"
+      - "Behaviour depends on the initial value of $a_{-1}$"
+    answer: 1
+    explanation: "Since $\\beta < 1$ the loop is stable and the fixed point is still $x = g$ — the failure is not divergence, which makes it harder to spot. Summing the geometric series gives a DC gain of $\\alpha/(1-\\beta) \\approx 0.19$ against the expert's $3$, so the time constant is sixteen times longer. Over a 3-second episode that leaves $e^{-0.19 \\times 3} \\approx 57\\%$ of the initial error, which matches the simulated 37 cm closely. The robot looks sluggish rather than broken."
+  - id: so_l2_c3
+    prompt: "Why does raising the control rate from 30 Hz to 200 Hz make finite-difference velocity worse?"
+    options:
+      - "Because sensor noise increases at higher sampling rates"
+      - "Because the noise term is divided by $\\Delta t$ while the true displacement also shrinks with $\\Delta t$ — the signal-to-noise ratio of the difference degrades linearly in the rate, giving 4 cm/s at 30 Hz and 28 cm/s at 200 Hz for the same 1 mm sensor"
+      - "Because higher rates require a shorter filter window"
+      - "Because quantisation error accumulates faster"
+    answer: 1
+    explanation: "The noise on each position sample is fixed by the sensor, so the difference of two samples carries noise $\\sigma\\sqrt{2}$ regardless of rate — but you divide by a smaller $\\Delta t$. The true displacement shrinks at exactly the same rate, so nothing is gained and the noise amplification is real. This is the counterpart of the shortcut result: both problems get worse as the loop runs faster, which is the opposite of most people's prior."
 ---
 
-## Formal definition
+## Setting up the comparison
 
-The state $s_t \in \mathcal{S}$ is a complete description of the environment at time $t$ satisfying the Markov property. An observation $o_t \in \mathcal{O}$ is what the agent actually perceives, which may be a partial or noisy function of the state: $o_t = O(s_t, \epsilon)$. When $o_t = s_t$, the problem is fully observable (MDP). When $o_t \neq s_t$, the problem is a Partially Observable MDP (POMDP), formally $(\mathcal{S}, \mathcal{A}, P, R, \gamma, \mathcal{O}, O)$. In a POMDP, the optimal policy depends on the belief state $b_t = P(s_t | o_1, a_1, \ldots, o_t)$, the posterior distribution over states given the observation history.
+Take an expert that is a proportional controller, $a_t = K(g - x_t)$, sampled at
+rate $1/\Delta t$, and give the policy two channels:
+
+$$
+o_t = \big(\underbrace{(g - x_t) + \varepsilon_t}_{\text{causal, } \varepsilon \sim \mathcal{N}(0,\sigma_v^2)},\ \underbrace{a_{t-1}}_{\text{shortcut}}\big)
+$$
+
+Both are legitimate observations. Neither is a bug. The question is which one a
+least-squares fit will use.
+
+<Derivation title="Which channel the objective prefers">
+
+Fitting $a_t$ from the causal channel alone leaves the measurement noise:
+
+$$
+\min_w \mathbb{E}\big[(w\,((g-x_t)+\varepsilon_t) - K(g-x_t))^2\big]
+\;\longrightarrow\; \text{residual} \;\propto\; \frac{\sigma_v^2}{\mathrm{Var}(g-x) + \sigma_v^2}
+$$
+
+Fitting from the shortcut alone leaves the expert's *innovation* — the part of
+$a_t$ not predictable from $a_{t-1}$. Writing $\rho$ for the lag-one
+autocorrelation of the expert's action stream,
+
+$$
+\text{residual} = (1 - \rho^2)\,\mathrm{Var}(a)
+$$
+
+For a proportional controller, $a_t = (1 - K\Delta t)\,a_{t-1}$ exactly in the
+noiseless case, so $\rho = 1 - K\Delta t$ and the shortcut's residual is
+
+$$
+1 - \rho^2 = 1 - (1 - K\Delta t)^2 \approx 2K\Delta t
+$$
+
+**The assumption doing the work is that the expert is smooth relative to the
+control period.** That is what makes $\rho \to 1$ as $\Delta t \to 0$. With
+$K = 3$: at 10 Hz the shortcut explains 49% of the action, at 30 Hz 81%, at
+100 Hz 94%, at 200 Hz 97%.
+
+So the fit uses the shortcut whenever
+
+$$
+(1 - \rho^2)\,\mathrm{Var}(a) \;<\; \frac{\sigma_v^2}{\mathrm{Var}(g-x)+\sigma_v^2}\,\mathrm{Var}(a)
+$$
+
+which is a comparison between *your sensor noise* and *your control rate*.
+Neither quantity has anything to do with the task.
+
+</Derivation>
+
+<KeyIdea>
+The objective is not being fooled. It is solving the problem it was given —
+predict $a_t$ from $o_t$ on this dataset — and solving it correctly. What is
+missing is any term representing the fact that one channel will change source at
+deployment. This is why the failure survives more data, more capacity, and better
+optimisation: none of them change the objective.
+</KeyIdea>
+
+## What the choice costs
+
+Suppose the fit lands at $\alpha = 0.006$ on vision and $\beta = 0.968$ on the
+shortcut — the values a least-squares fit actually produces at 100 Hz with
+$\sigma_v = 1$ m. The closed-loop policy is then
+
+$$
+a_t = \alpha(g - x_t) + \beta a_{t-1}
+$$
+
+<Derivation title="The effective gain, and why the failure is quiet">
+
+Unroll the recursion. Over timescales on which $x$ changes slowly compared with
+the action filter,
+
+$$
+a_t = \alpha \sum_{j \ge 0} \beta^{\,j} (g - x_{t-j}) \;\approx\; \frac{\alpha}{1-\beta}\,(g - x_t)
+$$
+
+So the policy is *still* a proportional controller — with gain
+
+$$
+K_{\text{eff}} = \frac{\alpha}{1-\beta} = \frac{0.006}{0.032} = 0.19
+$$
+
+against the expert's $K = 3$. Since $\beta < 1$ the loop is stable and the fixed
+point is still $x = g$. Nothing diverges. The time constant is simply 16 times
+longer, so over a 3-second episode the remaining error is
+
+$$
+e^{-K_{\text{eff}} T} = e^{-0.19 \times 3} = 0.57
+$$
+
+With initial errors averaging 0.67 m that predicts a final error of **38 cm**.
+The simulation measures **37 cm**. The training $R^2$ over this whole regime
+moves from 0.999 to 0.941.
+
+</Derivation>
+
+<Warning>
+The failure mode is sluggishness, not instability — which is what makes it
+expensive. A diverging policy is reported on the first rollout. A policy that
+reaches the goal 16 times too slowly gets attributed to the controller, the
+gripper, the reset procedure, or "needing more data", and people tune those for
+weeks.
+</Warning>
+
+## Two smaller effects with exact answers
+
+<Steps>
+<Step title="Feature scale enters the first layer quadratically">
+For a linear layer, $\partial \mathcal{L}/\partial W_{ij} = \delta_i x_j$, so one
+SGD step changes the *contribution* $W_{ij}x_j$ by $\eta\,\delta_i x_j^2$.
+Channels at $0.05$ rad and $50$ N therefore differ by $(50/0.05)^2 = 10^6$ in how
+fast their contributions move. Adam's per-parameter normalisation removes most of
+this from the update, but not from the initialisation: at init the contribution
+variance still scales as $\mathbb{E}[x_j^2]$, so the network begins life as a
+function of the large channel alone.
+</Step>
+
+<Step title="Finite differencing amplifies noise by $1/\Delta t$">
+$\mathrm{Var}\!\left[(x_t - x_{t-1})/\Delta t\right] = 2\sigma^2/\Delta t^2$.
+With $\sigma = 1$ mm: 4.2 cm/s at 30 Hz, 14.1 at 100 Hz, 28.3 at 200 Hz.
+</Step>
+
+<Step title="A $k$-frame slope trades noise against lag">
+Least-squares slope variance is $\sigma^2 / \sum_i (t_i - \bar t)^2$, and for $k$
+evenly spaced samples $\sum_i (t_i - \bar t)^2 = \Delta t^2 k(k^2-1)/12$, giving
+noise $\propto k^{-3/2}$ against a lag of $(k-1)\Delta t/2$. At 30 Hz with 1 mm
+noise: $k=3$ gives 2.1 cm/s at 33 ms lag, $k=10$ gives 0.33 cm/s at 150 ms. The
+$3/2$ power is why a modest window helps so much.
+</Step>
+
+<Step title="Time skew is a bias, not noise">
+If the camera lags the encoders by $\Delta\tau$, the two channels describe states
+$\Delta\tau$ apart, an inconsistency of $\|v\|\,\Delta\tau$ — 3 cm at 0.5 m/s and
+60 ms. The policy learns to compensate for the skew present during collection, so
+changing the machine, the USB load, or the camera driver changes the task.
+</Step>
+</Steps>

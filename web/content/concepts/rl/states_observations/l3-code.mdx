@@ -1,0 +1,177 @@
+---
+concept: states_observations
+level: 3
+status: final
+recall:
+  prompt: "How do you build an observation pipeline that makes shortcut and scaling failures visible rather than silent?"
+  keyPoints:
+    - "Normalise per channel from training statistics, freeze them, and ship them with the checkpoint — a policy plus the wrong normaliser is a different function."
+    - "Run a channel ablation: retrain with each channel zeroed and compare rollout success, not loss. A channel whose removal does not change rollout success was never being used for the task."
+    - "Estimate velocity with a least-squares slope over a short window rather than a single difference; the noise falls as k^{-3/2} against a lag of (k-1)dt/2."
+    - "Timestamp every channel at capture and interpolate to a common clock, rather than pairing whatever arrived most recently."
+check:
+  - id: so_l3_c1
+    prompt: "Why must normalisation statistics be computed once on the training set and frozen, rather than per batch at deployment?"
+    options:
+      - "Per-batch statistics are slower to compute"
+      - "The normaliser is part of the learned function: a policy shipped with different statistics computes something else entirely, and at deployment a single-sample batch has no meaningful statistics anyway"
+      - "Per-batch normalisation breaks gradient flow"
+      - "Frozen statistics generalise better to new objects"
+    answer: 1
+    explanation: "The network learned weights against a specific input scaling, so changing the scaling silently changes the function it computes — this is the same class of bug as a mismatched image preprocessing transform, and it fails quietly rather than loudly. It is also ill-defined online, where you have one observation rather than a batch. Saving the statistics into the checkpoint alongside the weights is the fix, and the reason to make it a single serialisable object."
+  - id: so_l3_c2
+    prompt: "Your ablation shows that zeroing the camera channel leaves rollout success unchanged. What have you learned?"
+    options:
+      - "The camera is redundant and can be removed to save compute"
+      - "The policy was not using vision to do the task — so it is solving it from the remaining channels, which usually means a shortcut, and it will fail as soon as the task requires actually seeing something"
+      - "The camera resolution is too low"
+      - "The ablation is invalid because the network was not retrained"
+    answer: 1
+    explanation: "If a manipulation policy does not need to see, it is not doing manipulation — it has found something else in the observation that predicts the expert, most often proprioceptive state that correlates with phase of the demonstration. It will hold up on the demonstrated setup and collapse the moment an object moves. Reading this result as 'the camera is redundant' inverts the diagnosis, which is why the ablation is worth running before you trust a success number."
+  - id: so_l3_c3
+    prompt: "What is wrong with pairing each camera frame with the most recently received joint state?"
+    options:
+      - "Nothing, provided both arrive at the same rate"
+      - "Arrival order does not reflect capture time: the frame was captured tens of milliseconds before it arrived, so the pairing has a variable skew that appears as inconsistency between channels rather than as a clean delay"
+      - "It uses too much memory"
+      - "Joint states should always be interpolated to the camera rate"
+    answer: 1
+    explanation: "Pipeline latency is both large and variable — exposure, transfer, decode — so 'most recent on arrival' pairs measurements taken at different real times, and the skew changes with system load. Timestamping at capture and interpolating both streams to a common clock turns a varying inconsistency into a fixed, known delay, which a policy can learn to compensate. This kind of thing is why the same checkpoint behaves differently on a different machine."
+---
+
+## Normalisation you can ship
+
+<CodeWalk title="Per-channel statistics, frozen and serialised">
+
+```python title="obs.py"
+import torch, torch.nn as nn
+
+class ObsNormalizer(nn.Module):
+    """Statistics are part of the function, not a preprocessing detail.
+
+    Registered as buffers so they land in state_dict() and travel with the
+    checkpoint — a policy loaded with different statistics computes something
+    else, and does it silently.
+    """
+    def __init__(self, dim):
+        super().__init__()
+        self.register_buffer("mean", torch.zeros(dim))
+        self.register_buffer("std", torch.ones(dim))
+
+    @torch.no_grad()
+    def fit(self, x):                       # x: (N, dim), the whole training set
+        self.mean.copy_(x.mean(0))
+        # Floor the scale: a constant channel would otherwise be amplified into
+        # pure noise, which is a common way a padding dimension becomes an input.
+        self.std.copy_(x.std(0).clamp_min(1e-3))
+
+    def forward(self, x):
+        return (x - self.mean) / self.std
+```
+
+</CodeWalk>
+
+Without this, a 50 N force channel and a 0.05 rad joint channel differ by $10^6$
+in how fast their first-layer contributions move. With Adam the update is
+rescaled, but the *initialisation* is not: the network starts as a function of
+the large channel alone and has to climb out.
+
+## Velocity without the noise
+
+<CodeWalk title="Least-squares slope over a short window">
+
+```python title="vel.py"
+import numpy as np
+
+def velocity(positions, dt):
+    """Slope over k samples. Noise falls as k^{-3/2}; lag grows as (k-1)dt/2.
+
+    A single difference (k=2) turns 1 mm of position noise into 4.2 cm/s at
+    30 Hz — and 28 cm/s at 200 Hz, since you divide by a smaller dt while the
+    true displacement shrinks just as fast.
+    """
+    k = len(positions)
+    t = np.arange(k) * dt
+    tc = t - t.mean()
+    return (tc @ (positions - positions.mean(0))) / (tc @ tc)
+```
+
+</CodeWalk>
+
+At 30 Hz with 1 mm noise: $k=3$ gives 2.1 cm/s at 33 ms of lag, $k=10$ gives
+0.33 cm/s at 150 ms. Choose the window from how much lag the controller
+tolerates, not by habit.
+
+## One clock
+
+<CodeWalk title="Interpolate to a common time, do not pair by arrival">
+
+```python title="sync.py"
+from bisect import bisect_left
+
+class Synchronizer:
+    """Pairing 'the most recent frame' with 'the most recent joint state' pairs
+    measurements taken at different real times, with a skew that moves with
+    system load. Interpolating both to one clock converts that into a fixed
+    delay, which the policy can actually learn to compensate for."""
+
+    def __init__(self, horizon=2.0):
+        self.streams, self.horizon = {}, horizon
+
+    def push(self, name, capture_time, value):   # capture time, NOT arrival
+        buf = self.streams.setdefault(name, [])
+        buf.append((capture_time, value))
+        while buf and capture_time - buf[0][0] > self.horizon:
+            buf.pop(0)
+
+    def at(self, t):
+        out = {}
+        for name, buf in self.streams.items():
+            i = min(bisect_left(buf, (t,)), len(buf) - 1)
+            if i == 0:
+                out[name] = buf[0][1]
+                continue
+            (t0, v0), (t1, v1) = buf[i - 1], buf[i]
+            w = 0.0 if t1 == t0 else (t - t0) / (t1 - t0)
+            out[name] = v0 + w * (v1 - v0)        # nearest for images
+        return out
+```
+
+</CodeWalk>
+
+## The test that finds a shortcut
+
+<CodeWalk title="Channel ablation, scored on rollouts">
+
+```python title="ablate.py"
+def channel_ablation(train_fn, rollout_fn, dataset, channels):
+    """Retrain with each channel zeroed and compare ROLLOUT success.
+
+    Comparing losses here answers the wrong question: a shortcut fits well, so
+    the loss barely moves across the whole range from working to useless.
+    """
+    base = rollout_fn(train_fn(dataset))
+    print(f"{'ablated':<16}{'success':>9}{'delta':>9}")
+    for name, sl in channels.items():
+        masked = dataset.with_channel_zeroed(sl)
+        s = rollout_fn(train_fn(masked))
+        print(f"{name:<16}{s:>9.2f}{s - base:>+9.2f}")
+```
+
+</CodeWalk>
+
+<KeyIdea>
+Read the table by looking for channels whose removal changes *nothing*. A vision
+channel a manipulation policy can do without is not redundant — it means the
+policy is solving the task some other way, and the ablation is the cheapest
+instrument that shows it. The inverse reading, "we can drop the camera", is the
+mistake this test exists to prevent.
+</KeyIdea>
+
+<Warning>
+Every diagnostic here scores rollouts rather than loss, and that is not
+incidental. The shortcut result is precisely that training loss is flat across
+the regime where the policy goes from excellent to unusable, so any pipeline
+whose only signal is a loss curve cannot detect the most expensive observation
+bug there is.
+</Warning>

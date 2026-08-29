@@ -1,25 +1,155 @@
 ---
 concept: states_observations
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does States and Observations fail in practice, and how would you
-    present it in an interview?
+  prompt: "Give your interview answer on observation design. What is the counterintuitive claim, and what test would you run?"
   keyPoints:
-    - Treating observations as states when the Markov property doesn't hold.
-    - "Example: policy trained on single-frame images cannot distinguish whether
-      an object is moving left or right — identical observations require
-      different actions."
-    - "Symptoms: policy oscillates, fails on dynamic tasks, or only succeeds on
-      quasi-static tasks."
-check: []
-papers: []
+    - "Lead with the design framing: the state is given, the observation is chosen, and the choice determines which failures are possible."
+    - "The counterintuitive claim: adding a channel can make the policy worse, with a better training loss."
+    - "Explain the mechanism — the channel's source changes between training and rollout — and why no offline metric can see it."
+    - "The test is a channel ablation scored on rollouts, because the loss is flat across the whole range from working to useless."
+interview:
+  answer: >-
+    The distinction people usually give is that the state is the true
+    configuration of the world and the observation is what your sensors report,
+    and that's right but it's not the useful part. The useful part is that you
+    don't choose the state — it's a property of the physics — and you always
+    choose the observation. So the observation is a design decision, and it
+    determines which failure modes are even available to you. The one I'd lead
+    with is the counterintuitive one: adding a channel can make the policy
+    worse. Not slower to train — worse, and with a lower training loss. The
+    canonical case is putting the previous action into the observation. If
+    you're cloning a teleoperator at a hundred hertz, their commands are smooth,
+    so the previous action explains something like ninety-four percent of the
+    variance in the current one. The learner has a choice between extracting the
+    goal from a noisy image and copying the last action, and it takes the
+    second, because least squares minimises residual variance and doesn't care
+    which channel is causal. Then you deploy and that channel changes source.
+    During training it was the expert's action, a real signal about the task.
+    During rollout it's whatever the policy just emitted, so the policy is
+    regressing its own output onto itself with only a weak connection to the
+    world. What makes this expensive rather than merely annoying is that it's
+    invisible offline. In a linear version I worked through, sweeping the vision
+    noise across three orders of magnitude moves training R-squared from 0.999
+    to 0.941 while closed-loop error goes from half a millimetre to thirty-seven
+    centimetres. The metric is essentially constant across the entire range from
+    working to useless. And the failure isn't instability — the effective
+    feedback gain collapses to about a sixteenth of the expert's, so the robot
+    still converges to the goal, just far too slowly to finish the episode. It
+    looks sluggish, which is why people spend weeks on the controller instead.
+    So the test I'd insist on is a channel ablation scored on rollout success
+    rather than on loss, because loss cannot answer this question in principle.
+  followUps:
+    - q: "Suppose the ablation shows removing the camera doesn't change success. What now?"
+      a: >-
+        Then the policy isn't using vision to do the task, and for anything
+        that's actually manipulation that's a red flag rather than a saving. It
+        means something else in the observation predicts the expert — usually
+        proprioception correlating with the phase of the demonstration, since if
+        every demo starts from the same reset, joint configuration alone tells
+        you how far through the episode you are and roughly what comes next.
+        That policy works perfectly on the demonstrated setup and fails the
+        moment an object moves. The fix is on the data side: randomise initial
+        object placement so that phase stops being predictive, which breaks the
+        correlation at the source rather than trying to train around it.
+    - q: "How do you decide what should go into the observation?"
+      a: >-
+        I'd ask of each channel whether it's causally connected to why the expert
+        acted, not whether it could conceivably help — the causal confusion
+        result is that "could help" isn't a sufficient bar. Then I'd start
+        minimal and add channels one at a time with an ablation each time, which
+        is slow but it's the only way to know what the policy is actually using.
+        And I'd deliberately exclude anything that's a consequence of the action
+        rather than a cause of it. Previous actions, and any status signal that
+        lights up because the operator did something, are the two that catch
+        people.
+    - q: "Is there ever a case for putting the previous action in?"
+      a: >-
+        Yes, and it's worth being precise about it, because the blanket rule is
+        wrong. If the true dynamics depend on it — actuator lag, a filtered
+        command, anything where the plant's response depends on its recent input
+        history — then the previous action is genuinely part of the state and
+        omitting it makes the problem partially observed. The distinction is
+        whether it's there because the physics needs it or because it correlates
+        with the expert. Practically I'd only include it when I can name the
+        physical mechanism, and I'd still run the ablation, since the failure
+        looks identical either way from the loss curve.
+    - q: "You mentioned control rate. Does running faster help?"
+      a: >-
+        It makes two things worse, which surprises people. The shortcut gets
+        stronger, because consecutive actions become more similar as the period
+        shrinks — the previous action explains about half the variance at ten
+        hertz and ninety-seven percent at two hundred. And finite-difference
+        velocity noise scales as one over delta-t, so the same one-millimetre
+        encoder gives four centimetres per second of velocity noise at thirty
+        hertz and twenty-eight at two hundred. The fix for both is a longer
+        temporal window rather than a shorter one — a least-squares slope over
+        several frames for velocity, action chunking on the output side. Which
+        is a nice consistency: the answer to both problems is to stop treating
+        adjacent timesteps as independent.
+  traps:
+    - "Giving the textbook state-versus-observation definition and stopping. It's correct and it demonstrates nothing; the design consequences are the answer."
+    - "Claiming more observation channels are at worst neutral. This is the specific belief the causal confusion result refutes, and interviewers ask about it because it is so widely held."
+    - "Diagnosing shortcut failures from the loss curve. The loss is nearly constant across the range from working to useless, so it cannot distinguish them even in principle."
+    - "Reading a null ablation result as 'the channel is redundant'. For a manipulation policy that doesn't need vision, the correct reading is that it isn't doing the task."
+check:
+  - id: so_l5_c1
+    prompt: "A policy trained on 500 demos succeeds on the demonstrated object layout and fails whenever an object is moved. Ablating the camera changes nothing. What is the diagnosis and fix?"
+    options:
+      - "Insufficient data — collect more demonstrations"
+      - "The policy is solving the task from proprioception, which encodes demonstration phase because every episode resets identically. Randomise initial placement so phase stops predicting the action"
+      - "The vision encoder is undertrained and needs a longer schedule"
+      - "The camera calibration has drifted"
+    answer: 1
+    explanation: "The null ablation is the decisive evidence: a policy that can do the task blind is not using the object's position, so it must be using something that correlates with it in the data. With identical resets, joint configuration alone indicates how far through the episode you are, which is enough to reproduce the expert on the training layout. More data from the same reset distribution strengthens the correlation rather than breaking it, which is why the fix is in collection rather than in training."
+  - id: so_l5_c2
+    prompt: "Which observation would you be most cautious about adding to a behaviour-cloning policy?"
+    options:
+      - "A second camera view of the workspace"
+      - "The gripper's binary open/closed state at the previous timestep, on a task where the expert opens and closes it at task-relevant moments"
+      - "Joint velocities estimated over a 5-frame window"
+      - "The object's segmentation mask"
+    answer: 1
+    explanation: "It is a consequence of the expert's earlier action rather than a cause of the current one, and it is nearly deterministic in time, so it predicts the phase of the task almost perfectly and the policy will use it to schedule behaviour instead of watching. At rollout it reflects only the policy's own past, giving the self-loop. The other three are all functions of the external world at the current instant, which is what makes them safe to add — the distinction that matters is cause versus consequence, not modality."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Treating observations as states when the Markov property doesn't hold. Example: policy trained on single-frame images cannot distinguish whether an object is moving left or right — identical observations require different actions. Symptoms: policy oscillates, fails on dynamic tasks, or only succeeds on quasi-static tasks. Fix: (1) frame stacking — concatenate $k=3$-4 consecutive frames; (2) recurrent policies (LSTM hidden state as approximate belief); (3) add explicit velocity estimation; (4) use observation history transformers. Another pitfall: observation space too large (raw $640 \times 480$ images) — use pre-trained visual encoders (ResNet, CLIP) to reduce dimensionality.
+<Steps>
+<Step title="Robot is sluggish but eventually gets there → effective gain collapse">
+Characteristic of a shortcut absorbing the feedback path. Check whether any input
+channel is a function of a previous action.
+</Step>
 
-## Interview-ready answer
+<Step title="Excellent loss, poor rollouts, honest split → the loss cannot see it">
+Distribution shift or a shortcut. An ablation separates them; no offline metric
+will.
+</Step>
 
-The state/observation distinction is critical in robotics RL. The state $s_t$ satisfies Markov; observations $o_t$ generally don't. In simulation, we often train on privileged state information (joint states, object poses, contact forces) for efficiency, then transfer to observation-based policies via distillation or domain randomization. For real-world deployment, the observation space design is crucial: proprioception $(q, \dot{q})$ is cheap and accurate; vision provides object information but is partial and noisy. POMDP solutions include frame stacking (simple but limited memory), RNN/LSTM policies (learns what to remember), and transformer-based architectures that attend over observation histories. The teacher-student paradigm — privileged state teacher, observation-based student — is the current best practice for sim2real.
+<Step title="Works on the demonstrated layout, fails when anything moves → phase shortcut">
+Proprioception is encoding progress through the episode. Fix at collection by
+randomising resets, not in training.
+</Step>
+
+<Step title="Behaviour changes on a different machine → time skew">
+Channel latencies shifted. Timestamp at capture and interpolate to one clock.
+</Step>
+
+<Step title="One channel appears ignored → check its scale before its content">
+An unnormalised small-magnitude channel is invisible at initialisation, which is
+indistinguishable from being uninformative until you look.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The move that separates a strong answer here is refusing the textbook framing.
+Everyone can define state versus observation. What demonstrates experience is
+stating that adding a channel can make the policy worse, naming the mechanism —
+the channel changes source between training and rollout — and then saying that
+this is why you score ablations on rollouts rather than on loss. If you can add
+that the failure presents as sluggishness rather than as instability, you have
+described something people only learn by losing time to it.
+</Warning>
