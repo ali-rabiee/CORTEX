@@ -1,28 +1,159 @@
 ---
 concept: diffusion_models_basics
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Diffusion Models Fundamentals, including
-    the key equations.
+  prompt: "State the forward SDE, its reverse, and the probability-flow ODE. Why do the SDE and ODE give the same samples?"
   keyPoints:
-    - "Diffusion models define a forward process that gradually corrupts data
-      $\\mathbf{x}_0 \\sim q(\\mathbf{x}_0)$ by adding Gaussian noise over $T$
-      steps: $q(\\mathbf{x}_t | \\mathbf{x}_{t-1}) = \\mathcal{N}(\\mathbf{x}_t;
-      \\sqrt{1-\\beta_t}\\,\\mathbf{x}_{t-1}, \\beta_t \\mathbf{I})$, with noise
-      schedule $\\{\\beta_t\\}_{t=1}^T$."
-    - "Using $\\alpha_t = 1 - \\beta_t$ and $\\bar{\\alpha}_t = \\prod_{s=1}^t
-      \\alpha_s$, we can sample any timestep directly: $q(\\mathbf{x}_t |
-      \\mathbf{x}_0) = \\mathcal{N}(\\mathbf{x}_t;
-      \\sqrt{\\bar{\\alpha}_t}\\,\\mathbf{x}_0,
-      (1-\\bar{\\alpha}_t)\\mathbf{I})$."
-    - "The reverse process learns to denoise: $p_\\theta(\\mathbf{x}_{t-1} |
-      \\mathbf{x}_t) = \\mathcal{N}(\\mathbf{x}_{t-1};
-      \\mu_\\theta(\\mathbf{x}_t, t), \\sigma_t^2 \\mathbf{I})$."
-check: []
-papers: []
+    - "Forward: $dx = f\\,dt + g\\,dw$. Reverse: $dx = [f - g^2 \\nabla_x \\log p_t]dt + g\\,d\\bar w$, run backwards."
+    - "The probability-flow ODE $dx = [f - \\tfrac12 g^2 \\nabla_x \\log p_t]dt$ has the SAME marginals — the factor of one half is what the Fokker-Planck equation demands once you drop the noise."
+    - "So one trained score supports a stochastic and a deterministic sampler; the choice is made after training."
+    - "Discretisation error is the sampling cost: Euler is first order, Heun second, and the measured saving was about fourfold at matched error."
+check:
+  - id: dmb_l2_c1
+    prompt: "Where does the factor of $\\tfrac{1}{2}$ in the probability-flow ODE come from?"
+    options:
+      - "It is an empirical correction that improves sample quality"
+      - "From the Fokker–Planck equation: the diffusion term contributes $\\tfrac12 g^2 \\nabla^2 p$ to the density's evolution, and rewriting that as a drift to remove the noise while preserving $p_t$ leaves exactly half the score coefficient"
+      - "It comes from the change of variables between $t$ and $\\sigma$"
+      - "It accounts for the discretisation of the reverse process"
+    answer: 1
+    explanation: "The requirement is that the deterministic process reproduce the same time-varying density as the stochastic one. Writing the Fokker–Planck equation and expressing the second-order term as the divergence of a probability current turns $\\tfrac12 g^2 \\nabla^2 p$ into a drift of $\\tfrac12 g^2 \\nabla \\log p$, which is why the coefficient is halved rather than dropped or kept whole. It is a derived constant, and getting it wrong gives a sampler that converges to the wrong distribution while still looking plausible."
+  - id: dmb_l2_c2
+    prompt: "Timesteps are drawn uniformly during training. Why does that make the schedule a capacity decision?"
+    options:
+      - "Because uniform sampling is inefficient and should be replaced"
+      - "Because the schedule maps uniform $t$ onto a distribution over signal-to-noise ratios, so it decides what fraction of gradient steps land on informative denoising problems versus ones where the optimal output is nearly the prior"
+      - "Because later timesteps have larger gradients"
+      - "Because the loss weighting is uniform in $t$"
+    answer: 1
+    explanation: "The network sees a distribution of tasks indexed by noise level, and uniform $t$ means the schedule alone controls that distribution. A linear $\\beta$ schedule puts 54% of the mass below an SNR of about 0.14, where the input barely constrains the answer, so half the compute buys very little. This is why reparameterising the loss in terms of log-SNR clarifies things — it makes the implicit weighting explicit rather than hiding it inside the schedule."
+  - id: dmb_l2_c3
+    prompt: "In the controlled test, Heun beat Euler above 20 evaluations and lost below it. What explains the crossover?"
+    options:
+      - "Heun accumulates more floating-point error"
+      - "Heun's correction evaluates the score at a predicted point, so its advantage depends on that prediction being locally accurate — at very large steps the predictor lands somewhere the correction makes things worse, and the asymptotic order only describes the small-step regime"
+      - "Heun requires a different noise schedule"
+      - "The comparison at low NFE was measured incorrectly"
+    answer: 1
+    explanation: "Order statements are asymptotic in the step size: they say how error shrinks as $h \\to 0$, not which method wins at any given $h$. Heun's predictor–corrector structure assumes the Euler prediction is close enough that the score there is informative about the interval, and one huge step violates that. The practical reading is that better integrators extend the useful range downwards but cannot reach single-digit steps, which is precisely the gap consistency and distillation methods were built for."
 ---
 
-## Formal definition
+## The forward process as an SDE
 
-Diffusion models define a forward process that gradually corrupts data $\mathbf{x}_0 \sim q(\mathbf{x}_0)$ by adding Gaussian noise over $T$ steps: $q(\mathbf{x}_t | \mathbf{x}_{t-1}) = \mathcal{N}(\mathbf{x}_t; \sqrt{1-\beta_t}\,\mathbf{x}_{t-1}, \beta_t \mathbf{I})$, with noise schedule $\{\beta_t\}_{t=1}^T$. Using $\alpha_t = 1 - \beta_t$ and $\bar{\alpha}_t = \prod_{s=1}^t \alpha_s$, we can sample any timestep directly: $q(\mathbf{x}_t | \mathbf{x}_0) = \mathcal{N}(\mathbf{x}_t; \sqrt{\bar{\alpha}_t}\,\mathbf{x}_0, (1-\bar{\alpha}_t)\mathbf{I})$. The reverse process learns to denoise: $p_\theta(\mathbf{x}_{t-1} | \mathbf{x}_t) = \mathcal{N}(\mathbf{x}_{t-1}; \mu_\theta(\mathbf{x}_t, t), \sigma_t^2 \mathbf{I})$. Equivalent to learning the score function $\nabla_{\mathbf{x}} \log p(\mathbf{x}_t)$ (score matching perspective). DDPM training objective: $\mathcal{L} = \mathbb{E}_{t, \mathbf{x}_0, \boldsymbol{\epsilon}} [\|\boldsymbol{\epsilon} - \boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t)\|^2]$ where $\boldsymbol{\epsilon} \sim \mathcal{N}(0, \mathbf{I})$. DDIM reformulates sampling as a deterministic ODE: $\mathbf{x}_{t-1} = \sqrt{\bar{\alpha}_{t-1}} \hat{\mathbf{x}}_0 + \sqrt{1-\bar{\alpha}_{t-1}} \cdot \boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t)$, enabling fewer steps (10-50 vs 1000 for DDPM). Noise schedules: linear ($\beta_t$ increases linearly), cosine (smoother, better for small images/actions), and learned schedules.
+Write the noising process in continuous time:
+
+$$
+dx = f(x,t)\,dt + g(t)\,dw
+$$
+
+DDPM's discrete chain is one discretisation of this with a particular $f$ and
+$g$; the variance-exploding formulation is another. Anderson's result gives the
+reverse-time process:
+
+$$
+dx = \left[f(x,t) - g(t)^2 \nabla_x \log p_t(x)\right] dt + g(t)\,d\bar{w}
+$$
+
+The only unknown is $\nabla_x \log p_t(x)$, the score. That is the whole learning
+problem, and it is what a noise-prediction network computes up to a scaling.
+
+## Why the deterministic sampler exists
+
+<Derivation title="The probability-flow ODE, and where the one half comes from">
+
+The density under the forward SDE evolves by Fokker–Planck:
+
+$$
+\frac{\partial p_t}{\partial t} = -\nabla \!\cdot\! \left(f p_t\right) + \frac{1}{2} g^2 \nabla^2 p_t
+$$
+
+We want a *deterministic* process with the same $p_t$. A deterministic flow with
+velocity $v$ obeys the continuity equation
+
+$$
+\frac{\partial p_t}{\partial t} = -\nabla \!\cdot\! \left(v\, p_t\right)
+$$
+
+so we need to write the diffusion term as a divergence. Using
+$\nabla p_t = p_t \nabla \log p_t$:
+
+$$
+\frac{1}{2}g^2 \nabla^2 p_t
+= \frac{1}{2}g^2 \nabla \!\cdot\! \left(\nabla p_t\right)
+= \nabla \!\cdot\! \left(\frac{1}{2}g^2 p_t \nabla \log p_t\right)
+$$
+
+Substituting and matching:
+
+$$
+v(x,t) = f(x,t) - \frac{1}{2} g(t)^2 \nabla_x \log p_t(x)
+$$
+
+**The assumption doing the work is that we only need the marginals to match**,
+not the trajectories. The ODE's individual paths are nothing like the SDE's — they
+are smooth and non-crossing — but at every $t$ the distribution is identical.
+
+</Derivation>
+
+Compare the two coefficients: $g^2$ in the reverse SDE, $\tfrac{1}{2}g^2$ in the
+ODE. Half the score compensates exactly for the removed noise.
+
+<KeyIdea>
+This is the structural fact the rest of the field builds on. One trained score
+gives you a stochastic sampler and a deterministic one; the deterministic path is
+smooth enough to integrate with large steps, to invert for editing, and to
+distil into a direct map. DDIM is a discretisation of this ODE, flow matching
+learns a straighter version of the same kind of velocity field, and consistency
+models learn its endpoint map — three ideas that look unrelated until you see
+they all act on this one equation.
+</KeyIdea>
+
+## The schedule, in log-SNR
+
+Define $\lambda(t) = \log\frac{\bar\alpha_t}{1-\bar\alpha_t}$, the log
+signal-to-noise ratio. Since $t$ is drawn uniformly during training, the schedule
+determines the induced distribution over $\lambda$ — that is, over how hard each
+training example is.
+
+| band | linear $\beta$ | cosine |
+| --- | --- | --- |
+| $\lambda > 5$ (nearly clean) | 2.1% | 4.5% |
+| $-2 < \lambda \le 5$ (informative) | 43.5% | 72.8% |
+| $\lambda \le -2$ (nearly pure noise) | 54.4% | 22.7% |
+
+At $t = T/2$: $\bar\alpha = 0.079$ under the linear schedule, $0.494$ under the
+cosine one.
+
+<Warning>
+The reason this is easy to miss is that the loss looks fine either way. Training
+at $\lambda \ll 0$ is *easy* — predicting the noise from almost pure noise is
+nearly the identity — so those steps produce small losses and contribute a
+healthy-looking average while teaching very little. A loss curve cannot
+distinguish capacity well spent from capacity spent on a trivial regime, which is
+why the schedule deserves inspection rather than inheritance.
+</Warning>
+
+## Sampling is numerical integration
+
+Solving the probability-flow ODE from noise to data costs one network evaluation
+per function evaluation, so sample quality against NFE is a convergence question.
+
+<Figure src="/figures/sampler-order-convergence.svg" alt="Log-log plot of Wasserstein error against network evaluations for Euler and Heun samplers on a mixture with an exact score. Euler halves per doubling; Heun falls about fivefold per doubling and reaches Euler's 160-evaluation error at 40. Below 20 evaluations Heun is worse." caption="Measured with the score known exactly, so every bit of the error is discretisation." />
+
+| NFE | 10 | 20 | 40 | 80 | 160 |
+| --- | --- | --- | --- | --- | --- |
+| Euler | 0.175 | 0.080 | 0.039 | 0.021 | 0.012 |
+| Heun | 0.392 | 0.062 | 0.011 | 0.0022 | at floor |
+
+Euler's error falls by about $2\times$ per doubling — first order, as expected.
+Heun falls by about $5\times$, and reaches Euler's 160-evaluation error at 40:
+**a fourfold saving in evaluations at matched quality**, from changing the
+integrator alone.
+
+And the crossover at the left end is the honest part. At 10 evaluations Heun is
+more than twice as bad as Euler, because its correction is evaluated at a point
+the oversized predictor step has already made unreliable. Order is an asymptotic
+statement about small $h$, so better integrators push the usable budget down and
+cannot reach the single-digit regime — which is the gap distillation was built to
+close.

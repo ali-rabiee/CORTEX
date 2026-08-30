@@ -1,14 +1,17 @@
 id: diffusion_models_basics
 title: Diffusion Models Fundamentals
 domain: generative_control
-summary: Imagine teaching someone to restore a painting by practicing on
-  progressively more damaged versions.
+summary: Diffusion is a family of processes, not one algorithm. The schedule
+  decides where the model spends its capacity, and sampling is a numerical
+  integration problem — which is where the cost lives and where it can be removed.
 tags:
   - generative_control
   - ml_fundamentals
-difficulty: 2
+difficulty: 3
 importance: 4
 related_concept_ids:
   - diffusion_policy
   - flow_matching
   - consistency_models
+  - multimodal_distributions
+  - action_generation

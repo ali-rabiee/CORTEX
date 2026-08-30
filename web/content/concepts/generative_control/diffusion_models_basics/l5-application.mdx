@@ -1,27 +1,163 @@
 ---
 concept: diffusion_models_basics
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Diffusion Models Fundamentals fail in practice, and how would
-    you present it in an interview?
+  prompt: "Give your interview answer on diffusion fundamentals. What is the framing, and which two numbers do you bring?"
   keyPoints:
-    - "Wrong noise schedule: linear schedule designed for 256x256 images
-      destroys signal too quickly for 7D action vectors — by $t = 200$, the
-      actions are already pure noise, wasting the remaining 800 steps."
-    - "Too few DDIM steps: aggressive step reduction (e.g., 5 steps) causes
-      blurry/averaged outputs because the ODE solver takes too-large steps
-      through the probability flow."
-    - "Training-sampling mismatch: training with continuous time $t \\in [0, 1]$
-      but sampling with discrete steps introduces accumulating errors."
-check: []
-papers: []
+    - "Frame it as a family: the network only estimates the score, and schedule, sampler and step count are separable choices."
+    - "The probability-flow ODE shares the SDE's marginals, with the factor of one half falling out of Fokker–Planck."
+    - "Schedule as capacity: a linear schedule spends 54% of steps at near-zero SNR against the cosine schedule's 23%."
+    - "Sampling is integration: Heun matched Euler's 160-evaluation error in 40, and lost below 20 — order is asymptotic."
+interview:
+  answer: >-
+    The description everyone gives is add noise gradually and learn to remove it,
+    which is right and hides the structure that matters. The useful framing is
+    that the network only ever learns one object — the score of the noised data
+    distribution at each noise level — and everything else is a separable choice
+    made around it. How fast you add noise, whether you undo it stochastically or
+    deterministically, how many steps, which integrator. Most of those can be
+    changed after training, which is why the field moved so fast: a lot of what
+    look like competing model families are different answers to how you get from
+    noise to a sample given a score. The result that makes that concrete is the
+    probability-flow ODE. The forward process is an SDE, the reverse is an SDE
+    with a score term, but there's also a deterministic ODE with exactly the same
+    marginals, and it's the reverse drift with half the score coefficient. The
+    half isn't a fudge — you write the Fokker-Planck equation, express the
+    second-order diffusion term as the divergence of a probability current, and
+    half falls out of turning a Laplacian into a gradient. The trajectories are
+    completely different from the SDE's; only the distributions match at each
+    time. That single equation is what DDIM, higher-order solvers, consistency
+    distillation and the flow matching connection all act on. Then two things I'd
+    bring numbers for. First, the noise schedule is a capacity allocation, not a
+    detail, because timesteps are sampled uniformly during training — so the
+    schedule decides the distribution of difficulties the network sees. Under a
+    linear beta schedule alpha-bar is down to 0.08 by the halfway point, so the
+    data is ninety-two percent destroyed and about fifty-four percent of your
+    training steps are at a signal-to-noise ratio where the optimal prediction is
+    nearly the prior. The cosine schedule cuts that to twenty-three and moves
+    roughly thirty percent of the steps into the informative band. Same model,
+    same thousand steps. And it's easy to miss because those wasted steps produce
+    small losses — the average looks healthy. Second, sampling is a numerical
+    integration problem, so the step count is an accuracy question rather than a
+    hyperparameter. I tested this on a one-dimensional mixture with an exact
+    score so the only error was discretisation: Euler halved its error per
+    doubling of steps, first order, while a second-order Heun sampler fell about
+    fivefold and matched Euler's hundred-and-sixty-evaluation error at forty. So
+    a better integrator is worth about four times the step count, for free, after
+    training.
+  followUps:
+    - q: "If better integrators help that much, why did anyone need consistency models?"
+      a: >-
+        Because the order argument is asymptotic in the step size, and it stops
+        applying exactly where you need it. In the same test Heun was worse than
+        Euler at ten evaluations — more than twice as bad — because the corrector
+        evaluates the score at a point the oversized predictor step has already
+        made unreliable. So higher order extends the usable budget downwards and
+        can't reach single digits: the trajectory genuinely curves, and no
+        integrator resolves a curve in one step. Distillation attacks something
+        different — it learns the endpoint map directly instead of trying to
+        integrate the path better, which is why it can get to one or two steps
+        when solvers plateau around twenty.
+    - q: "How would you pick a schedule for a new domain?"
+      a: >-
+        I'd stop parameterising by t and sample log-SNR directly with explicit
+        bounds, because that makes the allocation a stated choice instead of a
+        side effect of the schedule's algebra. Then the question becomes what
+        range of signal-to-noise actually matters for the data, which is
+        domain-specific and answerable — for robot action chunks the useful band
+        sits differently than for images, partly because the data dimension is so
+        much lower. And I'd check the loss per SNR bucket rather than the
+        aggregate, since a schedule wasting half its steps still shows a healthy
+        average loss. The aggregate can't distinguish capacity well spent from
+        capacity spent on a trivial regime.
+    - q: "What's the practical difference between the stochastic and deterministic samplers?"
+      a: >-
+        The ODE is deterministic, so it's invertible — you can map a sample back
+        to its latent, which is what makes editing and interpolation work, and
+        the paths are smooth enough to take large steps. The SDE injects noise at
+        every step, which gives some self-correction: it can recover from
+        discretisation error the way a deterministic path can't, so at high step
+        counts stochastic sampling is often slightly better on quality while
+        being useless for anything requiring an inverse. In robot policies I'd
+        default to the ODE, because the step budget is the binding constraint at
+        control rate and determinism is worth having when you're debugging why a
+        policy did something.
+    - q: "Is the score the only thing being learned? What about conditioning?"
+      a: >-
+        Conditioning changes which score — you learn the score of the conditional
+        distribution rather than the marginal, so the network takes the
+        observation as an extra input and everything else is unchanged. The
+        interesting wrinkle is guidance: you can push samples toward stronger
+        conditioning by extrapolating along the difference between the
+        conditional and unconditional score. That's a sampling-time knob, so it
+        trades diversity against fidelity to the condition without retraining —
+        and for action generation it's a knob to use carefully, because
+        collapsing diversity is precisely the failure that made people reach for
+        diffusion policies in the first place.
+  traps:
+    - "Presenting diffusion as one algorithm. The separation of model from sampler is what makes the practical advice — most knobs are post-hoc — make sense."
+    - "Treating the noise schedule as an implementation detail. It decides where over half your training steps land, and the loss curve cannot reveal that."
+    - "Quoting the probability-flow ODE without the factor of one half, or without knowing where it comes from. It is derived, and interviewers ask."
+    - "Assuming higher-order samplers dominate. They lose below about twenty evaluations, which is the regime distillation exists for."
+check:
+  - id: dmb_l5_c1
+    prompt: "An interviewer asks how to cut your diffusion policy's inference cost from 100 steps to 10 without retraining. What is the honest answer?"
+    options:
+      - "Use a second-order sampler — it gives roughly 4× fewer evaluations"
+      - "You can get to roughly 20–40 evaluations with a better integrator and step spacing, but not to 10 without retraining: higher-order methods degrade below about twenty steps, so single-digit sampling needs distillation, which changes the model"
+      - "Reduce the number of denoising steps and accept slightly worse samples"
+      - "Switch from the SDE to the ODE sampler"
+    answer: 1
+    explanation: "The first three options each contain something true and overclaim. A second-order sampler plus $\\rho$-spaced levels genuinely gets a large saving for free, and the measured crossover shows it stops helping — and starts hurting — as steps grow large, because order statements only hold for small $h$. So the honest boundary is around twenty to forty evaluations post-hoc, and below that you are in distillation territory, which is retraining. Naming that boundary is what the question is testing."
+  - id: dmb_l5_c2
+    prompt: "Your diffusion model trains to a low loss but samples are poor. Which diagnosis would you reach for first?"
+    options:
+      - "The network is too small"
+      - "Check the loss broken down by noise level, and check that sampler and training schedules agree — an aggregate loss looks healthy when most steps are spent in a near-trivial SNR regime, and a schedule mismatch integrates the wrong ODE without erroring"
+      - "The learning rate is too high"
+      - "The dataset is too small"
+    answer: 1
+    explanation: "Both candidates share the property that they produce a good-looking scalar while being badly wrong, which is what the symptom describes. Steps at very low SNR are nearly the identity function and contribute small losses, so an average can be dominated by a regime that teaches nothing; and a sampler deriving its noise levels independently of the training schedule will query the network at levels it handles correctly, in an order that solves a different equation. Capacity and learning rate are worth checking after these, because they degrade the loss too."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Wrong noise schedule: linear schedule designed for 256x256 images destroys signal too quickly for 7D action vectors — by $t = 200$, the actions are already pure noise, wasting the remaining 800 steps. Too few DDIM steps: aggressive step reduction (e.g., 5 steps) causes blurry/averaged outputs because the ODE solver takes too-large steps through the probability flow. Training-sampling mismatch: training with continuous time $t \in [0, 1]$ but sampling with discrete steps introduces accumulating errors. Symptoms: generated actions are smoothed/averaged (mode collapse), sampling produces NaN or extreme values, quality degrades sharply below a step threshold. Fix: use cosine schedule for low-dimensional data, tune DDIM steps empirically (10-20 is usually the sweet spot for actions), match training and sampling discretization, consider v-prediction parameterization ($v = \sqrt{\bar{\alpha}_t}\boldsymbol{\epsilon} - \sqrt{1-\bar{\alpha}_t}\mathbf{x}_0$) for more stable training.
+<Steps>
+<Step title="Low loss, poor samples → look per noise level">
+An aggregate is dominated by the easy low-SNR regime. Bucket the loss by
+log-SNR before touching the architecture.
+</Step>
 
-## Interview-ready answer
+<Step title="Samples plausible but distribution wrong → schedule mismatch">
+Sampler and training levels derived separately. Both must read one schedule
+object.
+</Step>
 
-Diffusion models are the generative backbone behind state-of-the-art robot learning methods. The core idea: learn to reverse a noise-corruption process by training a denoising network $\boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t)$. Three perspectives that build intuition: (1) denoising — learn to remove noise at each level, (2) score matching — learn $\nabla_\mathbf{x} \log p(\mathbf{x}_t)$, the gradient pointing toward high-probability data, (3) stochastic differential equations — the forward and reverse processes are continuous-time SDEs. For robotics deployment, the key practical choices are: DDIM over DDPM for 10-20x fewer sampling steps, cosine noise schedule for low-dimensional action spaces, and conditioning architecture (cross-attention for observation conditioning works better than concatenation). The main trade-off is sample quality vs. inference speed — consistency distillation or flow matching can further accelerate generation when latency is critical.
+<Step title="Quality collapses below ~20 steps → integrator order, not model">
+Higher-order methods lose their advantage at large steps. Fix the spacing first,
+then consider distillation.
+</Step>
+
+<Step title="Blurry or averaged outputs → check this is a diffusion failure at all">
+Mode averaging is what diffusion prevents. If it persists, suspect the
+conditioning path or an MSE head elsewhere in the stack.
+</Step>
+
+<Step title="Sampling slow but quality fine → spacing before solver">
+$\rho$-spaced levels are free and often worth more than the integrator at small
+budgets.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The framing does most of the work in this answer. Saying that the network learns
+only the score, and that schedule, sampler and step count are separable, lets you
+answer half a dozen follow-ups from one idea — and it is what makes "you can
+change that after training" a principle rather than a trick. Adding the two
+measured numbers, the 54% of wasted schedule and the fourfold integrator saving,
+turns a conceptual answer into one that sounds like it came from having run the
+experiments.
+</Warning>

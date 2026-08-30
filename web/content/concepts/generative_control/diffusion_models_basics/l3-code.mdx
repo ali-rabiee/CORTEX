@@ -1,0 +1,158 @@
+---
+concept: diffusion_models_basics
+level: 3
+status: final
+recall:
+  prompt: "Write the training step and both samplers. What are the two things that must agree between them?"
+  keyPoints:
+    - "Training is one line of noise injection plus one forward pass — no reverse loop, which is why it is cheap and stable."
+    - "The sampler and the training schedule must use the same noise levels; a mismatch produces plausible-looking samples from the wrong distribution."
+    - "Euler and Heun differ by three lines, and Heun costs two evaluations per step — so compare on evaluations, not steps."
+    - "Prefer sampling log-SNR uniformly over sampling $t$ uniformly, since it makes the capacity allocation explicit instead of hiding it in the schedule."
+check:
+  - id: dmb_l3_c1
+    prompt: "Why compare samplers on network evaluations rather than on steps?"
+    options:
+      - "Because steps are harder to count"
+      - "Because Heun uses two evaluations per step, so a 20-step Heun run costs the same as a 40-step Euler run — comparing steps credits it with a speedup it does not have"
+      - "Because evaluation cost varies with noise level"
+      - "Because the step count depends on the schedule"
+    answer: 1
+    explanation: "The network forward pass dominates everything else in the sampling loop, so evaluations are the unit of cost. A predictor–corrector method buys accuracy by spending two evaluations per interval, and any comparison denominated in steps hides that entirely. In the measured test Heun still won decisively on the honest axis — a fourfold reduction at matched error — but it is a smaller win than a step-count comparison would suggest."
+  - id: dmb_l3_c2
+    prompt: "You train with a cosine schedule and sample with the noise levels from a linear one. What happens?"
+    options:
+      - "Sampling fails loudly with numerical errors"
+      - "It produces plausible-looking samples from the wrong distribution: the network is queried at noise levels it was not trained to handle at those points in the trajectory, and nothing in the loop detects the mismatch"
+      - "Sample quality is unaffected since the score is the same function"
+      - "Only the first few steps are affected"
+    answer: 1
+    explanation: "The network conditions on the noise level, so at each step it answers correctly for the level it is told — but the trajectory visits levels in the wrong order and with the wrong spacing, so the integration solves a different ODE. Nothing raises an error, and the output is recognisably sample-shaped, which is what makes it expensive. Deriving the sampler's levels from the same schedule object used in training removes the possibility."
+  - id: dmb_l3_c3
+    prompt: "Why sample the training timestep uniformly in log-SNR rather than uniformly in $t$?"
+    options:
+      - "It converges faster for numerical reasons"
+      - "It makes the allocation of training capacity explicit and independent of the schedule's shape, instead of letting the schedule silently decide that half the steps land where there is little to learn"
+      - "It removes the need for a noise schedule"
+      - "It makes the loss values comparable across timesteps"
+    answer: 1
+    explanation: "Uniform $t$ means the schedule's parameterisation determines the difficulty distribution as a side effect — which is how a linear schedule ends up spending 54% of its steps at near-zero SNR without anyone deciding that. Sampling log-SNR directly turns the allocation into a stated choice with visible bounds. It is the same instinct as normalising an observation channel: make the implicit scaling explicit so it can be reasoned about."
+---
+
+## Training: one line of noise, one forward pass
+
+<CodeWalk title="The training step">
+
+```python title="train.py"
+import torch
+
+def train_step(model, x0, sched, opt):
+    """No reverse loop, no adversarial game — which is the whole reason
+    diffusion training is stable where GAN training was not."""
+    b = x0.shape[0]
+
+    # Sample the DIFFICULTY, not the timestep. Uniform t lets the schedule's
+    # shape silently decide that half the steps land where SNR is ~0 and the
+    # optimal prediction is nearly the prior.
+    lam = torch.rand(b, device=x0.device) * (sched.lam_max - sched.lam_min) + sched.lam_min
+    abar = torch.sigmoid(lam)                       # abar/(1-abar) = e^lam
+
+    eps = torch.randn_like(x0)
+    xt = abar.sqrt().view(-1, 1) * x0 + (1 - abar).sqrt().view(-1, 1) * eps
+
+    return torch.nn.functional.mse_loss(model(xt, lam), eps)
+```
+
+</CodeWalk>
+
+The network's output is the noise, which is the score up to a scale:
+$\nabla_x \log p_t(x) = -\hat\varepsilon / \sqrt{1-\bar\alpha_t}$. Everything at
+sampling time uses that identity.
+
+## Two samplers, one model
+
+<CodeWalk title="Euler and Heun on the probability-flow ODE">
+
+```python title="sample.py"
+@torch.no_grad()
+def sample(model, shape, sched, n_steps, heun=True, device="cuda"):
+    """Levels come from the SAME schedule object used in training. Deriving
+    them separately is how you end up integrating a different ODE while the
+    output still looks like a sample."""
+    sig = sched.sampling_sigmas(n_steps)            # descending, ending at ~0
+    x = torch.randn(shape, device=device) * sig[0]
+
+    for i in range(len(sig) - 1):
+        s, s_next = sig[i], sig[i + 1]
+        d = -s * score(model, x, s, sched)          # dx/dsigma = -sigma * score
+
+        if heun and s_next > 0:
+            # Predictor, then average the two slopes. Costs a SECOND network
+            # evaluation, so a 20-step Heun run is priced like 40 Euler steps.
+            x_pred = x + (s_next - s) * d
+            d_next = -s_next * score(model, x_pred, s_next, sched)
+            x = x + (s_next - s) * 0.5 * (d + d_next)
+        else:
+            x = x + (s_next - s) * d
+    return x
+
+
+def score(model, x, sigma, sched):
+    lam = sched.lam_from_sigma(sigma)
+    abar = torch.sigmoid(lam)
+    eps = model(x, lam.expand(x.shape[0]))
+    return -eps / (1 - abar).sqrt()
+```
+
+</CodeWalk>
+
+<KeyIdea>
+The `heun` flag is the entire difference between a 160-evaluation sampler and a
+40-evaluation one at the same error. Nothing about the trained model changes —
+which is the practical consequence of the score being the only learned object.
+Inference cost is a decision you make after training, and can revisit.
+</KeyIdea>
+
+## The schedule as an object, not a formula
+
+<CodeWalk title="One place where noise levels are defined">
+
+```python title="schedule.py"
+import math, torch
+
+class CosineSchedule:
+    """Training and sampling both read from here. Two independent
+    implementations of 'the noise levels' is the most common way to get
+    confidently wrong samples."""
+
+    def __init__(self, s=0.008, lam_min=-15.0, lam_max=15.0):
+        self.s, self.lam_min, self.lam_max = s, lam_min, lam_max
+
+    def abar(self, t):                              # t in [0, 1]
+        f = lambda u: math.cos((u + self.s) / (1 + self.s) * math.pi / 2) ** 2
+        return f(t) / f(0.0)
+
+    def sampling_sigmas(self, n, rho=7.0):
+        """Karras-style spacing: concentrates steps at low noise, where the
+        score changes fastest and the discretisation error is largest."""
+        s_max = self.sigma_from_abar(self.abar(1.0))
+        s_min = self.sigma_from_abar(self.abar(1e-3))
+        i = torch.arange(n)
+        return (s_max ** (1 / rho)
+                + i / (n - 1) * (s_min ** (1 / rho) - s_max ** (1 / rho))) ** rho
+
+    @staticmethod
+    def sigma_from_abar(a):
+        return ((1 - a) / a) ** 0.5
+```
+
+</CodeWalk>
+
+<Warning>
+Uniform spacing in $t$ is a poor sampling grid regardless of schedule: the score
+varies fastest near zero noise, so equal steps put most of the resolution where
+it is least needed. The $\rho = 7$ spacing above concentrates steps at the low-
+noise end, and it is worth more at small step counts than the choice of
+integrator. Both knobs are post-hoc, both are free, and both are routinely left
+at defaults inherited from a reference implementation.
+</Warning>

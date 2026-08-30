@@ -1,25 +1,120 @@
 ---
 concept: diffusion_models_basics
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Diffusion Models Fundamentals in plain language: what is it,
-    and why does it matter?"
+  prompt: "What is a diffusion model as a family rather than an algorithm, and which two design choices dominate?"
   keyPoints:
-    - Imagine teaching someone to restore a painting by practicing on
-      progressively more damaged versions.
-    - In the forward process, you systematically add damage (noise) until the
-      painting is unrecognizable static.
-    - In training, you show the model paintings at every damage level and teach
-      it to undo one small step of damage.
-check: []
-papers: []
+    - "A forward noising process and a reverse process that undoes it — but the reverse can be a stochastic SDE or a deterministic ODE with identical marginals, so the sampler is a separate choice from the model."
+    - "The noise schedule decides where capacity goes: a linear schedule spends 54% of its steps on nearly pure noise, a cosine schedule 23%."
+    - "Sampling cost is integration accuracy. A second-order integrator reached the same error as Euler with about four times fewer evaluations in a controlled test."
+    - "So the expensive part is inference, and it is expensive for a numerical reason — which is what later methods attack."
+media:
+  - kind: article
+    title: "What are Diffusion Models?"
+    url: https://lilianweng.github.io/posts/2021-07-11-diffusion-models/
+    source: "Lilian Weng"
+    note: "The clearest written derivation. Read the sections connecting DDPM to the score-based SDE view; that equivalence is what makes the family framing work."
+  - kind: article
+    title: "Generative Modeling by Estimating Gradients of the Data Distribution"
+    url: https://yang-song.net/blog/2021/score/
+    source: "Yang Song"
+    note: "The author's own account of the SDE unification, with the probability-flow ODE explained visually. Worth it for the picture of one process, two samplers."
+check:
+  - id: dmb_l1_c1
+    prompt: "Why is it useful to say diffusion models are a family rather than one algorithm?"
+    options:
+      - "Because there are many architectures for the denoiser"
+      - "Because the same trained model supports different reverse processes — a stochastic SDE and a deterministic ODE share the marginals — so the sampler, the step count and the schedule are choices made independently of the network"
+      - "Because diffusion can be applied to images, audio and actions"
+      - "Because there are several loss parameterisations"
+    answer: 1
+    explanation: "The practical payoff is that most of the levers are at sampling time and need no retraining. Once you see that the network only ever estimates the score, swapping DDPM's stochastic sampler for a deterministic ODE solver, changing the number of steps, or moving to a higher-order integrator are all post-hoc decisions. Treating the whole pipeline as one monolithic algorithm hides exactly the knobs that matter for deployment."
+  - id: dmb_l1_c2
+    prompt: "Under a linear $\\beta$ schedule, $\\bar\\alpha$ has fallen to 0.08 by the halfway point of training. Why does that matter?"
+    options:
+      - "It means training is unstable"
+      - "It means over half the schedule sits at very low signal-to-noise, where the optimal prediction is nearly the prior and there is little to learn — so a large share of the model's capacity and training steps is spent where the task is almost trivial"
+      - "It means the model cannot generate diverse samples"
+      - "It means the forward process is too fast to invert"
+    answer: 1
+    explanation: "Timesteps are sampled uniformly, so the schedule directly determines the distribution of tasks the network trains on. When 54% of those tasks are 'given almost pure noise, predict the noise', the model spends its budget on a regime where the answer is nearly independent of the input. The cosine schedule's contribution is to redistribute roughly 30% of the steps into the band where signal and noise are comparable and the denoising problem is actually informative."
 ---
 
-## Intuition
+## One process, several algorithms
 
-Imagine teaching someone to restore a painting by practicing on progressively more damaged versions. In the forward process, you systematically add damage (noise) until the painting is unrecognizable static. In training, you show the model paintings at every damage level and teach it to undo one small step of damage. At generation time, you start with pure static and iteratively restore it — each step removes a little noise, gradually revealing a coherent image (or action sequence). The score function tells you: 'from this noisy state, which direction leads toward clean data?' — it's literally the gradient of the log-probability landscape.
+<Intuition>
+The standard description — add noise gradually, then learn to remove it — is
+right and it hides the structure that matters. What the network learns is a
+single object: the score of the noised data distribution at each noise level.
+Everything else is a choice made around it. How fast you add noise, whether you
+undo it stochastically or deterministically, how many steps you take, and which
+numerical integrator you use are all separable decisions, and most of them can be
+changed after training.
+</Intuition>
 
-## In practice
+That separation is why the field moved so fast. DDIM, higher-order samplers, flow
+matching and consistency distillation are not competing model families so much as
+different answers to "given a score estimate, how do you get from noise to a
+sample".
 
-DDPM for image generation: train a U-Net $\boldsymbol{\epsilon}_\theta$ on ImageNet, sample by iterating $\mathbf{x}_{t-1} = \frac{1}{\sqrt{\alpha_t}}(\mathbf{x}_t - \frac{\beta_t}{\sqrt{1-\bar{\alpha}_t}} \boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t)) + \sigma_t \mathbf{z}$ for $T = 1000$ steps. DDIM acceleration: same trained model, but deterministic sampling with $\eta = 0$ in 50 steps — similar quality, 20x faster. For robotics: the same framework applies to action sequences — $\mathbf{x}_0$ is a trajectory of robot actions, the U-Net is conditioned on observations, and denoising produces a clean action trajectory. Noise schedule matters: cosine schedule $\bar{\alpha}_t = \cos^2(\frac{t/T + s}{1+s} \cdot \frac{\pi}{2})$ works better than linear for low-dimensional action spaces because it preserves signal longer in the forward process.
+## The schedule is a capacity allocation
+
+Timesteps are sampled uniformly during training, so the noise schedule decides
+what fraction of the model's training is spent at each difficulty.
+
+<Figure src="/figures/diffusion-schedule-capacity.svg" alt="Left: surviving signal fraction against normalised time — the linear schedule falls to 0.08 by the halfway point while the cosine schedule is at 0.49. Right: share of training steps per signal-to-noise band, with the linear schedule spending 54 percent on nearly pure noise against the cosine schedule's 23 percent." caption="Same thousand steps, about thirty percent of them reallocated from where nothing is learnable to where the denoising problem is informative." />
+
+Under the linear $\beta$ schedule, $\bar\alpha$ is already down to **0.08** by
+$t = T/2$ — the data is 92% destroyed at the halfway point, and the remaining
+half of the schedule works on what is nearly pure noise. Counting steps by
+signal-to-noise band:
+
+| schedule | nearly clean | informative | nearly pure noise |
+| --- | --- | --- | --- |
+| linear | 2.1% | 43.5% | **54.4%** |
+| cosine | 4.5% | **72.8%** | 22.7% |
+
+<KeyIdea>
+Nothing about the model changed. The cosine schedule simply moves about 30% of
+the training steps out of a regime where the optimal prediction is nearly the
+prior and into one where the input actually determines the answer. That is why a
+schedule change — usually presented as a minor detail — produced one of the
+larger single improvements in the DDPM line.
+</KeyIdea>
+
+## Where the cost is
+
+<Steps>
+<Step title="Training is cheap per sample">
+One forward pass at one randomly drawn noise level. No sampling loop, no
+adversarial game, no simulation of the reverse process.
+</Step>
+
+<Step title="Sampling is a differential equation">
+Generating one sample means integrating the reverse process from noise to data,
+which needs one network evaluation per step. The original formulation used 1000.
+</Step>
+
+<Step title="So the step count is an accuracy question">
+It is not a hyperparameter to tune by feel — it is how finely you discretise an
+ODE, with a discretisation error that shrinks in a known way.
+</Step>
+
+<Step title="Which means a better integrator buys steps">
+In a controlled test where the exact score was available, a second-order Heun
+sampler reached Euler's 160-evaluation error in about 40 — roughly a fourfold
+saving for a change of a few lines.
+</Step>
+</Steps>
+
+<Warning>
+The same test showed the opposite at very low budgets: at 10 evaluations Heun was
+*worse* than Euler, because the second-order correction is evaluated at a point
+the large step has already moved somewhere unreliable. Higher order helps once
+the steps are small enough to be locally accurate, and hurts before that — which
+is why single-digit-step generation needed a different idea rather than a better
+integrator.
+</Warning>
+
+<WatchThis />

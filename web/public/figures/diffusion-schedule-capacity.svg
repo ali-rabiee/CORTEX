@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 300" font-family="system-ui, -apple-system, sans-serif">
+  <title>The noise schedule decides where the model spends its capacity</title>
+  <desc>Left: the surviving signal fraction alpha-bar against normalised time. Under a linear beta schedule the signal is down to 0.08 by the halfway point, while a cosine schedule is still at 0.49. Right: the share of training steps falling in each signal-to-noise band. The linear schedule spends 54 percent of its steps on nearly pure noise where there is little to learn; the cosine schedule spends 23 percent, moving that capacity into the informative band.</desc>
+  <rect width="640" height="300" fill="#0d1117"/>
+  <line x1="316" y1="40" x2="316" y2="284" stroke="#30363d"/>
+
+  <text x="20" y="26" fill="#e6edf3" font-size="12" font-weight="600">Surviving signal ᾱ(t)</text>
+  <line x1="55" y1="250" x2="295" y2="250" stroke="#30363d"/>
+  <line x1="55" y1="66" x2="55" y2="250" stroke="#30363d"/>
+  <text x="49" y="74" fill="#8b949e" font-size="8.5" text-anchor="end">1.0</text>
+  <text x="49" y="164" fill="#8b949e" font-size="8.5" text-anchor="end">0.5</text>
+  <text x="49" y="253" fill="#8b949e" font-size="8.5" text-anchor="end">0</text>
+
+  <line x1="175" y1="66" x2="175" y2="250" stroke="#484f58" stroke-width="1" stroke-dasharray="2 3"/>
+  <text x="175" y="266" fill="#8b949e" font-size="9" text-anchor="middle">t = T/2</text>
+  <text x="55" y="266" fill="#8b949e" font-size="9" text-anchor="middle">0</text>
+  <text x="295" y="266" fill="#8b949e" font-size="9" text-anchor="middle">T</text>
+
+  <polyline points="55,70 79,89 103,131 127,179 151,215 175,236 199,245 223,249 247,250 271,250 295,250"
+            fill="none" stroke="#f85149" stroke-width="2"/>
+  <polyline points="55,70 79,75 103,88 127,108 151,133 175,161 199,189 223,213 247,233 271,246 295,250"
+            fill="none" stroke="#3fb950" stroke-width="2"/>
+  <circle cx="175" cy="236" r="3.5" fill="#f85149"/><circle cx="175" cy="161" r="3.5" fill="#3fb950"/>
+  <text x="184" y="239" fill="#f85149" font-size="9.5">linear: 0.08</text>
+  <text x="184" y="157" fill="#3fb950" font-size="9.5">cosine: 0.49</text>
+  <text x="55" y="284" fill="#8b949e" font-size="9">Half the linear schedule is spent past 92% destroyed.</text>
+
+  <text x="336" y="26" fill="#e6edf3" font-size="12" font-weight="600">Where the training steps go</text>
+  <text x="336" y="42" fill="#8b949e" font-size="9.5">share of steps by signal-to-noise band</text>
+
+  <rect x="390" y="90" width="60" height="3" fill="#484f58"/>
+  <rect x="390" y="93" width="60" height="70" fill="#3fb950"/>
+  <rect x="390" y="163" width="60" height="87" fill="#f85149" opacity="0.75"/>
+  <text x="420" y="134" fill="#0d1117" font-size="12" font-weight="600" text-anchor="middle">43%</text>
+  <text x="420" y="212" fill="#0d1117" font-size="11" font-weight="600" text-anchor="middle">54%</text>
+  <text x="420" y="266" fill="#f85149" font-size="10" text-anchor="middle">linear</text>
+
+  <rect x="510" y="90" width="60" height="7" fill="#484f58"/>
+  <rect x="510" y="97" width="60" height="117" fill="#3fb950"/>
+  <rect x="510" y="214" width="60" height="36" fill="#f85149" opacity="0.75"/>
+  <text x="540" y="160" fill="#0d1117" font-size="12" font-weight="600" text-anchor="middle">73%</text>
+  <text x="540" y="237" fill="#0d1117" font-size="10" font-weight="600" text-anchor="middle">23%</text>
+  <text x="540" y="266" fill="#3fb950" font-size="10" text-anchor="middle">cosine</text>
+
+  <rect x="336" y="96" width="9" height="9" fill="#484f58"/>
+  <text x="350" y="104" fill="#8b949e" font-size="8.5">nearly clean</text>
+  <rect x="336" y="112" width="9" height="9" fill="#3fb950"/>
+  <text x="350" y="120" fill="#8b949e" font-size="8.5">informative</text>
+  <rect x="336" y="128" width="9" height="9" fill="#f85149" opacity="0.75"/>
+  <text x="350" y="136" fill="#8b949e" font-size="8.5">nearly pure</text>
+  <text x="350" y="146" fill="#8b949e" font-size="8.5">noise</text>
+  <text x="336" y="284" fill="#8b949e" font-size="9">Same 1000 steps, ~30% reallocated to where learning happens.</text>
+</svg>

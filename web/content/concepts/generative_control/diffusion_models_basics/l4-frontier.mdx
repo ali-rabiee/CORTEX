@@ -1,0 +1,121 @@
+---
+concept: diffusion_models_basics
+level: 4
+status: final
+recall:
+  prompt: "Trace the diffusion papers. What did each one add to the family view?"
+  keyPoints:
+    - "Sohl-Dickstein et al. 2015 proposed the forward/reverse construction; it needed a decade of scale and a better objective to matter."
+    - "Song et al. 2021 unified score matching and DDPM as one SDE, and derived the probability-flow ODE — which is what made deterministic sampling possible."
+    - "Nichol and Dhariwal fixed the schedule, moving roughly 30% of training steps out of the near-zero-SNR regime."
+    - "Karras et al. separated the design space into orthogonal choices — schedule, preconditioning, sampler — showing most of them are post-hoc."
+papers:
+  - key: sohldickstein2015thermo
+    title: "Deep Unsupervised Learning using Nonequilibrium Thermodynamics"
+    authors: "Jascha Sohl-Dickstein, Eric A. Weiss, Niru Maheswaranathan, Surya Ganguli"
+    venue: ICML
+    year: 2015
+    arxiv: "1503.03585"
+    takeaway: "The original construction: destroy structure with a diffusion process, then learn to reverse it. The idea was complete five years before it produced competitive samples."
+  - key: song2021sde
+    title: "Score-Based Generative Modeling through Stochastic Differential Equations"
+    authors: "Yang Song, Jascha Sohl-Dickstein, Diederik P. Kingma, Abhishek Kumar, Stefano Ermon, Ben Poole"
+    venue: "ICLR (Oral)"
+    year: 2021
+    arxiv: "2011.13456"
+    takeaway: "Shows DDPM and score matching are discretisations of one SDE, and derives the probability-flow ODE with identical marginals — the result that made deterministic sampling, likelihood evaluation and inversion possible from the same trained model."
+  - key: nichol2021improved
+    title: "Improved Denoising Diffusion Probabilistic Models"
+    authors: "Alex Nichol, Prafulla Dhariwal"
+    venue: ICML
+    year: 2021
+    arxiv: "2102.09672"
+    takeaway: "Replaces the linear schedule with a cosine one and learns the reverse variance. The schedule change alone reallocates a large share of training away from the regime where almost nothing is learnable."
+  - key: karras2022edm
+    title: "Elucidating the Design Space of Diffusion-Based Generative Models"
+    authors: "Tero Karras, Miika Aittala, Timo Aila, Samuli Laine"
+    venue: NeurIPS
+    year: 2022
+    arxiv: "2206.00364"
+    takeaway: "Factors the tangle of formulations into independent choices — noise schedule, network preconditioning, step spacing, integrator — and shows a second-order sampler with tuned spacing reaches high quality in a few dozen evaluations."
+check:
+  - id: dmb_l4_c1
+    prompt: "What did the SDE paper make possible that DDPM alone did not?"
+    options:
+      - "Higher sample quality at the same step count"
+      - "Deterministic sampling, exact likelihoods and latent inversion from the same trained model — because the probability-flow ODE shares the SDE's marginals, so one score estimate supports a whole family of samplers"
+      - "Training on continuous data"
+      - "Conditional generation"
+    answer: 1
+    explanation: "DDPM's reverse process is intrinsically stochastic, which forecloses anything requiring an invertible, deterministic map. Showing that a deterministic ODE reproduces the same marginals decouples the sampler from the model, and everything downstream — DDIM, higher-order solvers, consistency distillation, the flow-matching connection — operates on that ODE. It reframed a specific algorithm as one member of a family."
+  - id: dmb_l4_c2
+    prompt: "The EDM paper's main contribution is often described as 'tuning'. What is the better description?"
+    options:
+      - "A new architecture for the denoiser"
+      - "A factorisation: it separates schedule, preconditioning, step spacing and integrator into choices that can be reasoned about independently, revealing that most of the apparent differences between formulations are reparameterisations"
+      - "A proof that diffusion models converge"
+      - "A faster training objective"
+    answer: 1
+    explanation: "Before it, the published variants differed in many entangled ways at once, so it was impossible to say which change was responsible for which effect. Putting them in a common parameterisation showed that several 'competing models' were the same model under different variable names, and that the remaining genuine choices were largely independent — which is why so many of them turn out to be adjustable after training rather than baked into it."
+  - id: dmb_l4_c3
+    prompt: "The 2015 paper contains the core construction. Why did it take until 2020 to produce competitive samples?"
+    options:
+      - "The mathematics was incorrect and had to be fixed"
+      - "The objective and parameterisation were not yet right: predicting the noise with a simple reweighted loss, plus scale and better architectures, is what turned a sound construction into a competitive one"
+      - "GPUs were not fast enough"
+      - "The forward process was defined incorrectly"
+    answer: 1
+    explanation: "The construction was sound and the framing was already thermodynamic rather than ad hoc. What changed was the practical form of the objective — DDPM's simplified noise-prediction loss dropped the ELBO weighting in favour of one that trains better — together with scale and architecture. It is a good example of a correct idea waiting on the details of how to optimise it, which is worth remembering when dismissing an approach that currently underperforms."
+---
+
+## The idea arrives early
+
+<PaperCard refKey="sohldickstein2015thermo" />
+
+The construction is already complete here: run a diffusion that destroys
+structure, learn the reverse. What was missing was the practical form of the
+objective and the scale to make it work — which is why the paper is worth citing
+when someone dismisses an approach for currently underperforming.
+
+## The unification
+
+<PaperCard refKey="song2021sde" />
+
+This is the paper the family view comes from. Two things follow from it:
+
+<Steps>
+<Step title="DDPM and score matching are the same thing">
+Different discretisations of one continuous-time SDE, differing in $f$ and $g$
+rather than in kind.
+</Step>
+
+<Step title="The probability-flow ODE has identical marginals">
+So the sampler is separable from the model, and a deterministic path exists.
+Everything after — DDIM, higher-order solvers, consistency distillation, the
+bridge to flow matching — acts on that ODE.
+</Step>
+</Steps>
+
+## Fixing the schedule, then the whole design space
+
+<PaperGrid>
+<PaperCard refKey="nichol2021improved" />
+<PaperCard refKey="karras2022edm" />
+</PaperGrid>
+
+The cosine schedule reads as a detail and is not. Because timesteps are drawn
+uniformly, the schedule determines the distribution of difficulties the network
+trains on, and the linear schedule put over half of them where the optimal
+prediction is nearly the prior.
+
+EDM then did the more general thing: put the published variants into a common
+parameterisation and showed that most of their apparent differences were
+reparameterisations, leaving a small set of genuinely independent choices.
+
+<KeyIdea>
+The pattern across these four is that progress came from *separating* things that
+had been fused. Model from sampler, schedule from parameterisation, training
+difficulty from timestep index. Each separation turned a fixed property of an
+algorithm into a knob you can turn after training — which is why the practical
+advice for this family is so often "you can change that at inference time".
+</KeyIdea>

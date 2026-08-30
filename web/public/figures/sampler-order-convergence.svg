@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 300" font-family="system-ui, -apple-system, sans-serif">
+  <title>Sampling cost is an integration-accuracy problem</title>
+  <desc>Wasserstein error against network evaluations for Euler and Heun samplers on a one-dimensional mixture where the score is exact. Euler halves its error per doubling of steps, first order. Heun falls about five times per doubling and matches Euler's 160-evaluation error at 40 evaluations. Below 20 evaluations Heun is worse than Euler, because the second-order correction is evaluated at an unreliable point.</desc>
+  <rect width="640" height="300" fill="#0d1117"/>
+  <text x="20" y="24" fill="#e6edf3" font-size="12.5" font-weight="600">Sampling error vs. network evaluations</text>
+  <text x="20" y="40" fill="#8b949e" font-size="9.5">1-D mixture with an exact score, so the only error is discretisation</text>
+
+  <line x1="90" y1="250" x2="600" y2="250" stroke="#30363d"/>
+  <line x1="90" y1="60" x2="90" y2="250" stroke="#30363d"/>
+  <text x="84" y="74" fill="#8b949e" font-size="8.5" text-anchor="end">0.5</text>
+  <text x="84" y="141" fill="#8b949e" font-size="8.5" text-anchor="end">0.05</text>
+  <text x="84" y="208" fill="#8b949e" font-size="8.5" text-anchor="end">0.005</text>
+  <text x="30" y="56" fill="#8b949e" font-size="9">W₁ error</text>
+
+  <line x1="90" y1="234" x2="600" y2="234" stroke="#484f58" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="596" y="230" fill="#8b949e" font-size="9" text-anchor="end">sampling-noise floor</text>
+
+  <polyline points="90,100 217,123 345,143 472,162 600,179" fill="none" stroke="#f85149" stroke-width="2"/>
+  <circle cx="90" cy="100" r="3.5" fill="#f85149"/><circle cx="217" cy="123" r="3.5" fill="#f85149"/>
+  <circle cx="345" cy="143" r="3.5" fill="#f85149"/><circle cx="472" cy="162" r="3.5" fill="#f85149"/>
+  <circle cx="600" cy="179" r="3.5" fill="#f85149"/>
+  <text x="470" y="152" fill="#f85149" font-size="9.5">Euler — halves per doubling</text>
+
+  <polyline points="90,77 217,130 345,180 472,227" fill="none" stroke="#3fb950" stroke-width="2"/>
+  <circle cx="90" cy="77" r="3.5" fill="#3fb950"/><circle cx="217" cy="130" r="3.5" fill="#3fb950"/>
+  <circle cx="345" cy="180" r="3.5" fill="#3fb950"/><circle cx="472" cy="227" r="3.5" fill="#3fb950"/>
+  <text x="200" y="205" fill="#3fb950" font-size="9.5">Heun — about ×5 per doubling</text>
+
+  <line x1="345" y1="180" x2="600" y2="180" stroke="#d29922" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="352" y="173" fill="#d29922" font-size="9.5">same error, 4× fewer evaluations</text>
+
+  <text x="120" y="92" fill="#8b949e" font-size="9">Heun worse here:</text>
+  <text x="120" y="103" fill="#8b949e" font-size="9">steps too large for</text>
+  <text x="120" y="114" fill="#8b949e" font-size="9">the correction</text>
+
+  <text x="90" y="266" fill="#8b949e" font-size="9" text-anchor="middle">10</text>
+  <text x="217" y="266" fill="#8b949e" font-size="9" text-anchor="middle">20</text>
+  <text x="345" y="266" fill="#8b949e" font-size="9" text-anchor="middle">40</text>
+  <text x="472" y="266" fill="#8b949e" font-size="9" text-anchor="middle">80</text>
+  <text x="600" y="266" fill="#8b949e" font-size="9" text-anchor="middle">160</text>
+  <text x="345" y="284" fill="#8b949e" font-size="9.5" text-anchor="middle">network function evaluations</text>
+</svg>
