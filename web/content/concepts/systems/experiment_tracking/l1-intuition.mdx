@@ -1,25 +1,116 @@
 ---
 concept: experiment_tracking
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Experiment Tracking and Reproducibility in plain language: what
-    is it, and why does it matter?"
+  prompt: "What is experiment tracking actually for, and what is the thing that makes exact reproduction impossible?"
   keyPoints:
-    - Like a lab notebook for ML experiments.
-    - When your colleague asks 'what was the learning rate for the run that got
-      90% success?' you need an instant answer, not a folder of untitled
-      scripts.
-    - Good tracking means any result can be reproduced by anyone on the team at
-      any time.
-check: []
-papers: []
+    - "Attribution: a comparison means something only if exactly one thing differed between the two runs, and tracking is what lets you assert that."
+    - "Bit-level reproduction is usually out of reach — a single float32 rounding difference reaches between-seed distance in about ninety steps in an amplifying regime."
+    - "So the goal is not identical weights but a comparable distribution of outcomes: fix what you can, record what you cannot, and report over seeds."
+    - "Whether nondeterminism shows in your metric depends on the regime; weight-space reproducibility is lost long before metric reproducibility is."
+media:
+  - kind: article
+    title: "Reproducibility — PyTorch documentation"
+    url: https://docs.pytorch.org/docs/stable/notes/randomness.html
+    source: "PyTorch"
+    note: "The concrete list: which sources of nondeterminism exist, which flags close them, and which operations have no deterministic implementation at all."
+  - kind: article
+    title: "The Machine Learning Reproducibility Checklist"
+    url: https://www.cs.mcgill.ca/~jpineau/ReproducibilityChecklist.pdf
+    source: "Joelle Pineau · NeurIPS Reproducibility Program"
+    note: "Two pages. Worth reading as a spec for what a run record has to contain, rather than as paperwork."
+check:
+  - id: et_l1_c1
+    prompt: "Two runs use the same seed and the same code but produce different final weights. What is the most likely explanation?"
+    options:
+      - "The seed was not actually set"
+      - "Nondeterministic GPU kernels: reduction order varies between launches, giving float32 rounding differences that amplify — reaching between-seed distance in about ninety steps in an amplifying regime"
+      - "A hardware fault"
+      - "The dataset was shuffled differently"
+    answer: 1
+    explanation: "Seeding fixes the pseudorandom draws — initialisation, shuffling, dropout — and nothing else. Many fast CUDA kernels use atomic accumulation whose order depends on scheduling, so the same mathematical sum is computed in a different order and float32 addition is not associative. The difference starts at the last bit and grows, which is why reproducibility needs determinism flags in addition to a seed, and why some operations cannot be made reproducible at all without changing the kernel."
+  - id: et_l1_c2
+    prompt: "Why is 'exactly one thing differed' the central requirement rather than a nicety?"
+    options:
+      - "It makes results easier to write up"
+      - "It is what licenses the causal claim: if code, data version, dependencies, hardware and seed can all differ silently, a difference in the metric has several candidate causes and the comparison establishes nothing"
+      - "Journals require it"
+      - "It reduces compute cost"
+    answer: 1
+    explanation: "Every untracked input is an alternative explanation for whatever you observed. With enough of them the run is an anecdote rather than a measurement — and the failure is silent, because you get a number either way and it looks the same as a real result. This is why tracking is best understood as the machinery that makes attribution possible, not as record-keeping for its own sake."
 ---
 
-## Intuition
+## A run is a measurement, or it is an anecdote
 
-Like a lab notebook for ML experiments. When your colleague asks 'what was the learning rate for the run that got 90% success?' you need an instant answer, not a folder of untitled scripts. Good tracking means any result can be reproduced by anyone on the team at any time.
+<Intuition>
+The point of tracking is not tidiness. It is that a comparison between two runs
+supports a causal claim only if exactly one thing differed between them. Code,
+config, data version, dependency versions, driver, hardware, seed — every one of
+those that can vary without being recorded is an alternative explanation for
+whatever you observed. Tracking is the machinery that lets you say "this
+difference is attributable to the change I made", and without it you have a
+number that looks identical to a real result.
+</Intuition>
 
-## In practice
+That framing settles most practical questions. You log a thing if not logging it
+would leave an unexplained difference between two runs.
 
-W&B setup for RL training: log every 1000 steps — reward $R_t$, episode length $T$, loss $\mathcal{L}$, entropy $H(\pi)$, learning rate $\alpha$. Log hyperparameters as config. Save model checkpoints as artifacts with data version tags. Custom W&B panels for comparing runs across hyperparameter sweeps. Use sweep agents for automated hyperparameter search (Bayesian optimization over $\alpha \in [10^{-5}, 10^{-3}]$, batch size $\in \{32, 64, 128, 256\}$).
+## Why you cannot just reproduce the run
+
+The obvious remedy — set a seed and rerun — does less than people expect.
+
+<Figure src="/figures/nondeterminism-divergence.svg" alt="Weight-space distance between two runs identical except for a 1e-12 perturbation to one weight, on a log scale. In the amplifying regime it doubles every three steps and saturates at the between-seed distance by step 150; in the contracting regime it barely moves over 2000 steps. Both runs reach the same final accuracy." caption="Perturb one weight by one part in a trillion. In an amplifying regime the two runs are as far apart as two different seeds within 150 steps." />
+
+Seeding fixes the pseudorandom draws and nothing else. Many fast GPU kernels
+accumulate with atomics, so the reduction order changes between launches; float32
+addition is not associative, so the same mathematical sum lands on a different
+value in the last bit. Measured on a small MLP in an amplifying regime, that
+difference **doubles every three steps**, so a single float32 ulp reaches
+between-seed distance in **about 89 steps**.
+
+<KeyIdea>
+Two runs can be bitwise different and still be the same experiment. Both runs in
+that figure reach identical final accuracy — weight-space reproducibility is lost
+long before metric reproducibility is. So the goal is not identical weights, which
+is often unattainable, but a *comparable distribution of outcomes*: fix what you
+can, record what you cannot, and report over seeds.
+</KeyIdea>
+
+## Which regime you are in decides how much this matters
+
+<Steps>
+<Step title="Contracting: perturbations decay">
+Well-conditioned supervised training at a modest learning rate. A $10^{-12}$
+perturbation grew only 2.8× over 2000 steps in the measurement above. Here seeds
+genuinely barely matter and people conclude reproducibility is easy.
+</Step>
+
+<Step title="Amplifying: perturbations explode">
+Aggressive learning rates near the edge of stability — and RL, where the policy
+determines its own data, so an early difference changes everything collected
+afterwards. Here two runs share nothing but their configuration.
+</Step>
+
+<Step title="Both camps are right about their own regime">
+This is why the field disagrees about whether seeds matter. The disagreement is
+not about rigour; it is about which regime the arguing parties train in.
+</Step>
+
+<Step title="The response is the same either way">
+You cannot tell from a single run which regime you are in, and the cost of
+assuming wrongly is asymmetric — so run multiple seeds and report the spread
+regardless.
+</Step>
+</Steps>
+
+<Warning>
+The specific trap: a run that looks reproducible because you reran it once and
+got a similar number. One repeat cannot distinguish a contracting regime from an
+amplifying one that happened to land nearby, and it cannot distinguish a real
+effect from seed noise. The comparison that matters is between the size of your
+treatment effect and the spread across seeds, which needs several runs of each —
+see evaluation methodology for how many.
+</Warning>
+
+<WatchThis />

@@ -1,20 +1,142 @@
 ---
 concept: experiment_tracking
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Experiment Tracking and Reproducibility,
-    including the key equations.
+  prompt: "Derive why bit-level reproducibility cannot be bought with precision, and state the condition under which a comparison licenses a causal claim."
   keyPoints:
-    - Systematic logging of hyperparameters, metrics, code versions, data
-      versions, and artifacts for every training run.
-    - "Tools: W&B (Weights & Biases), MLflow, TensorBoard."
-    - "Reproducibility requires: fixed seeds, deterministic ops, versioned data,
-      containerized environments."
-check: []
-papers: []
+    - "Divergence is $\\|\\Delta W(t)\\| \\approx \\epsilon e^{\\lambda t}$ saturating at the between-seed diameter, so time-to-divergence is $t^* = \\lambda^{-1}\\ln(D/\\epsilon)$ — logarithmic in precision."
+    - "Each extra decimal digit buys about ten steps. Moving float32 to float64 bought 86 steps on the measured system, against runs of $10^5$."
+    - "So the achievable target is distributional: fix what you can, randomise what you cannot, report over seeds."
+    - "Attribution needs each nuisance factor either held constant or randomised. A factor that varies systematically with the treatment biases the estimate, and bias does not shrink with more runs."
+check:
+  - id: et_l2_c1
+    prompt: "Time-to-divergence is $t^* = \\lambda^{-1} \\ln(D/\\epsilon)$. What does the logarithm imply?"
+    options:
+      - "Divergence can be delayed indefinitely by increasing precision"
+      - "Precision buys only a constant number of steps per digit — about ten on the measured system — so float64 delays divergence by 86 steps on a run of $10^5$, and bit-reproducibility is not a thing you can purchase"
+      - "Divergence is independent of the initial perturbation"
+      - "Higher precision increases $\\lambda$"
+    answer: 1
+    explanation: "Exponential growth inverts to a logarithm, so the initial perturbation enters only through its log. Halving $\\epsilon$ delays divergence by one doubling time, and even sixteen orders of magnitude of extra precision are worth a few dozen steps against a run of hundreds of thousands. The engineering consequence is to stop trying to make two runs identical and instead make their *outcome distributions* comparable."
+  - id: et_l2_c2
+    prompt: "You compare a new method run this week against a baseline run last month on a different GPU. Why does averaging over more seeds not rescue the comparison?"
+    options:
+      - "It does — more seeds always tightens the estimate"
+      - "The hardware difference is perfectly confounded with the treatment, so it contributes a bias rather than a variance, and bias is unaffected by the number of runs"
+      - "Because GPU differences are not measurable"
+      - "Because seeds and hardware interact nonlinearly"
+    answer: 1
+    explanation: "Averaging reduces terms that vary independently of the treatment; it does nothing to a term that moves in lockstep with it. Since every new-method run is on the new GPU and every baseline run on the old one, the hardware effect enters the difference of means undiminished no matter how many seeds you draw. The only fixes are to hold the factor constant — rerun the baseline on the current hardware — or to randomise the assignment so the factor becomes variance instead."
+  - id: et_l2_c3
+    prompt: "Bouthillier et al. find that varying only the seed understates a benchmark's variance. What follows for how you should run comparisons?"
+    options:
+      - "Use more seeds"
+      - "Randomise every source you would otherwise hold fixed — data splits, initialisation, augmentation order, hyperparameter search — because holding them constant produces error bars that describe a narrower experiment than the one you are claiming to have run"
+      - "Fix the data split so results are comparable"
+      - "Report the best run rather than the mean"
+    answer: 1
+    explanation: "Fixing a factor makes runs more similar, which shrinks the measured spread — but the claim you want to make is about performance under a new split and a new initialisation, so the shrunken interval answers a narrower question than the one asked. This is genuinely counterintuitive, since the instinct is that controlling more variables is always more rigorous; here it is more precise about less. Fix a factor only when you are willing to state the conclusion conditionally on it."
 ---
 
-## Formal definition
+## How fast two runs separate
 
-Systematic logging of hyperparameters, metrics, code versions, data versions, and artifacts for every training run. Tools: W&B (Weights & Biases), MLflow, TensorBoard. Reproducibility requires: fixed seeds, deterministic ops, versioned data, containerized environments. Formally, a reproducible experiment is a tuple $(\mathcal{D}, \theta, f, \text{env})$ — dataset, hyperparameters, code, environment — from which identical results can be regenerated.
+Let $\Delta W(t)$ be the weight-space distance between two runs that are
+identical except for a perturbation of size $\epsilon$ at $t = 0$.
+
+<Derivation title="Time to divergence, and why precision cannot buy it">
+
+In an amplifying regime the difference grows exponentially until it saturates at
+the diameter $D$ of the region the runs explore:
+
+$$
+\|\Delta W(t)\| \approx \min\!\left(\epsilon\, e^{\lambda t},\; D\right)
+$$
+
+Measured on a small MLP trained with SGD near the edge of stability,
+$\lambda = 0.235$ per step — a doubling time of 2.95 steps — and $D \approx 32$,
+the typical distance between two runs from different seeds. Solving for
+saturation:
+
+$$
+t^{*} = \frac{1}{\lambda}\ln\!\frac{D}{\epsilon}
+$$
+
+**The assumption doing the work is that $\lambda > 0$** — that training amplifies
+rather than contracts perturbations. That is a property of the regime, not of the
+code, and it is what the whole result hinges on.
+
+Now read the dependence on $\epsilon$. It is logarithmic, so precision enters
+only through its number of digits:
+
+$$
+\frac{\partial t^{*}}{\partial (\text{decimal digits})} = \frac{\ln 10}{\lambda} \approx 9.8 \text{ steps}
+$$
+
+| perturbation | $\epsilon$ | $t^{*}$ |
+| --- | --- | --- |
+| float16 ulp at $\|w\|=0.4$ | $2.4\times10^{-4}$ | 50 steps |
+| float32 ulp | $3.0\times10^{-8}$ | 89 steps |
+| $10^{-12}$ nudge | $10^{-12}$ | 133 steps |
+| float64 ulp | $5.6\times10^{-17}$ | 174 steps |
+
+Sixteen extra orders of magnitude of precision buys **86 steps**.
+
+</Derivation>
+
+<KeyIdea>
+Against a run of $10^5$ steps, that is nothing. Bit-level reproducibility is not
+a resource you can buy more of; in an amplifying regime it is structurally
+unavailable. What remains achievable — and is what people actually mean by
+reproducible — is that the *distribution* of outcomes matches: same
+configuration, same data, comparable spread over seeds.
+</KeyIdea>
+
+## What makes a comparison mean something
+
+Write the observed difference between a treatment run and a baseline run as the
+effect you care about plus the contributions of every other factor that differed:
+
+$$
+\Delta_{\text{obs}} = \underbrace{\tau}_{\text{treatment}} \;+\; \sum_{j} \beta_j\, \delta_j \;+\; \eta
+$$
+
+where $\delta_j$ is how much nuisance factor $j$ differed and $\eta$ is seed
+noise.
+
+<Derivation title="Control, randomise, or be confounded">
+
+Averaging $n$ paired runs gives
+
+$$
+\mathbb{E}[\hat\tau] = \tau + \sum_j \beta_j\, \mathbb{E}[\delta_j],
+\qquad
+\mathrm{Var}[\hat\tau] = \frac{\sigma_\eta^2 + \sum_j \beta_j^2 \mathrm{Var}[\delta_j]}{n}
+$$
+
+Three cases, and only three:
+
+1. **Held constant.** $\delta_j = 0$ always. It contributes nothing to either
+   term. The cost is that your conclusion is now conditional on that value.
+2. **Randomised.** $\mathbb{E}[\delta_j] = 0$ but $\mathrm{Var}[\delta_j] > 0$.
+   It enters the variance, which falls as $1/n$. Your conclusion generalises over
+   the factor.
+3. **Confounded.** $\mathbb{E}[\delta_j] \neq 0$ — the factor moved with the
+   treatment. It enters the *bias*, which has no $n$ in it.
+
+The third is the one that ruins experiments, because it is invisible: you get a
+tight confidence interval around a wrong number. Running the baseline last month
+on a different GPU, or with the dependency versions of that month, puts you
+squarely there.
+
+</Derivation>
+
+<Warning>
+Note that case 1 and case 2 answer different questions, which is the point
+Bouthillier et al. press. Fixing the data split shrinks your error bars and
+narrows the claim to that split. If you want to say "this method is better", the
+split, the initialisation and the augmentation order all have to be in case 2 —
+randomised — even though that makes the interval wider. A narrower interval
+around a narrower claim is not the more rigorous result, and it usually reads as
+though it were.
+</Warning>

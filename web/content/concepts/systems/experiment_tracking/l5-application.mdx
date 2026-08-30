@@ -1,23 +1,155 @@
 ---
 concept: experiment_tracking
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Experiment Tracking and Reproducibility fail in practice, and
-    how would you present it in an interview?
+  prompt: "Give your interview answer on experiment tracking. What is the framing, and what is the number that makes it concrete?"
   keyPoints:
-    - "Results not reproducible: 'worked on my machine' syndrome."
-    - Random seeds not fixed, GPU non-determinism, data pipeline changed between
-      runs, library version drift.
-    - "Symptoms: best result can't be recreated."
-check: []
-papers: []
+    - "Frame it as attribution: a comparison licenses a causal claim only if exactly one thing differed."
+    - "Give the divergence result — a float32 ulp reaches between-seed distance in about ninety steps, and precision buys ten steps per digit."
+    - "Conclude that the target is distributional, not bitwise: fix what you can, randomise what you cannot, report over seeds."
+    - "Add the control-versus-randomise point, since fixing a factor narrows the claim while tightening the interval."
+interview:
+  answer: >-
+    The way I'd frame it is that tracking isn't record-keeping, it's what makes
+    attribution possible. A comparison between two runs supports a causal claim
+    only if exactly one thing differed between them — so every input that can
+    vary without being recorded is an alternative explanation for whatever you
+    measured. Code, config, data version, dependency versions, driver, hardware,
+    seed. And the failure is silent: you get a number either way, and it looks
+    the same as a real result. So the rule I'd give for what to log is anything
+    whose variation would leave an unexplained difference between two runs. Then
+    there's a technical fact that changes what reproducibility can mean. Setting
+    a seed does less than people expect, because a seed fixes the pseudorandom
+    draws and nothing about how a sum gets accumulated. A lot of fast GPU kernels
+    reduce with atomics, so the order varies with scheduling, and float32
+    addition isn't associative — you get a difference in the last bit. I measured
+    how fast that grows on a small MLP near the edge of stability: it doubles
+    every three steps, so one float32 ulp reaches the distance between two
+    different seeds in about ninety steps. And because the growth is exponential,
+    the time-to-divergence is logarithmic in your precision — about ten steps per
+    decimal digit. Going from float32 to float64 bought eighty-six steps on a run
+    of a hundred thousand. So bit-level reproducibility isn't something you can
+    buy; in an amplifying regime it's structurally unavailable. What is
+    achievable is distributional: same config, same data version, comparable
+    spread over seeds. The nuance I'd add is that it depends on the regime.
+    Well-conditioned supervised training contracts perturbations — I measured a
+    factor of 2.8 over two thousand steps at a modest learning rate — whereas RL
+    amplifies, partly because the policy generates its own data, so an early
+    difference changes everything collected afterwards. That's why people
+    disagree about whether seeds matter: they're each right about their own
+    regime. And you can't tell which one you're in from a single run, so you run
+    several seeds regardless.
+  followUps:
+    - q: "What goes in a run record, concretely?"
+      a: >-
+        A hash of the fully resolved config, after defaults and environment
+        overrides — the resolved one, because hashing the file you wrote records
+        your intent rather than the experiment. Then the git SHA together with a
+        dirty flag, and the diff if it's set, because a SHA with uncommitted
+        changes is worse than no SHA: it names code that isn't what ran, so
+        whoever reproduces from it gets a different program and concludes your
+        result doesn't replicate. Then a data version, since data is an input and
+        deserves versioning like code. Then the environment you didn't choose —
+        library versions, CUDA, driver, GPU model. I'd have the launcher refuse
+        to start on a dirty tree unless you explicitly override, because that one
+        check catches most unattributable runs at the cheapest possible moment.
+    - q: "Is a config hash worth it over just recording what you changed?"
+      a: >-
+        Yes, and the reason is that recording a diff assumes you know what
+        varied, which is the assumption that actually fails. The expensive cases
+        are a default that changed in a shared file, or a value picked up from an
+        environment variable that differed between machines — precisely the
+        things nobody remembers to note. A hash over the resolved config is a
+        checksum on the whole input, so it turns "are these two runs comparable?"
+        into an equality test instead of a judgement call. I'd exclude the seed
+        from the hash deliberately, so that runs of the same experiment across
+        seeds share an identity and group naturally.
+    - q: "You compared against a baseline you ran last month. Any problem?"
+      a: >-
+        Potentially a serious one, and it's worth being precise about why. If
+        anything changed in between — driver, library version, the machine, a
+        default in a shared config — that factor is perfectly confounded with the
+        treatment, since every new-method run has the new value and every
+        baseline run the old one. That makes it a bias rather than a variance, so
+        more seeds don't help at all; you'd get a tighter interval around a wrong
+        number, which is the worst failure shape. The fix is to rerun the
+        baseline under current conditions. It feels wasteful and it's the
+        difference between a comparison and a coincidence.
+    - q: "Should you fix the data split so runs are comparable?"
+      a: >-
+        Only if you're willing to state the conclusion conditionally on that
+        split. This is the Bouthillier result and it inverts most people's
+        instinct: fixing a factor shrinks the measured spread while keeping it in
+        the claim, so you get a tight interval answering a narrower question than
+        the one you're writing down. If the sentence is "method A beats method
+        B", then the split, the initialisation and the augmentation order all
+        need to vary with the seed, even though that widens the error bars.
+        Controlling more variables isn't automatically more rigorous — it's more
+        precise about less, and the two get conflated constantly.
+  traps:
+    - "Describing tracking as good hygiene. The argument is attribution: without it a comparison supports no causal claim, and it produces a number that looks identical to a real result."
+    - "Believing a seed gives reproducibility. It fixes the pseudorandom draws and not the reduction order; determinism flags are a separate mechanism, and some ops have no deterministic kernel."
+    - "Proposing higher precision as the fix for nondeterminism. Time-to-divergence is logarithmic in precision — about ten steps per digit."
+    - "Assuming more seeds rescue a confounded comparison. A factor that moved with the treatment contributes bias, and bias has no $n$ in it."
+check:
+  - id: et_l5_c1
+    prompt: "An interviewer asks: 'We set seeds everywhere and our runs still differ. Is our code broken?' What is the best answer?"
+    options:
+      - "Yes — a correctly seeded run is always reproducible"
+      - "No: seeds fix pseudorandom draws, not GPU reduction order, and float32 addition is not associative. In an amplifying regime that last-bit difference reaches between-seed distance in about ninety steps. Deterministic algorithm flags are a separate mechanism, at a throughput cost"
+      - "It depends on whether the dataloader uses multiple workers"
+      - "Only if the model contains dropout or other stochastic layers"
+    answer: 1
+    explanation: "The distinction between what a seed controls and what determinism flags control is the substance here. Seeding covers initialisation, shuffling and stochastic layers; it says nothing about how a kernel accumulates a sum, and many fast kernels use atomics whose order depends on scheduling. Worker seeding is a real and separate issue that option 3 half-identifies, but it is one item on the list rather than the explanation."
+  - id: et_l5_c2
+    prompt: "Which experimental setup best supports the claim 'our method improves success rate'?"
+    options:
+      - "One run of each method on a fixed split, with the best checkpoint reported"
+      - "Five seeds per method where the seed also varies the data split and initialisation, both run under current conditions, with the spread reported"
+      - "Ten seeds per method on a single fixed split, reporting the mean"
+      - "Three seeds per method, comparing against the baseline number from the original paper"
+    answer: 1
+    explanation: "The claim generalises over splits and initialisations, so those must be randomised rather than held constant — that is what makes the interval cover the population the sentence refers to. Option 3 gives a tight interval around a claim about one split. Option 4 is confounded with everything that changed since the original paper, which is bias no seed count can remove. Option 1 supports nothing at all."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Results not reproducible: 'worked on my machine' syndrome. Random seeds not fixed, GPU non-determinism, data pipeline changed between runs, library version drift. Symptoms: best result can't be recreated. Fix: log everything (code hash, pip freeze, data hash), use containers (Docker), set CUBLAS_WORKSPACE_CONFIG for GPU determinism.
+<Steps>
+<Step title="Same seed, different results → nondeterministic kernels">
+Expected, not a bug. Determinism flags and the CUBLAS workspace variable, set
+before the first CUDA context.
+</Step>
 
-## Interview-ready answer
+<Step title="Cannot reproduce last month's number → environment drift">
+Check the dirty flag first, then dependency and driver versions. If the baseline
+predates a change, rerun it rather than reasoning about the difference.
+</Step>
 
-Experiment tracking is non-negotiable for professional ML work. My setup: W&B for metrics/hyperparams/artifacts, git for code, DVC for data versioning, Docker for environment reproducibility. Key principles: (1) every run must be reproducible from its logged config, (2) compare runs on equal footing (same eval protocol), (3) track compute cost alongside performance. In industry, the ability to trace any deployed model back to its exact training configuration is a hard requirement for debugging production issues.
+<Step title="Suspiciously tight error bars → too much was held fixed">
+The interval describes a narrower experiment than the claim. Let the seed drive
+the split and the initialisation.
+</Step>
+
+<Step title="Two runs 'identical' but differing → the config was not fully resolved">
+Environment variables and defaults in shared files. Hash the resolved config, not
+the file you edited.
+</Step>
+
+<Step title="Result vanishes on rerun → seed noise mistaken for an effect">
+Compare the treatment effect against the between-seed spread before anything
+else.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+Two moves make this answer land. Framing tracking as attribution rather than
+hygiene, since that explains what to log and why it matters. And having the
+divergence number, because "a float32 rounding difference reaches between-seed
+distance in about ninety steps, and precision buys ten steps per digit" shows you
+have thought about what reproducibility can mean rather than repeating that it
+matters. The control-versus-randomise point is the third, and it is the one most
+candidates get backwards.
+</Warning>

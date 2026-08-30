@@ -1,7 +1,9 @@
 id: experiment_tracking
 title: Experiment Tracking and Reproducibility
 domain: systems
-summary: Like a lab notebook for ML experiments.
+summary: A run is only a measurement if you can say what it measured. Attribution
+  needs exactly one thing to differ — and bit-level reproducibility is lost within
+  about ninety steps, which changes what "reproducible" can mean.
 tags:
   - systems
 difficulty: 2
@@ -9,3 +11,5 @@ importance: 5
 related_concept_ids:
   - evaluation_methodology
   - deployment_thinking
+  - dataset_curation
+  - safety_monitoring

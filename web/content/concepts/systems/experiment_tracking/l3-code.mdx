@@ -1,0 +1,180 @@
+---
+concept: experiment_tracking
+level: 3
+status: final
+recall:
+  prompt: "What does a run record have to contain, and how do you make a run as reproducible as it can be?"
+  keyPoints:
+    - "One config object, hashed. The hash is the run's identity, and two runs with the same hash should differ only by seed."
+    - "Record the environment you cannot fix: git SHA plus dirty flag, dependency versions, GPU model, driver, CUDA."
+    - "Determinism needs more than a seed — per-library seeds, deterministic algorithms, seeded dataloader workers, and CUBLAS workspace config."
+    - "Refuse to launch on a dirty tree unless explicitly allowed, since an unrecorded diff makes the run unattributable."
+check:
+  - id: et_l3_c1
+    prompt: "Why hash the config rather than record only the fields you changed?"
+    options:
+      - "Hashes are shorter"
+      - "It makes the comparison total: two runs are the same experiment if and only if the hashes match, which catches the field you forgot you had changed — and defaults that changed underneath you"
+      - "Hashes prevent tampering"
+      - "It allows the config to be compressed"
+    answer: 1
+    explanation: "Recording a diff assumes you know what varied, which is exactly the assumption that fails — the expensive cases are a default changed in a shared file, or a value picked up from an environment variable. A hash over the fully resolved config is a checksum on the whole input, so a difference cannot go unnoticed even when nobody remembers introducing it. Cheap to compute and it turns 'are these comparable?' into an equality test."
+  - id: et_l3_c2
+    prompt: "Why record the git commit AND whether the tree was dirty?"
+    options:
+      - "To credit the author of the commit"
+      - "A commit identifies the code exactly; a dirty tree means the run used code that no commit describes, so the SHA alone is actively misleading — it names code that was not what ran"
+      - "To enable automatic rollback"
+      - "Because git hashes can collide"
+    answer: 1
+    explanation: "The dirty case is worse than having no record, because the record looks complete and points at code that differs from what executed. Someone reproducing from that SHA gets a different program and concludes the result does not replicate. Recording the flag at minimum, and storing the actual diff when set, is a few lines that prevents a class of confusion that is very hard to diagnose afterwards."
+  - id: et_l3_c3
+    prompt: "You set every seed and results still differ across runs. What is left to fix?"
+    options:
+      - "Nothing — this is unavoidable"
+      - "Nondeterministic kernels: enable deterministic algorithms, set the CUBLAS workspace variable, and seed dataloader workers individually — accepting that some operations have no deterministic implementation and will have to be replaced"
+      - "Increase floating point precision"
+      - "Use a single-threaded dataloader"
+    answer: 1
+    explanation: "A seed fixes the pseudorandom stream and nothing about how a sum is accumulated. Atomic-based reductions vary in order with scheduling, so the two runs compute the same mathematics in a different order and float32 addition is not associative. Deterministic mode replaces those kernels, usually at a real throughput cost, and raises an error for operations with no deterministic implementation — which is useful information rather than an obstacle. Precision would buy about ten steps per digit."
+---
+
+## The config is the run's identity
+
+<CodeWalk title="One resolved config, one hash">
+
+```python title="config.py"
+import hashlib, json
+from dataclasses import dataclass, asdict, field
+
+@dataclass(frozen=True)
+class Config:
+    lr: float = 3e-4
+    batch_size: int = 64
+    steps: int = 100_000
+    dataset_version: str = "v3"        # data is an input; version it like code
+    seed: int = 0
+
+    def hash(self) -> str:
+        """Identity of the EXPERIMENT, deliberately excluding the seed.
+
+        Two runs with the same hash should differ only by seed — which makes
+        'are these comparable?' an equality test rather than a judgement call,
+        and catches the default that changed underneath you in a shared file.
+        """
+        d = {k: v for k, v in asdict(self).items() if k != "seed"}
+        return hashlib.sha256(
+            json.dumps(d, sort_keys=True).encode()
+        ).hexdigest()[:12]
+```
+
+</CodeWalk>
+
+Hash the *resolved* config, after defaults, environment variables and command-line
+overrides have been applied. Hashing the file you wrote records your intent
+rather than the experiment.
+
+## Everything you did not choose
+
+<CodeWalk title="Capturing the environment">
+
+```python title="provenance.py"
+import subprocess, sys, platform, torch
+
+def git_state():
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    diff = subprocess.check_output(["git", "diff"], text=True)
+    # A SHA with uncommitted changes is worse than no SHA: it names code that
+    # is not what ran, so whoever reproduces from it gets a different program.
+    return {"sha": sha, "dirty": bool(diff.strip()), "diff": diff or None}
+
+def provenance():
+    return {
+        "git": git_state(),
+        "python": sys.version.split()[0],
+        "torch": torch.__version__,
+        "cuda": torch.version.cuda,
+        "cudnn": torch.backends.cudnn.version(),
+        "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+        "driver": platform.uname().release,
+    }
+
+def launch(cfg, allow_dirty=False):
+    p = provenance()
+    if p["git"]["dirty"] and not allow_dirty:
+        raise RuntimeError("refusing to launch on a dirty tree — commit or pass allow_dirty")
+    return {"config": asdict(cfg), "config_hash": cfg.hash(), "provenance": p}
+```
+
+</CodeWalk>
+
+## As deterministic as it gets
+
+<CodeWalk title="Beyond the seed">
+
+```python title="determinism.py"
+import os, random, numpy as np, torch
+
+def make_deterministic(seed: int):
+    # Must be set BEFORE the first CUDA context: cuBLAS picks its workspace
+    # strategy once, and a later assignment is silently ignored.
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+
+    random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    # Replaces atomic-accumulating kernels, whose reduction order varies with
+    # scheduling. Raises on ops with no deterministic implementation, which is
+    # information rather than an obstacle.
+    torch.use_deterministic_algorithms(True, warn_only=False)
+    torch.backends.cudnn.benchmark = False      # autotuning picks per-run kernels
+
+def worker_init(worker_id):
+    # Each worker forks with the same base seed; without this they draw
+    # identical augmentation streams, which quietly reduces effective
+    # augmentation diversity by the number of workers.
+    s = torch.initial_seed() % 2**32 + worker_id
+    np.random.seed(s); random.seed(s)
+```
+
+</CodeWalk>
+
+<Warning>
+Deterministic mode costs throughput, sometimes a lot. Use it when you are
+debugging a discrepancy or publishing a result someone will try to replicate
+exactly; a sweep is usually better served by more seeds than by slower
+deterministic ones. Choose deliberately and record which you chose — the choice
+is itself an experimental condition.
+</Warning>
+
+## Randomise what you are claiming to generalise over
+
+<CodeWalk title="A sweep that produces honest error bars">
+
+```python title="sweep.py"
+from dataclasses import replace
+
+def compare(base_cfg, variants, n_seeds=5):
+    """Seed varies the initialisation, the batch order AND the data split.
+
+    Holding the split fixed shrinks the interval and narrows the claim to that
+    split. If the conclusion is 'this method is better', the split has to vary
+    with the seed even though that makes the error bars wider.
+    """
+    results = {}
+    for name, overrides in variants.items():
+        results[name] = [
+            train(replace(base_cfg, seed=s, **overrides), split_seed=s)
+            for s in range(n_seeds)
+        ]
+    return results
+```
+
+</CodeWalk>
+
+<KeyIdea>
+The `split_seed=s` is the part people leave out, and it is what separates an
+interval describing "this method on this split" from one describing "this
+method". Widening your own error bars feels like a loss and is what makes the
+comparison support the sentence you intend to write.
+</KeyIdea>

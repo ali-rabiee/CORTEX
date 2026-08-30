@@ -1,0 +1,132 @@
+---
+concept: experiment_tracking
+level: 4
+status: final
+recall:
+  prompt: "Trace the reproducibility literature. What did each contribution establish?"
+  keyPoints:
+    - "Sculley et al.: configuration and glue are where ML systems accumulate debt, and the failure is systemic rather than a matter of discipline."
+    - "Islam et al.: benchmarked deep RL results did not reproduce, which moved the problem from suspicion to evidence."
+    - "Pineau et al.: turned it into a specification — what a paper must report — and measured that the intervention worked."
+    - "Bouthillier et al.: the counterintuitive one — fixing everything but the seed understates variance, so you should randomise the sources you were controlling."
+papers:
+  - key: sculley2015debt
+    title: "Hidden Technical Debt in Machine Learning Systems"
+    authors: "D. Sculley, Gary Holt, Daniel Golovin, Eugene Davydov, Todd Phillips, Dietmar Ebner, Vinay Chaudhary, Michael Young, Jean-François Crespo, Dan Dennison"
+    venue: NeurIPS
+    year: 2015
+    takeaway: "Names configuration debt, glue code and undeclared consumers as the dominant maintenance costs in ML systems — the code that trains the model is the small part."
+  - key: islam2017repro
+    title: "Reproducibility of Benchmarked Deep Reinforcement Learning Tasks for Continuous Control"
+    authors: "Riashat Islam, Peter Henderson, Maziar Gomrokchi, Doina Precup"
+    venue: "ICML Reproducibility Workshop"
+    year: 2017
+    arxiv: "1708.04133"
+    takeaway: "Reruns of published continuous-control results with different seeds and implementations, finding that the reported ordering of algorithms often did not survive."
+  - key: pineau2021repro
+    title: "Improving Reproducibility in Machine Learning Research (A Report from the NeurIPS 2019 Reproducibility Program)"
+    authors: "Joelle Pineau, Philippe Vincent-Lamarre, Koustuv Sinha, Vincent Larivière, Alina Beygelzimer, Florence d'Alché-Buc, Emily Fox, Hugo Larochelle"
+    venue: JMLR
+    year: 2021
+    arxiv: "2003.12206"
+    takeaway: "The checklist, the code-submission policy and the reproducibility challenge, plus measurements of what each changed — reproducibility treated as an intervention with an evaluation."
+  - key: bouthillier2021variance
+    title: "Accounting for Variance in Machine Learning Benchmarks"
+    authors: "Xavier Bouthillier, Pierre Delaunay, Mirko Bronzi, Assya Trofimov, Brennan Nichyporuk, Justin Szeto, Naz Sepah, Edward Raff, Kanika Madan, Vikram Voleti, Samira Ebrahimi Kahou, Vincent Michalski, Dmitriy Serdyuk, Tal Arbel, Chris Pal, Gaël Varoquaux, Pascal Vincent"
+    venue: MLSys
+    year: 2021
+    arxiv: "2103.03098"
+    takeaway: "Quantifies variance sources beyond the seed — splits, initialisation, tuning — and argues for randomising them rather than fixing them, since fixing produces intervals that describe a narrower experiment."
+check:
+  - id: et_l4_c1
+    prompt: "What is the central claim of the technical-debt paper, and why does it bear on tracking?"
+    options:
+      - "That ML code should be written in a compiled language"
+      - "That the model code is a small fraction of a real ML system, and the surrounding configuration and glue is where cost accumulates — so tracking is a property of that surrounding system rather than a habit an individual can supply"
+      - "That ML systems should avoid external dependencies"
+      - "That technical debt is unavoidable in research code"
+    answer: 1
+    explanation: "The paper's framing is that ML systems have failure modes ordinary software does not — entanglement, undeclared consumers, and configuration that grows without structure. Reproducibility inherits all of these, which is why exhortation does not work: if the configuration surface is unmanaged, no amount of individual care makes runs comparable. It has to be a property of the tooling."
+  - id: et_l4_c2
+    prompt: "Bouthillier et al.'s recommendation to randomise rather than fix runs against the usual instinct. Why is it right?"
+    options:
+      - "Randomisation is easier to implement"
+      - "Fixing a factor shrinks the measured spread while narrowing the claim to that factor's value — the tight interval answers a question about one split rather than about the method, so the apparent rigour is the wrong kind of precision"
+      - "Fixed splits introduce bias in the mean"
+      - "Randomisation removes the need for multiple seeds"
+    answer: 1
+    explanation: "Both procedures are valid; they estimate different quantities. A fixed split gives an unbiased estimate of performance *on that split*, and if you then write 'method A beats method B' you have made a claim the experiment does not support. Randomising the split moves it into the variance term, so the interval covers the population you are talking about. It is wider, and it is the interval matching the sentence."
+  - id: et_l4_c3
+    prompt: "What did the Islam et al. reproduction study establish that scepticism alone had not?"
+    options:
+      - "That deep RL algorithms are mathematically unsound"
+      - "That the reported ordering between published algorithms often failed to survive different seeds and implementations — turning a suspicion into measurable evidence, and prompting the field's shift to reporting distributions"
+      - "That continuous control is harder than discrete control"
+      - "That the benchmarks themselves were flawed"
+    answer: 1
+    explanation: "Everyone suspected variance was being underreported; the contribution was doing the reruns and showing how often the conclusion flipped. That is what changed practice, because a claim that a specific published ordering does not hold is answerable in a way that general scepticism is not. The response — report several seeds with a spread, rather than the best run — is now standard, and this is where it came from."
+---
+
+## It is a systems problem before it is a discipline problem
+
+<PaperCard refKey="sculley2015debt" />
+
+The framing that survives: the code that trains the model is a small box in a
+large diagram, and the surrounding configuration and glue is where the cost is.
+Reproducibility inherits that. If the configuration surface is unmanaged, no
+amount of individual care produces comparable runs — which is why "be more
+careful" has never worked as a remedy and tooling has.
+
+## The evidence
+
+<PaperCard refKey="islam2017repro" />
+
+Reruns of published continuous-control results under different seeds and
+implementations, finding that reported orderings often did not survive. This is
+what moved the field from suspecting variance was underreported to being able to
+point at cases. The now-standard practice of reporting several seeds with a
+spread rather than the best run traces back here.
+
+<PaperCard refKey="pineau2021repro" />
+
+The turn from diagnosis to specification: a checklist, a code-submission policy,
+a reproducibility challenge — and, unusually, measurements of what each
+intervention changed. Reading the checklist as a spec for what a run record must
+contain is more useful than reading it as paperwork.
+
+## The result that inverts the instinct
+
+<PaperCard refKey="bouthillier2021variance" />
+
+<Steps>
+<Step title="Seeds are not the dominant source">
+Data splits, initialisation and hyperparameter tuning contribute comparably or
+more. A study varying only the seed is measuring one term of several.
+</Step>
+
+<Step title="So fixing things makes intervals too small">
+Every factor held constant is removed from the measured spread while remaining
+part of the claim. The interval gets tighter and the question it answers gets
+narrower, in the same move.
+</Step>
+
+<Step title="Randomise what you are generalising over">
+If the sentence is "method A beats method B", the split and the initialisation
+must vary. The wider interval is the one that matches the sentence.
+</Step>
+
+<Step title="Which is not an argument against control">
+Hold a factor fixed when you are willing to state the conclusion conditionally —
+"on this split, with this backbone". The error is fixing it and then generalising
+anyway.
+</Step>
+</Steps>
+
+<KeyIdea>
+Together these give the arc: a systems diagnosis in 2015, evidence that results
+did not replicate in 2017, a specification in 2021, and then the finding that
+even careful practice was systematically understating variance. The last one is
+the interesting one to raise in an interview, because it is the step where "be
+more rigorous" and "control more variables" come apart — and most people assume
+they are the same thing.
+</KeyIdea>
