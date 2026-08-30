@@ -1,0 +1,176 @@
+---
+concept: sim_environments
+level: 3
+status: final
+recall:
+  prompt: "How do you write a vectorised environment loop that is correct at the episode boundaries and honest about throughput?"
+  keyPoints:
+    - "Keep everything on device. The moment observations cross to host memory the round trip becomes the bottleneck, not the physics."
+    - "Autoreset must distinguish termination from truncation: bootstrap V at a time-limit cut, do not bootstrap at a true terminal."
+    - "Hold the action across substeps; the substep count is the ratio of physics rate to control rate and belongs in the config."
+    - "Benchmark steps per second with the policy in the loop — physics-only numbers omit the part that usually dominates."
+check:
+  - id: se_l3_c1
+    prompt: "Why must a vectorised environment distinguish termination from truncation at autoreset?"
+    options:
+      - "To log episode lengths correctly"
+      - "Because the value target differs: a true terminal has zero future return, while a time-limit cut has the return the agent would have earned, so failing to bootstrap at truncation teaches the critic that time running out is worth nothing"
+      - "Because truncated episodes should be discarded"
+      - "Because the environment must be reset differently in each case"
+    answer: 1
+    explanation: "The two cases look identical in a `done` flag and mean opposite things about the future. Treating a time limit as terminal systematically depresses value estimates near the horizon and produces policies that behave strangely as the clock runs out — an artefact of the training loop rather than of the task. With the very short rollouts that massive parallelism favours, almost every boundary is a truncation, so getting it wrong is not an edge case here."
+  - id: se_l3_c2
+    prompt: "What is wrong with reporting throughput measured from the physics step alone?"
+    options:
+      - "Nothing, if the physics dominates"
+      - "It omits observation assembly, the policy forward pass and any host transfer, which together often exceed the physics — so the number you optimise is not the number that sets your wall clock"
+      - "Physics timing is unreliable"
+      - "It should be measured in simulated seconds, not steps"
+    answer: 1
+    explanation: "The quantity that matters is end-to-end steps per second with the policy in the loop, because that is what divides into the sample budget. Physics-only benchmarks are the standard way people conclude their simulator is fast while their training runs are slow, and they hide exactly the cost — the round trip — that motivated GPU-resident simulation in the first place."
+  - id: se_l3_c3
+    prompt: "Your GPU simulator gives different results at 2048 and 4096 environments with the same seed. Is this a bug?"
+    options:
+      - "Yes — identical seeds must give identical results"
+      - "No: batch shape changes kernel configurations and reduction orders, so the arithmetic differs in the last bits. It means the environment count is part of the experiment's configuration and must be held fixed across a comparison"
+      - "Yes, unless the environments are asynchronous"
+      - "No, and it has no practical consequence"
+    answer: 1
+    explanation: "Different launch geometry means different accumulation order, and floating-point addition is not associative — the same physics computed differently in the last bit. Since training amplifies such differences, the two runs diverge. The practical consequence is concrete rather than philosophical: comparing a baseline at 2048 against a treatment at 4096 confounds the method with the environment count, so the count belongs in the run record alongside the seed."
+---
+
+## The step, with nothing crossing the bus
+
+<CodeWalk title="A vectorised step that stays on device">
+
+```python title="vec_env.py"
+import torch
+
+class VecEnv:
+    """State, physics and policy all in device memory.
+
+    The point is not that GPU physics is faster — it is that nothing crosses
+    PCIe. At 4096 envs and 10^4 steps/s a host round trip needs about 24 GB/s,
+    against roughly 25 achievable, so the link is the ceiling.
+    """
+    def __init__(self, sim, n_envs, substeps, max_len, device="cuda"):
+        self.sim, self.n, self.substeps = sim, n_envs, substeps
+        self.max_len = max_len
+        self.t = torch.zeros(n_envs, dtype=torch.long, device=device)
+
+    def step(self, action):
+        # The action is HELD across substeps: the policy runs at the control
+        # rate and physics at its own. substeps = physics_hz / control_hz, and
+        # it belongs in the config because it changes what the policy can react
+        # to, not just the cost.
+        for _ in range(self.substeps):
+            self.sim.apply(action)
+            self.sim.integrate()
+
+        obs = self.sim.observe()
+        reward, terminated = self.sim.reward_and_termination()
+        self.t += 1
+        truncated = (self.t >= self.max_len) & ~terminated
+        return obs, reward, terminated, truncated, {}
+```
+
+</CodeWalk>
+
+## The episode boundary
+
+<CodeWalk title="Autoreset that bootstraps only where it should">
+
+```python title="autoreset.py"
+def collect(env, policy, value_fn, horizon):
+    """`terminated` and `truncated` look identical in a `done` flag and mean
+    opposite things about the future. A true terminal has zero future return;
+    a time-limit cut has whatever the agent would have gone on to earn.
+
+    With the very short horizons massive parallelism favours, nearly every
+    boundary is a truncation — so this is the common case, not an edge case.
+    """
+    obs = env.obs()
+    buf = []
+    for _ in range(horizon):
+        with torch.no_grad():
+            action = policy(obs)
+        nxt, rew, terminated, truncated, _ = env.step(action)
+
+        # Bootstrap the value of the state we were cut off from, but only for
+        # truncation. Using the post-reset observation here is the classic bug:
+        # it bootstraps from an unrelated initial state.
+        bootstrap = torch.zeros_like(rew)
+        if truncated.any():
+            with torch.no_grad():
+                bootstrap[truncated] = value_fn(nxt[truncated]).squeeze(-1)
+
+        buf.append((obs, action, rew + env.gamma * bootstrap,
+                    terminated | truncated))
+        obs = env.maybe_reset(nxt, terminated | truncated)
+    return buf
+```
+
+</CodeWalk>
+
+<Warning>
+Two bugs live here and both are quiet. Bootstrapping at a true terminal inflates
+values for states that genuinely end; not bootstrapping at truncation teaches the
+critic that running out of time is worth nothing, which shows up as policies
+behaving oddly near the horizon. And when the vector autoresets in place, `nxt`
+for a finished environment may already be the *new* initial observation — so the
+bootstrap has to read the pre-reset state, which many wrappers do not expose.
+</Warning>
+
+## Measuring what actually limits you
+
+<CodeWalk title="End-to-end throughput, with the policy in the loop">
+
+```python title="bench.py"
+import time, torch
+
+def throughput(env, policy, warmup=50, steps=500):
+    """Physics-only numbers are how people conclude their simulator is fast
+    while their training is slow. Time the whole loop."""
+    obs = env.obs()
+    for _ in range(warmup):
+        obs, *_ = env.step(policy(obs))
+
+    torch.cuda.synchronize()          # CUDA is async; without this you time
+    t0 = time.perf_counter()          # the launch queue, not the work
+    for _ in range(steps):
+        with torch.no_grad():
+            obs, *_ = env.step(policy(obs))
+    torch.cuda.synchronize()
+
+    dt = time.perf_counter() - t0
+    sps = steps * env.n / dt
+    print(f"{sps:,.0f} env-steps/s   ->   1e9 steps in {1e9/sps/3600:.1f} h")
+    return sps
+```
+
+</CodeWalk>
+
+<KeyIdea>
+The `torch.cuda.synchronize()` calls are not defensive padding. CUDA launches are
+asynchronous, so timing without them measures how fast you can enqueue work — a
+number that is large, stable, and unrelated to anything. Nearly every
+too-good-to-be-true GPU benchmark is this mistake.
+</KeyIdea>
+
+## Sweeping the trade rather than guessing it
+
+<CodeWalk title="Fidelity against samples, on one budget">
+
+```python title="sweep.py"
+def budget_sweep(make_env, policy, hours=4.0):
+    """Both columns come from the same wall clock. Print them together so the
+    exchange rate is visible instead of implicit."""
+    print(f"{'substeps':>9}{'iters':>7}{'steps/s':>12}{'samples in budget':>20}")
+    for substeps in (1, 2, 4):
+        for iters in (4, 8, 16):
+            env = make_env(substeps=substeps, solver_iterations=iters)
+            sps = throughput(env, policy)
+            print(f"{substeps:>9}{iters:>7}{sps:>12,.0f}{sps*hours*3600:>20,.0f}")
+```
+
+</CodeWalk>

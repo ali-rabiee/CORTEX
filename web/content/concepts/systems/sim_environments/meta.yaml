@@ -1,7 +1,9 @@
 id: sim_environments
-title: Simulation Environments for Robot Learning
+title: Simulation Environments
 domain: systems
-summary: A flight simulator for robots.
+summary: The simulator is a program with a cost model, not a stand-in for reality.
+  Its timestep, solver and parallelism decide what your policy can learn — and
+  massive parallelism changes the algorithm, not just the wall clock.
 tags:
   - systems
   - robot_learning
@@ -10,4 +12,6 @@ importance: 5
 related_concept_ids:
   - sim2real_transfer
   - domain_randomization
-  - latency_optimization
+  - contact_rich_manipulation
+  - experiment_tracking
+  - evaluation_methodology

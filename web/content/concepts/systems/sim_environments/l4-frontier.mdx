@@ -1,0 +1,122 @@
+---
+concept: sim_environments
+level: 4
+status: final
+recall:
+  prompt: "Trace the simulator papers. What did each change about how people train policies?"
+  keyPoints:
+    - "MuJoCo made contact fast and smooth enough for optimisation, and became the substrate the benchmark era was built on."
+    - "Isaac Gym moved state, physics and policy into device memory, removing the host round trip rather than optimising it."
+    - "Brax pushed further: the whole loop as one XLA program, so the simulator is differentiable and JIT-compiled with the training step."
+    - "Rudin et al. showed the consequence — with thousands of environments the right hyperparameters change, and short rollouts become correct rather than a compromise."
+papers:
+  - key: todorov2012mujoco
+    title: "MuJoCo: A physics engine for model-based control"
+    authors: "Emanuel Todorov, Tom Erez, Yuval Tassa"
+    venue: IROS
+    year: 2012
+    takeaway: "A convex, soft-constraint contact model solved fast enough for trajectory optimisation and, later, for RL — the engine that most of the continuous-control benchmark literature runs on."
+  - key: makoviychuk2021isaac
+    title: "Isaac Gym: High Performance GPU-Based Physics Simulation For Robot Learning"
+    authors: "Viktor Makoviychuk, Lukasz Wawrzyniak, Yunrong Guo, Michelle Lu, Kier Storey, Miles Macklin, David Hoeller, Nikita Rudin, Arthur Allshire, Ankur Handa, Gavriel State"
+    venue: "NeurIPS Datasets and Benchmarks"
+    year: 2021
+    arxiv: "2108.10470"
+    takeaway: "Keeps physics state, observations and the policy in GPU memory so nothing crosses the bus, making thousands of parallel environments practical on one device."
+  - key: freeman2021brax
+    title: "Brax — A Differentiable Physics Engine for Large Scale Rigid Body Simulation"
+    authors: "C. Daniel Freeman, Erik Frey, Anton Raichuk, Sertan Girgin, Igor Mordatch, Olivier Bachem"
+    venue: "NeurIPS Datasets and Benchmarks"
+    year: 2021
+    arxiv: "2106.13281"
+    takeaway: "Physics written in JAX, so simulation and learning compile into a single XLA program — differentiable end to end and free of the boundary between environment and training loop."
+  - key: rudin2021minutes
+    title: "Learning to Walk in Minutes Using Massively Parallel Deep Reinforcement Learning"
+    authors: "Nikita Rudin, David Hoeller, Philipp Reist, Marco Hutter"
+    venue: CoRL
+    year: 2021
+    arxiv: "2109.11978"
+    takeaway: "Trains quadruped locomotion in minutes on one GPU, and shows the hyperparameters that suit thousands of environments — very short rollouts — differ from the single-environment defaults."
+check:
+  - id: se_l4_c1
+    prompt: "What was the architectural change in Isaac Gym, as distinct from a faster physics implementation?"
+    options:
+      - "A more accurate contact model"
+      - "Keeping physics state, observations and the policy all in GPU memory, so the per-step host round trip disappears — the transfer was the ceiling that no physics optimisation could raise"
+      - "Support for more joint types"
+      - "Automatic domain randomisation"
+    answer: 1
+    explanation: "The bandwidth arithmetic makes the distinction sharp: 4096 environments at $10^4$ steps/s need roughly 24 GB/s over a link delivering about 25, and 16384 would need 94. No kernel-level speedup touches that, because the cost is the data movement rather than the computation. Eliminating the boundary was worth more than making either side faster."
+  - id: se_l4_c2
+    prompt: "Rudin et al. use rollouts of a few dozen steps where single-environment PPO used hundreds. Why is that correct rather than a compromise?"
+    options:
+      - "Because shorter rollouts reduce memory usage"
+      - "Because the correlation penalty is what makes long rollouts weak: a short rollout truncates the autocorrelation sum, and thousands of independent environments supply the sample count — so the batch carries far more independent information"
+      - "Because locomotion episodes are naturally short"
+      - "Because the value function is more accurate over short horizons"
+    answer: 1
+    explanation: "With independent samples a four-step rollout would be an obviously poor choice; it is a good one precisely because consecutive transitions are strongly correlated and a short window never pays for the tail of that correlation. The price is real and appears elsewhere: bootstrapping over a short horizon passes most of the critic's error into the advantage, which is why these setups care about value-function quality more than long-rollout ones do."
+  - id: se_l4_c3
+    prompt: "What does Brax's design as a single XLA program buy beyond speed?"
+    options:
+      - "Better contact accuracy"
+      - "It erases the boundary between environment and training loop — the whole rollout is differentiable and JIT-compiled together, so gradients can flow through the dynamics and there is no per-step dispatch cost"
+      - "Automatic parallelism across machines"
+      - "Compatibility with existing MuJoCo models"
+    answer: 1
+    explanation: "Treating the environment as an opaque object you call is a software convention rather than a requirement, and compiling the rollout with the update removes both the dispatch overhead and the barrier to differentiating through dynamics. Whether those gradients help is a separate question — for contact-rich problems the pathwise estimator is biased at discontinuities — but the capability is what the design unlocks."
+---
+
+## The engine the benchmarks were built on
+
+<PaperCard refKey="todorov2012mujoco" />
+
+MuJoCo's contribution was a contact model that is convex and soft enough to solve
+quickly and smoothly enough to optimise through. That combination is why a decade
+of continuous-control results run on it — and also why those results inherit its
+particular softened contact, which is worth remembering when reading transfer
+claims.
+
+## Removing the boundary
+
+<PaperGrid>
+<PaperCard refKey="makoviychuk2021isaac" />
+<PaperCard refKey="freeman2021brax" />
+</PaperGrid>
+
+Two routes to the same realisation: the per-step handoff between simulator and
+learner is the cost.
+
+<Steps>
+<Step title="Isaac Gym: keep everything in device memory">
+Physics state, observation assembly and the policy forward pass all on the GPU.
+The round trip that needed 24 GB/s at 4096 environments simply stops existing.
+</Step>
+
+<Step title="Brax: compile the loop as one program">
+Physics in JAX, so the rollout and the update are a single XLA computation. No
+per-step dispatch, and the dynamics are differentiable by construction.
+</Step>
+
+<Step title="What both give up">
+Fidelity, in specific places — simplified contact, restricted model features.
+Which is the trade the whole concept is about, made at the level of the engine.
+</Step>
+</Steps>
+
+## The consequence for the algorithm
+
+<PaperCard refKey="rudin2021minutes" />
+
+The result that makes the point: quadruped locomotion in minutes on a single GPU.
+The interesting part is not the wall clock but that the hyperparameters had to
+change. Thousands of environments collecting a few dozen steps each is a very
+different batch from one environment collecting thousands.
+
+<KeyIdea>
+This is the arc worth being able to state. A fast engine enabled a benchmark era;
+GPU-resident simulation removed the transfer that capped it; compiling the loop
+removed the boundary entirely; and then the algorithm's own settings turned out
+to depend on the infrastructure. Throughput was not a separate axis from method —
+which is why "we just ran it faster" undersells what changed.
+</KeyIdea>

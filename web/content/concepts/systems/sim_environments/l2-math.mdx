@@ -1,24 +1,160 @@
 ---
 concept: sim_environments
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Simulation Environments for Robot
-    Learning, including the key equations.
+  prompt: "Derive the effective sample size of a parallel batch and state the trade that short rollouts introduce."
   keyPoints:
-    - Physics simulators used to generate training data and evaluate robot
-      policies before real-world deployment.
-    - "Major platforms: MuJoCo (fast contact dynamics, $\\sim$10M steps/hour on
-      CPU, DeepMind standard), Isaac Gym/Isaac Sim (GPU-accelerated, $\\sim$10B
-      steps/hour on A100, NVIDIA ecosystem), PyBullet (open-source, good for
-      prototyping), Drake (focus on contact-rich manipulation,
-      complementarity-based contact)."
-    - "Key properties: physics fidelity, rendering quality, parallelism, API
-      design, and sim2real gap for target domain."
-check: []
-papers: []
+    - "For AR(1) correlation $\\rho$ within an episode, the variance inflation factor is $1 + 2\\sum_{k<T}(1-k/T)\\rho^k$, tending to $(1+\\rho)/(1-\\rho)$ as $T$ grows."
+    - "Short rollouts truncate that sum rather than removing the correlation: at $\\rho = 0.99$ the factor is 199 for long episodes and 3.95 at $T = 4$."
+    - "The cost is critic dependence: a fraction $(\\gamma\\lambda)^T$ of the value error enters the advantage, which is 78% at $T = 4$ against 2% at $T = 64$."
+    - "Wall-clock is $N_{steps} / (n_{env} f)$ with $f$ inversely proportional to substeps and solver iterations — so fidelity and sample count are drawn from one budget."
+check:
+  - id: se_l2_c1
+    prompt: "Why does spreading a fixed batch across more environments raise the effective sample size?"
+    options:
+      - "Because more environments explore more of the state space"
+      - "Because it truncates the autocorrelation sum: each episode contributes $1 + 2\\sum_{k<T}(1-k/T)\\rho^k$, and a short $T$ never reaches the long-run factor of $(1+\\rho)/(1-\\rho)$ — 3.95 versus 199 at $\\rho = 0.99$"
+      - "Because parallel environments have lower variance individually"
+      - "Because the environments use different random seeds"
+    answer: 1
+    explanation: "The correlation between consecutive states is unchanged — what changes is how much of its tail you pay for. A long rollout accumulates the full geometric sum, whereas four-step fragments only ever pay the first few terms, and samples from different environments are independent by construction. Broader exploration is a genuine secondary effect; the variance arithmetic is the part that shows up directly in the gradient estimator."
+  - id: se_l2_c2
+    prompt: "What does the short-rollout regime cost, and how would you quantify it?"
+    options:
+      - "Nothing — shorter rollouts are strictly better"
+      - "Dependence on the critic: a truncated advantage passes through a fraction $(\\gamma\\lambda)^T$ of the value error, which is 78% at $T = 4$ and 2% at $T = 64$ — so massive parallelism only pays off when the value function is good"
+      - "Higher memory usage per environment"
+      - "Slower convergence because of fewer gradient updates"
+    answer: 1
+    explanation: "Cutting a rollout short means bootstrapping from $V$ at the cut rather than observing the return, and the horizon controls how much of the critic's error survives into the advantage. At $T = 4$ almost all of it does, which is why massively parallel setups are sensitive to critic quality and to value-loss weighting in a way that long-rollout setups are not. The two effects run in opposite directions, and that is what makes the horizon a genuine choice rather than a knob to maximise."
+  - id: se_l2_c3
+    prompt: "You double the number of solver iterations to fix visible penetration. What is the effect on the training budget?"
+    options:
+      - "None — solver iterations are cheap relative to the policy update"
+      - "Roughly halves throughput, so for a fixed wall-clock budget you collect about half the samples: fidelity and sample count come from one budget, and the question is which buys more on this task"
+      - "It allows a larger timestep, so throughput is unchanged"
+      - "It only affects memory"
+    answer: 1
+    explanation: "Per-step cost scales close to linearly in iterations, and wall-clock is $N_{\\text{steps}}/(n_{\\text{env}} f)$, so halving $f$ halves the samples you can afford. Framing it as a trade is what makes it decidable: penetration that the policy can exploit is worth paying for, while penetration you can see but that never changes behaviour is not. Note also that iterations improve constraint accuracy and do not relax the $\\Delta t < 2\\sqrt{m/k}$ stability bound — a different knob for a different problem."
 ---
 
-## Formal definition
+## The budget
 
-Physics simulators used to generate training data and evaluate robot policies before real-world deployment. Major platforms: MuJoCo (fast contact dynamics, $\sim$10M steps/hour on CPU, DeepMind standard), Isaac Gym/Isaac Sim (GPU-accelerated, $\sim$10B steps/hour on A100, NVIDIA ecosystem), PyBullet (open-source, good for prototyping), Drake (focus on contact-rich manipulation, complementarity-based contact). Key properties: physics fidelity, rendering quality, parallelism, API design, and sim2real gap for target domain.
+Wall-clock for a run is
+
+$$
+T_{\text{wall}} = \frac{N_{\text{steps}}}{n_{\text{env}} \cdot f}, \qquad
+f \;\propto\; \frac{1}{n_{\text{substep}} \cdot n_{\text{iter}} \cdot c_{\text{model}}}
+$$
+
+Every fidelity knob divides $f$, and $N_{\text{steps}}$ is what your algorithm
+needs to learn. For a fixed budget the two are exchangeable: doubling substeps
+halves the samples. There is no setting at which fidelity is free, and the useful
+question is which side of the trade buys more on the task at hand.
+
+| configuration | throughput | $10^9$ steps |
+| --- | --- | --- |
+| 1 env, contact-rich | $2\times10^3$/s | 5.8 days |
+| 1 env, simple | $2\times10^4$/s | 13.9 h |
+| 32 CPU envs | $3\times10^5$/s | 55 min |
+| 4096 GPU envs | $5\times10^5$/s | 33 min |
+
+## What a batch is actually worth
+
+Transitions within an episode are not independent. Model the per-sample gradient
+contributions along a trajectory as AR(1) with correlation $\rho$.
+
+<Derivation title="Effective sample size, and why short rollouts help">
+
+For the mean of $T$ correlated samples,
+
+$$
+\mathrm{Var}\!\left[\bar{X}_T\right] = \frac{\sigma^2}{T}\underbrace{\left(1 + 2\sum_{k=1}^{T-1}\left(1 - \tfrac{k}{T}\right)\rho^{\,k}\right)}_{\text{inflation factor } \kappa(T)}
+$$
+
+so a rollout of length $T$ is worth $T/\kappa(T)$ independent samples. As
+$T \to \infty$ the sum converges:
+
+$$
+\kappa(\infty) = 1 + 2\sum_{k \ge 1} \rho^{\,k} = \frac{1+\rho}{1-\rho}
+$$
+
+**The assumption doing the work is stationarity of the correlation structure** —
+real trajectories have phases with different $\rho$, so this is a model rather
+than a measurement. What it captures correctly is the shape: $\kappa$ grows
+towards a ceiling set by $\rho$, and a short rollout never reaches it.
+
+| $\rho$ | $T=4$ | $T=16$ | $T=256$ | $T \to \infty$ |
+| --- | --- | --- | --- | --- |
+| 0.9 | 3.52 | 9.83 | 18.30 | 19.0 |
+| 0.99 | 3.95 | 15.18 | 127.6 | 199.0 |
+
+With $n_{\text{env}}$ independent environments the total effective count is
+$n_{\text{env}} T / \kappa(T)$. At a fixed batch of $65{,}536$ and $\rho = 0.99$:
+
+$$
+1 \times 65536 \to 330, \qquad 256 \times 256 \to 514, \qquad 16384 \times 4 \to 16590
+$$
+
+A fiftyfold gain in independent information for the same collected transitions.
+
+</Derivation>
+
+<KeyIdea>
+Note what did *not* happen: the correlation is unchanged. Short rollouts simply
+stop paying for its tail, and the environments supply independence for free. This
+is the real reason massively parallel RL changed hyperparameters rather than just
+schedules — a four-step rollout would be an obviously bad idea if transitions
+were independent, and is a good one precisely because they are not.
+</KeyIdea>
+
+## What short rollouts cost
+
+Cutting a rollout at $T$ means bootstrapping from the critic rather than
+observing the return, so the critic's error enters the advantage.
+
+<Derivation title="Critic dependence grows as the horizon shrinks">
+
+A $T$-step truncated GAE advantage terminates in $(\gamma\lambda)^T V(s_{t+T})$,
+so a value error $\varepsilon$ contributes
+
+$$
+\text{bias} \;\approx\; (\gamma\lambda)^{T}\,\varepsilon
+$$
+
+With $\gamma = 0.99$, $\lambda = 0.95$:
+
+| $T$ | 4 | 8 | 16 | 32 | 64 | 128 |
+| --- | --- | --- | --- | --- | --- | --- |
+| $(\gamma\lambda)^T$ | 0.78 | 0.61 | 0.37 | 0.14 | 0.020 | 0.0004 |
+
+At $T = 4$, 78% of the critic's error passes straight into the advantage. At
+$T = 64$, 2%.
+
+</Derivation>
+
+<Warning>
+So the two effects pull in opposite directions, and the horizon is a real choice
+rather than a knob to maximise. Massively parallel setups get their statistical
+advantage precisely in the regime where they depend most on the value function —
+which is why they are sensitive to value-loss weighting and critic capacity in a
+way that long-rollout setups are not, and why "it worked at $T=64$ and broke at
+$T=8$" usually points at the critic rather than at the horizon itself.
+</Warning>
+
+## The timestep is set by the stiffest thing in the scene
+
+From the explicit-integrator bound $\Delta t < 2\sqrt{m/k}$, and cost linear in
+$1/\Delta t$:
+
+| material | $k$ | max $\Delta t$ | physics steps per simulated second |
+| --- | --- | --- | --- |
+| soft rubber | $10^4$ | 20 ms | 50 |
+| hard plastic | $10^6$ | 2 ms | 500 |
+| aluminium | $10^8$ | 200 µs | 5000 |
+| steel | $10^9$ | 63 µs | 15811 |
+
+Honest steel costs **32×** hard plastic for the same simulated second — one stiff
+object in the scene sets the price for everything. That is the throughput reason
+simulated contact is softened, which sits alongside the numerical one.

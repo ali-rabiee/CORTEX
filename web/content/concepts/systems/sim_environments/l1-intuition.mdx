@@ -1,25 +1,119 @@
 ---
 concept: sim_environments
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Simulation Environments for Robot Learning in plain language:
-    what is it, and why does it matter?"
+  prompt: "What is the simulator actually giving you, and what are the two constraints that shape how you build one?"
   keyPoints:
-    - A flight simulator for robots.
-    - Before letting a robot learn by crashing into things in the real world
-      (expensive, slow, dangerous), you let it crash millions of times in a
-      virtual world.
-    - The better the simulator matches reality, the better the trained policy
-      transfers.
-check: []
-papers: []
+    - "It is a program with a cost model, and every fidelity knob is priced in wall-clock time you would otherwise spend on samples."
+    - "With physics on the CPU and the policy on the GPU, the per-step round trip needs 24 GB/s at 4096 envs — the transfer is the wall, not the physics."
+    - "Timestep is set by the stiffest contact: honest steel costs 32x hard plastic for the same simulated second."
+    - "Parallelism changes the statistics, not just the speed — the same batch collected over more envs carries far more independent information."
+media:
+  - kind: video
+    title: "Learning to Walk in Minutes Using Massively Parallel Deep RL"
+    url: https://www.youtube.com/watch?v=8sO7VS3q8d0
+    source: "Robotic Systems Lab, ETH Zürich · CoRL 2021"
+    minutes: 2
+    note: "Two minutes. Watch the thousands of simultaneous environments — the visual makes the statistical argument better than the numbers do."
+  - kind: article
+    title: "Computation — MuJoCo Documentation"
+    url: https://mujoco.readthedocs.io/en/stable/computation/index.html
+    source: "MuJoCo"
+    note: "The reference for what a solver actually does per step. Read the sections on the constraint model and integrator choice; they are the knobs you will be trading."
+check:
+  - id: se_l1_c1
+    prompt: "Why did large-scale RL simulation move onto the GPU?"
+    options:
+      - "Because GPUs compute rigid-body physics faster than CPUs"
+      - "Mainly to remove the round trip: with physics on the CPU and the policy on the GPU, 4096 environments at $10^4$ steps/s need about 24 GB/s over a link that delivers roughly 25 — so the transfer, not the physics, sets the ceiling"
+      - "Because GPU physics is more accurate"
+      - "To allow differentiable simulation"
+    answer: 1
+    explanation: "GPU physics being faster is part of it but not the binding constraint — the decisive change is that observations and actions stop crossing the bus at all when state, physics and policy all live in device memory. The arithmetic makes it concrete: 4096 environments already sit at the PCIe ceiling and 16384 would need 94 GB/s, which no amount of physics optimisation reaches. This is why the architectural change was worth more than the kernel-level one."
+  - id: se_l1_c2
+    prompt: "Two setups collect 65,536 transitions per batch: one environment for 65,536 steps, or 16,384 environments for 4 steps each. How do they compare?"
+    options:
+      - "They are equivalent — the same number of transitions"
+      - "The parallel one carries far more independent information: consecutive steps within an episode are highly correlated, so at correlation 0.99 the effective sample size rises from about 330 to about 16,590"
+      - "The single environment is better because episodes are complete"
+      - "The parallel one is worse because episodes are truncated"
+    answer: 1
+    explanation: "Transitions are not independent samples — within a trajectory they are strongly autocorrelated, and the gradient estimator's variance depends on the effective count rather than the raw one. Spreading collection across environments replaces correlated samples with independent ones at no extra cost, which is a roughly fiftyfold gain in this calculation. Truncation is a real consequence and it is handled by bootstrapping at the cut, not a reason to prefer long rollouts."
 ---
 
-## Intuition
+## A program with a price list
 
-A flight simulator for robots. Before letting a robot learn by crashing into things in the real world (expensive, slow, dangerous), you let it crash millions of times in a virtual world. The better the simulator matches reality, the better the trained policy transfers. GPU simulators like Isaac Gym are like running thousands of flight simulators simultaneously.
+<Intuition>
+It is tempting to think of a simulator as an approximate copy of the world, and
+to evaluate it by how close the copy is. The more useful view for someone
+training policies is that it is a program with a cost model. Every knob that
+improves fidelity — a smaller timestep, more solver iterations, better contact —
+is priced in wall-clock time, and that time comes out of the same budget as the
+samples your algorithm needs. What makes a simulator good for learning is not
+maximum fidelity but the best fidelity per unit of throughput, on the axes your
+task actually depends on.
+</Intuition>
 
-## In practice
+Start with the budget. A locomotion policy might need $10^9$ environment steps.
+At 2000 steps/s in a single contact-rich environment that is **5.8 days**. At
+$5\times10^5$ steps/s across 4096 parallel environments it is **35 minutes**.
+Nothing about the algorithm changed; the experiment went from a weekly cadence to
+a coffee break.
 
-Training a locomotion policy in Isaac Gym: 4096 parallel environments on a single A100 GPU, each simulating a quadruped robot. PPO training converges in ~30 minutes ($\sim$10^9 steps) vs days on CPU-based simulators. Scene setup: randomized terrain (stairs, slopes, rough ground), domain randomization on friction $\mu$, mass $m$, and motor strength. For manipulation: MuJoCo with dm_control for precise contact modeling, or Isaac Sim with NVIDIA Omniverse for photorealistic rendering (needed for vision-based policies).
+## The two walls
+
+<Figure src="/figures/sim-parallelism-walls.svg" alt="Left: bandwidth needed for a CPU-physics, GPU-policy round trip rises past the PCIe ceiling between 4096 and 16384 environments. Right: for a fixed batch of 65,536 transitions at correlation 0.99, the effective sample size rises from 330 with one environment to 16,590 with 16,384." caption="The transfer is what forced simulation onto the GPU — and once there, the same batch turned out to be statistically worth much more." />
+
+The first is the one people miss. Keeping physics on the CPU and the policy on
+the GPU means every step ships observations one way and actions back. At 4096
+environments and $10^4$ steps/s that is 23.6 GB/s, against roughly 25 GB/s
+achievable over PCIe 4.0 ×16. At 16384 it is 94 GB/s — not a tuning problem.
+Putting state, physics and policy all in device memory removes the transfer
+rather than optimising it.
+
+<KeyIdea>
+The second wall is a benefit in disguise. Consecutive steps within an episode are
+strongly correlated, so a long rollout contains far fewer independent samples
+than transitions. Collecting the same 65,536 transitions across 16,384
+environments instead of one raises the effective sample size from about 330 to
+about 16,590. Parallelism does not merely produce batches faster — it produces
+*better* batches, which is why it changed hyperparameters and not just schedules.
+</KeyIdea>
+
+## What sets the timestep
+
+<Steps>
+<Step title="The stiffest contact in the scene">
+Explicit stability needs $\Delta t < 2\sqrt{m/k}$. Hard plastic allows 2 ms;
+steel demands 63 µs.
+</Step>
+
+<Step title="And cost is linear in $1/\Delta t$">
+So honest steel costs **32×** hard plastic for the same simulated second. This is
+why simulated contact is softened, and it is a throughput decision before it is a
+physics one.
+</Step>
+
+<Step title="Control runs slower than physics">
+A 50 Hz policy against a 1 kHz simulation means 20 substeps per action, with the
+action held across them. That ratio is a design choice with consequences for what
+the policy can react to.
+</Step>
+
+<Step title="Solver iterations buy constraint accuracy, not stability">
+More iterations reduce constraint violation and penetration. They cost linearly
+and do not relax the timestep bound, so they are the cheaper knob to reach for
+when contact looks wrong.
+</Step>
+</Steps>
+
+<Warning>
+A GPU simulator's results generally depend on the number of environments, because
+kernel configurations and reduction orders change with batch shape. A run at 4096
+environments is not bitwise reproducible at 2048, so the environment count is
+part of the experiment's configuration and belongs in the run record — not a
+throughput setting you can adjust between a baseline and a treatment.
+</Warning>
+
+<WatchThis />

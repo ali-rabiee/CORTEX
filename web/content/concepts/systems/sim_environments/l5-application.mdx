@@ -1,25 +1,162 @@
 ---
 concept: sim_environments
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Simulation Environments for Robot Learning fail in practice,
-    and how would you present it in an interview?
+  prompt: "Give your interview answer on simulation environments. What is the framing, and which two numbers would you bring?"
   keyPoints:
-    - "Sim fidelity mismatch: the simulator's contact model doesn't capture
-      real-world physics for your task."
-    - MuJoCo uses soft contact (spring-damper), which diverges from rigid
-      contact in tasks with hard collisions.
-    - GPU simulators trade accuracy for speed — parallel environments may have
-      slightly different behavior than serial ones.
-check: []
-papers: []
+    - "Frame the simulator as a program with a cost model — fidelity and sample count are drawn from one budget."
+    - "The transfer, not the physics, is why simulation moved onto the GPU: 24 GB/s at 4096 envs against a 25 GB/s link."
+    - "Parallelism improves the statistics too — effective sample size 330 versus 16,590 for the same batch."
+    - "And it costs critic dependence, since $(\\gamma\\lambda)^T$ of the value error enters a truncated advantage: 78% at $T=4$."
+interview:
+  answer: >-
+    The framing I'd start with is that a simulator isn't an approximate copy of
+    the world you evaluate by closeness — it's a program with a cost model. Every
+    fidelity knob, smaller timestep, more solver iterations, better contact, is
+    priced in wall-clock, and that comes out of the same budget as the samples
+    your algorithm needs. So fidelity and sample count are exchangeable, and the
+    question is always which side buys more on this task. Then the thing I find
+    people usually have backwards: why simulation moved onto the GPU. The usual
+    answer is that GPUs do physics faster, which is partly true and isn't the
+    binding constraint. If you keep physics on the CPU and the policy on the GPU,
+    every step ships observations one way and actions back. At four thousand
+    environments and ten to the four steps per second that's about twenty-four
+    gigabytes a second, against roughly twenty-five achievable over PCIe. At
+    sixteen thousand it's ninety-four. So the link was the ceiling, and no
+    kernel-level optimisation raises it — what Isaac Gym did was put state,
+    physics and policy all in device memory so the transfer stops existing. Brax
+    went further and compiled the whole rollout and update as one XLA program.
+    And then the part I think is genuinely interesting, which is that parallelism
+    isn't only faster, it changes the statistics. Transitions within an episode
+    are strongly correlated, so a long rollout has far fewer independent samples
+    than transitions. If you model that as AR-one, the variance inflation factor
+    tends to one plus rho over one minus rho — a hundred and ninety-nine at rho
+    equals point nine nine. But that's the limit for a long rollout. A four-step
+    fragment only pays the first few terms of the sum, so the factor is under
+    four. Same sixty-five thousand transitions: one environment gives you an
+    effective sample size around three hundred and thirty, sixteen thousand
+    environments gives you sixteen and a half thousand. Roughly fifty times the
+    independent information for the same collection. That's why Rudin and
+    colleagues found the hyperparameters had to change — very short rollouts are
+    correct in that regime rather than a compromise, and they'd be an obviously
+    bad idea if transitions were independent. There's a real cost though, and I'd
+    volunteer it: bootstrapping over a short horizon means gamma-lambda to the T
+    of the critic's error lands in the advantage. At T equals four that's
+    seventy-eight percent; at sixty-four it's two. So massive parallelism buys
+    you sample independence and makes you much more dependent on the value
+    function, which is why those setups are sensitive to critic quality in a way
+    long-rollout ones aren't.
+  followUps:
+    - q: "How would you decide between more fidelity and more samples?"
+      a: >-
+        I'd sweep it rather than argue about it, because the exchange rate is
+        measurable — run the same budget at a few settings of substeps and solver
+        iterations and print steps per second next to samples affordable, so the
+        trade is visible instead of implicit. On the fidelity side I'd only pay
+        for things the policy can actually exploit. Penetration the policy leans
+        on is worth fixing; penetration you can see in the viewer that never
+        changes behaviour is not. And I'd check whether the knob addresses the
+        right problem: solver iterations improve constraint accuracy and don't
+        relax the timestep stability bound, so if the issue is instability rather
+        than penetration, iterations are the wrong knob and you'll pay linearly
+        for nothing.
+    - q: "What sets the timestep?"
+      a: >-
+        The stiffest contact in the scene, through the explicit-integrator bound
+        delta-t under two root m over k. Hard plastic allows about two
+        milliseconds; steel demands sixty-three microseconds. Since cost is
+        linear in one over delta-t, that's a factor of thirty-two in compute for
+        the same simulated second — one stiff object sets the price for
+        everything else. Which is the throughput reason simulated contact gets
+        softened, sitting alongside the numerical one, and it's worth knowing
+        because that softening is a specific sim2real failure: the policy learns
+        against something that yields where the real part doesn't.
+    - q: "Same seed, different results at 2048 versus 4096 environments. Bug?"
+      a: >-
+        No, and it's worth knowing why. Batch shape changes kernel launch
+        geometry and therefore reduction order, and float32 addition isn't
+        associative, so the arithmetic differs in the last bits and training
+        amplifies that. The practical consequence is concrete: the environment
+        count is part of the experiment's configuration, not a throughput setting
+        you can adjust freely. If you compare a baseline at 2048 against a
+        treatment at 4096 you've confounded the method with the count, and that's
+        a bias no number of seeds removes. So it goes in the run record next to
+        the seed.
+    - q: "How would you benchmark a simulator you're evaluating?"
+      a: >-
+        End-to-end steps per second with the policy in the loop, because that's
+        the number that divides into the sample budget — physics-only benchmarks
+        are how people conclude their simulator is fast while their training is
+        slow, and they hide exactly the round-trip cost that matters. And I'd
+        synchronise CUDA around the timing region, since launches are
+        asynchronous and timing without it measures how fast you can enqueue
+        work. That's a large, stable number unrelated to anything, and it's
+        behind most too-good-to-be-true GPU benchmarks. Then I'd scale the
+        environment count and look for where throughput stops rising, which tells
+        you which wall you've hit.
+  traps:
+    - "Saying GPU simulation is about faster physics. The transfer was the ceiling, and the architectural fix was removing it rather than optimising either side."
+    - "Treating parallelism as purely a wall-clock win. It changes the effective sample size by roughly fiftyfold, which is why the hyperparameters changed with it."
+    - "Presenting short rollouts as free. They pass $(\\gamma\\lambda)^T$ of the critic's error into the advantage — 78% at $T=4$."
+    - "Adjusting the environment count between a baseline and a treatment. It changes results bitwise and confounds the comparison."
+check:
+  - id: se_l5_c1
+    prompt: "An interviewer asks why their 8192-environment setup is barely faster than 2048. What is the first hypothesis?"
+    options:
+      - "The GPU is saturated by the physics"
+      - "Data movement: if observations and actions still cross to host memory, 8192 environments need bandwidth beyond what the link provides, so throughput stops scaling regardless of how fast the physics is"
+      - "The policy network is too large"
+      - "The environments are not independent"
+    answer: 1
+    explanation: "Throughput plateauing as you add environments is the signature of a bandwidth ceiling rather than a compute one — compute limits degrade gradually, a bus limit flattens. The check is whether anything crosses PCIe per step: at $10^4$ steps/s, 4096 environments already need about 24 GB/s. A large policy is a real possibility and would slow every configuration proportionally rather than capping the scaling curve."
+  - id: se_l5_c2
+    prompt: "You move from 1 environment × 512 steps to 4096 environments × 16 steps at the same batch size, and training becomes unstable. What is the likely cause?"
+    options:
+      - "The batch is now too correlated"
+      - "Increased critic dependence: at $T = 16$ about 37% of the value error enters the advantage against 0.02% at $T = 512$, so a critic that was adequate before is now the limiting factor"
+      - "Too many environments for the GPU"
+      - "The learning rate must scale with the environment count"
+    answer: 1
+    explanation: "The batch became *less* correlated, which is the benefit — so instability points at the cost that came with it. Short rollouts bootstrap from $V$ rather than observing returns, and $(\\gamma\\lambda)^T$ controls how much of the critic's error survives into the advantage. The productive responses are raising the value-loss weight, giving the critic more capacity, or lengthening the horizon a little, rather than reverting the parallelism."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Sim fidelity mismatch: the simulator's contact model doesn't capture real-world physics for your task. MuJoCo uses soft contact (spring-damper), which diverges from rigid contact in tasks with hard collisions. GPU simulators trade accuracy for speed — parallel environments may have slightly different behavior than serial ones. Symptoms: policy works in sim, fails immediately on real robot. Fix: validate sim behavior against real-robot recordings for your specific task, tune contact parameters to match real force-torque data, use domain randomization to cover sim-real gap.
+<Steps>
+<Step title="Throughput stops scaling with env count → a bandwidth wall">
+Compute limits degrade gradually; a bus limit flattens. Check whether anything
+crosses to host memory per step.
+</Step>
 
-## Interview-ready answer
+<Step title="Suspiciously high benchmark numbers → missing synchronisation">
+CUDA launches are asynchronous. Without `synchronize()` you are timing the
+enqueue.
+</Step>
 
-Simulator choice depends on the task and scale: Isaac Gym for massively parallel RL training (locomotion, dexterous manipulation), MuJoCo for precise contact-rich tasks and research prototyping, Drake for tasks needing accurate contact mechanics (assembly, insertion). My workflow: prototype in MuJoCo for fast iteration, scale training in Isaac Gym for production, validate in Isaac Sim with realistic rendering for vision policies. Key consideration: always validate your simulator against real-world data for the specific dynamics that matter for your task. No simulator is perfect — but the right sim + domain randomization closes most gaps.
+<Step title="Unstable after increasing parallelism → the critic">
+Short rollouts pass most of the value error into the advantage. Raise the value
+loss weight or lengthen the horizon before reverting.
+</Step>
+
+<Step title="Odd behaviour near the horizon → truncation treated as termination">
+The critic has learned that time running out is worth nothing. Bootstrap at the
+time limit, from the pre-reset state.
+</Step>
+
+<Step title="Policy exploits penetration → the timestep, not the solver">
+Iterations improve constraint accuracy and do not relax $\Delta t < 2\sqrt{m/k}$.
+Diagnose which one you actually have.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+What makes this answer strong is that all three claims are quantitative and none
+of them is the expected one. GPU simulation is about the transfer, not the
+physics. Parallelism changes the statistics, not just the clock. And the benefit
+comes with a specific, computable cost in critic dependence. Volunteering that
+last one — the price of the thing you just advocated — is usually what separates
+having used a tool from having reasoned about it.
+</Warning>
