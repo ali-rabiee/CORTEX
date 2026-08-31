@@ -1,0 +1,131 @@
+---
+concept: multimodal_distributions
+level: 4
+status: final
+recall:
+  prompt: "Trace the answers to multimodal action prediction. What does each one model, and what does it cost?"
+  keyPoints:
+    - "Latent-variable policies: a sampled latent selects the mode, learned from unsegmented play data."
+    - "Implicit BC: an energy over observation-action pairs, which represents modes and discontinuities but requires search at inference."
+    - "Behavior Transformers: cluster actions into k bins and predict a bin plus a residual offset — discrete choice, continuous precision."
+    - "VQ-BeT: a learned codebook over action chunks, so the discrete units are joint actions rather than per-dimension bins."
+papers:
+  - key: lynch2019play
+    title: "Learning Latent Plans from Play"
+    authors: "Corey Lynch, Mohi Khansari, Ted Xiao, Vikash Kumar, Jonathan Tompson, Sergey Levine, Pierre Sermanet"
+    venue: CoRL
+    year: 2019
+    arxiv: "1903.01973"
+    takeaway: "Trains a latent-variable policy on unsegmented teleoperated play, so the sampled latent picks which way to accomplish a goal instead of the model averaging over the options."
+  - key: florence2021ibc
+    title: "Implicit Behavioral Cloning"
+    authors: "Pete Florence, Corey Lynch, Andy Zeng, Oscar Ramirez, Ayzaan Wahid, Laura Downs, Adrian Wong, Johnny Lee, Igor Mordatch, Jonathan Tompson"
+    venue: CoRL
+    year: 2021
+    arxiv: "2109.00137"
+    takeaway: "Replaces the regression head with an energy function over observation-action pairs, which can represent several modes and sharp discontinuities that a point prediction structurally cannot."
+  - key: shafiullah2022bet
+    title: "Behavior Transformers: Cloning $k$ modes with one stone"
+    authors: "Nur Muhammad Mahi Shafiullah, Zichen Jeff Cui, Ariuntuya Altanzaya, Lerrel Pinto"
+    venue: NeurIPS
+    year: 2022
+    arxiv: "2206.11251"
+    takeaway: "Clusters actions into k centres and predicts a discrete bin plus a continuous residual, so the head makes a categorical choice among modes without giving up precision within one."
+  - key: lee2024vqbet
+    title: "Behavior Generation with Latent Actions"
+    authors: "Seungjae Lee, Yibin Wang, Haritheja Etukuru, H. Jin Kim, Nur Muhammad Mahi Shafiullah, Lerrel Pinto"
+    venue: ICML
+    year: 2024
+    arxiv: "2403.03181"
+    takeaway: "Learns a vector-quantised codebook over action chunks, so the discrete tokens are whole joint actions — which is what keeps the per-dimension independence failure from reappearing."
+check:
+  - id: md_l4_c1
+    prompt: "What does Behavior Transformers' bin-plus-offset decomposition buy over plain discretisation?"
+    options:
+      - "Fewer parameters"
+      - "It keeps continuous precision: the categorical head chooses among modes, which is inherently discrete, while the residual restores resolution within a mode — so you do not need enough bins to also serve as your precision budget"
+      - "It removes the need for clustering"
+      - "It allows more modes than clusters"
+    answer: 1
+    explanation: "Pure discretisation forces one set of bins to do two jobs, and they pull in opposite directions: choosing among a handful of modes wants few bins, while representing a fine-grained action wants many. Splitting it lets the categorical variable handle the genuinely discrete decision and the regression handle the genuinely continuous one. The clustering is over joint action vectors, which is also what keeps it clear of the per-dimension independence failure."
+  - id: md_l4_c2
+    prompt: "Implicit BC represents modes well but is less used than diffusion policies. Why?"
+    options:
+      - "It cannot represent enough modes"
+      - "Inference requires searching the action space for the energy minimum, and training needs well-chosen negative samples — so both ends are delicate, where diffusion replaces them with a supervised regression and a fixed-length sampler"
+      - "It requires more demonstrations"
+      - "It cannot be conditioned on images"
+    answer: 1
+    explanation: "Expressiveness was never the issue — an energy function is at least as expressive as a diffusion model over the same space. What decided adoption was that IBC's optimisation is awkward on both sides, since the quality of the learned energy depends on how negatives are drawn and every action requires a search at test time. Diffusion arrived at comparable expressiveness with a boring training objective and a deterministic sampler, and that is what won."
+  - id: md_l4_c3
+    prompt: "What is the through-line connecting latent plans, implicit BC, behaviour transformers and VQ-BeT?"
+    options:
+      - "They all use transformers"
+      - "Each replaces a point prediction with something that represents a distribution over the whole action — a latent, an energy, a bin-plus-offset, a codebook — rather than trying to find a better regression loss"
+      - "They all require play data"
+      - "They all discretise the action space"
+    answer: 1
+    explanation: "The methods look unrelated and share the one move that matters, which is abandoning the deterministic point output. That is forced rather than stylistic: any loss of the form $\\mathbb{E}[\\ell(a - f(o))]$ has a minimiser that is some single summary of the conditional distribution, so no choice of $\\ell$ escapes. Two of the four do discretise, and doing so over joint actions rather than per dimension is what makes it work."
+---
+
+## Sample the mode, don't average it
+
+<PaperCard refKey="lynch2019play" />
+
+The earliest of these in spirit: put a latent variable in the policy so that
+sampling it selects *which* way to accomplish the goal. The setting matters as
+much as the model — unsegmented teleoperated play is maximally multimodal, since
+nobody was following a script, so a policy that averages has nothing to say.
+
+## Give up the point prediction
+
+<PaperCard refKey="florence2021ibc" />
+
+The clearest statement of the diagnosis: the regression head is the problem, not
+the data. An energy $E(o,a)$ can be low at two well-separated actions and high
+between them, which is exactly what a point prediction cannot do.
+
+The reason it is not the standard answer today is about optimisation rather than
+expressiveness. Training depends on how negatives are sampled, and inference
+requires searching action space for the minimum. Diffusion reached comparable
+expressiveness with a plain regression objective and a fixed-length sampler.
+
+## Discrete choice, continuous precision
+
+<PaperGrid>
+<PaperCard refKey="shafiullah2022bet" />
+<PaperCard refKey="lee2024vqbet" />
+</PaperGrid>
+
+<Steps>
+<Step title="The decision is discrete, the action is not">
+Choosing left or right is categorical; how far to turn is continuous. Forcing one
+set of bins to serve both makes them fight — few bins for a clean choice, many for
+precision.
+</Step>
+
+<Step title="So split them">
+BeT clusters actions into $k$ centres, predicts a bin with a categorical head,
+and regresses a residual offset within it.
+</Step>
+
+<Step title="Cluster joint actions, never per dimension">
+The clustering is over whole action vectors. Binning each dimension separately
+would reproduce every marginal and still place half the mass on combinations that
+never occurred.
+</Step>
+
+<Step title="VQ-BeT learns the codebook">
+Vector quantisation over action chunks replaces $k$-means, so the discrete units
+are learned and cover short sequences rather than single steps.
+</Step>
+</Steps>
+
+<KeyIdea>
+Four methods that look unrelated, making one move: replace the point output with
+something representing a distribution over the whole action. That is forced
+rather than aesthetic — every loss of the form $\mathbb{E}[\ell(a - f(o))]$ has a
+minimiser that is a single summary of $p(a \mid o)$, so searching for a better
+$\ell$ cannot work. Diffusion policies are the fifth entry in the same list, and
+being able to place them in it is more useful than knowing any one of them well.
+</KeyIdea>

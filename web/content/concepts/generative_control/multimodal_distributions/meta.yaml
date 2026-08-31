@@ -1,12 +1,18 @@
 id: multimodal_distributions
 title: Multi-Modal Action Distributions
 domain: generative_control
-summary: Asked to go around a table, you can go left or right — both are correct.
+summary: >-
+  When several actions are correct, a regression head predicts their average — an
+  action with no expert support at all. The fixes are subtler than they look; L1
+  does not help, and per-dimension bins get every marginal right while inventing
+  half their joint mass.
 tags:
   - generative_control
 difficulty: 3
 importance: 4
 related_concept_ids:
-  - diffusion_policy
   - behavior_cloning
-  - flow_matching
+  - diffusion_policy
+  - diffusion_models_basics
+  - action_generation
+  - visuomotor_policy

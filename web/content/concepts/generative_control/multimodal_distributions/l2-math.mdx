@@ -1,23 +1,152 @@
 ---
 concept: multimodal_distributions
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Multi-Modal Action Distributions,
-    including the key equations.
+  prompt: "Derive the minimiser of the squared-error and absolute-error objectives, and show why per-dimension factorisation cannot represent correlated modes."
   keyPoints:
-    - When multiple valid action sequences exist for the same observation (e.g.,
-      reaching left or right around an obstacle).
-    - A single Gaussian $\mathcal{N}(\mu, \Sigma)$ collapses modes by averaging.
-    - "Solutions: (1) Gaussian mixture models: $p(a|o) = \\sum_{k=1}^{K} \\pi_k
-      \\mathcal{N}(a; \\mu_k, \\Sigma_k)$; (2) Conditional VAEs: $p(a|o) = \\int
-      p(a|z,o)\\, p(z|o)\\, dz$ with latent $z$ selecting the mode; (3)
-      Diffusion/flow matching: implicit multi-modal density through iterative
-      refinement from noise."
-check: []
-papers: []
+    - "$\\arg\\min_f \\mathbb{E}[(a - f(o))^2] = \\mathbb{E}[a \\mid o]$ — the conditional mean, whatever the shape of the conditional."
+    - "The L1 minimiser is the conditional median, which lies inside the heavier mode but is discontinuous in the mode balance and unstable at 50/50."
+    - "Independent per-dimension heads represent $\\prod_d p(a_d \\mid o)$, the product of marginals, which is the maximum-entropy distribution with those marginals — so it necessarily spreads mass onto unobserved combinations."
+    - "The KL gap between the true joint and that product is the mutual information among action dimensions, which is exactly what correlated modes create."
+check:
+  - id: md_l2_c1
+    prompt: "What is the information-theoretic statement of the per-dimension discretisation failure?"
+    options:
+      - "The bins are too coarse to resolve the modes"
+      - "The product of marginals is the maximum-entropy distribution consistent with those marginals, and its KL divergence from the true joint is the total correlation among action dimensions — so the error is exactly the dependence you discarded"
+      - "The softmax cannot represent sharp distributions"
+      - "The number of bins grows exponentially with dimension"
+    answer: 1
+    explanation: "Factorising asserts independence, and among all distributions with the given marginals the independent one has the most entropy — it is the least committal, which here means it spreads mass over every combination the marginals permit. The gap is the multi-information $\\sum_d H(a_d) - H(a)$, so a task whose modes correlate dimensions has a large gap by construction. Finer bins improve each marginal and leave the divergence untouched, which is why resolution is not the fix."
+  - id: md_l2_c2
+    prompt: "Why is the conditional median a poor target even though it sits inside a mode?"
+    options:
+      - "It is harder to optimise than the mean"
+      - "It is discontinuous in the mode balance — as the mixture weight crosses one half the minimiser jumps from one mode to the other, so near-balanced modes give an unstable target that sampling noise decides. Measured, the sample median's standard deviation rises from 0.007 at a 60/40 split to 0.65 at 50/50"
+      - "It is biased for asymmetric distributions"
+      - "It requires more data to estimate"
+    answer: 1
+    explanation: "Committing to a mode is genuinely better than averaging, so L1 is an improvement — but which mode it commits to is a discontinuous function of the data, and near the symmetric case that function is decided by noise. You also lose the minority mode entirely, which matters when the two are context-dependent rather than arbitrary. The symmetric case is the canonical motivating example, so the fix is weakest exactly where it is most needed."
+  - id: md_l2_c3
+    prompt: "Which loss, minimised over a deterministic function, can recover a mode rather than a summary statistic?"
+    options:
+      - "Huber loss, which interpolates between L1 and L2"
+      - "None of them: any loss of the form $\\mathbb{E}[\\ell(a - f(o))]$ has a minimiser that is some single summary of $p(a \\mid o)$, so the fix must change the output from a point to a distribution rather than change $\\ell$"
+      - "Quantile loss at the appropriate quantile"
+      - "Log-cosh loss"
+    answer: 1
+    explanation: "Each of these losses picks out a different functional of the conditional distribution — mean, median, a quantile — and every one collapses the distribution to a single number. That is a property of asking a deterministic function to answer, not of which penalty you chose. So the search for a better $\\ell$ is misdirected: what changes the situation is a model whose output is a distribution, whether that is a mixture, an energy, a codebook, or a sampler."
 ---
 
-## Formal definition
+## What each loss is actually asking for
 
-When multiple valid action sequences exist for the same observation (e.g., reaching left or right around an obstacle). A single Gaussian $\mathcal{N}(\mu, \Sigma)$ collapses modes by averaging. Solutions: (1) Gaussian mixture models: $p(a|o) = \sum_{k=1}^{K} \pi_k \mathcal{N}(a; \mu_k, \Sigma_k)$; (2) Conditional VAEs: $p(a|o) = \int p(a|z,o)\, p(z|o)\, dz$ with latent $z$ selecting the mode; (3) Diffusion/flow matching: implicit multi-modal density through iterative refinement from noise.
+<Derivation title="The squared-error minimiser is the conditional mean">
+
+For a fixed observation $o$, minimise over the scalar $c = f(o)$:
+
+$$
+\mathbb{E}\left[(a - c)^2 \mid o\right] = \mathbb{E}[a^2 \mid o] - 2c\,\mathbb{E}[a \mid o] + c^2
+$$
+
+Differentiate and set to zero:
+
+$$
+-2\,\mathbb{E}[a \mid o] + 2c = 0 \quad\Longrightarrow\quad c^{\star} = \mathbb{E}[a \mid o]
+$$
+
+**The assumption doing the work is that $f$ returns a point**, so the objective
+is minimised pointwise over a single number. Nothing here mentions the shape of
+$p(a \mid o)$ — the answer is the mean whether that distribution is a tight
+unimodal blob or two well-separated modes, and in the second case the mean is a
+value the distribution assigns almost no density.
+
+</Derivation>
+
+Similarly $\arg\min_c \mathbb{E}[|a - c|] $ is the conditional median. Both are
+summaries; the choice of loss selects *which* summary.
+
+<KeyIdea>
+Generalising: any loss of the form $\mathbb{E}[\ell(a - f(o))]$ has a minimiser
+that is some functional of $p(a \mid o)$ — mean, median, a quantile, a mode for
+certain non-convex $\ell$. So no amount of loss engineering escapes the problem.
+The output has to stop being a point. That is the single sentence this whole
+concept reduces to, and it is why the answers all look like generative models.
+</KeyIdea>
+
+## What the median buys, and what it costs
+
+For a mixture $p\,\mathcal{N}(-1,\sigma^2) + (1-p)\,\mathcal{N}(+1,\sigma^2)$
+with $\sigma = 0.15$, measured over two million samples:
+
+| $p$ | mean | median | sd of sample median |
+| --- | --- | --- | --- |
+| 0.40 | $+0.201$ | $+0.855$ | 0.007 |
+| 0.45 | $+0.099$ | $+0.799$ | 0.014 |
+| 0.48 | $+0.040$ | $+0.735$ | 0.026 |
+| **0.50** | $+0.001$ | unstable | **0.653** |
+| 0.52 | $-0.039$ | $-0.733$ | 0.030 |
+| 0.60 | $-0.200$ | $-0.855$ | 0.010 |
+
+The median does land inside a mode — a real improvement over the mean, which
+never does. But it is *discontinuous* at $p = 1/2$: an arbitrarily small change
+in the mode balance flips the answer from one mode to the other. Near balance the
+target is decided by sampling noise, with the sample median's standard deviation
+rising nearly a hundredfold.
+
+<Warning>
+A discontinuous target is not obviously better than a stable wrong one. A
+network fitting it sees inconsistent supervision across nearby observations with
+near-balanced modes, and what it learns in between is unconstrained. And under
+either regime the minority mode is never produced, which matters when the modes
+are context-dependent rather than interchangeable.
+</Warning>
+
+## Why factorising is the wrong shape
+
+Independent per-dimension heads represent
+
+$$
+q(a \mid o) = \prod_{d=1}^{D} p(a_d \mid o)
+$$
+
+<Derivation title="The error is exactly the dependence you discarded">
+
+Among all distributions with the given marginals, the product is the one of
+maximum entropy — the least committal, which here means it spreads mass across
+every combination the marginals permit. Its divergence from the truth is
+
+$$
+D_{\mathrm{KL}}\!\left(p(a \mid o)\,\big\|\,\textstyle\prod_d p(a_d \mid o)\right)
+= \sum_{d} H(a_d \mid o) - H(a \mid o)
+$$
+
+the total correlation among action dimensions. So the approximation error is not
+a resolution artefact that finer bins reduce — it is precisely the mutual
+information between dimensions, and refining the bins improves each marginal
+while leaving the divergence in place.
+
+**Correlated modes are the case that maximises this term.** "Left and up, or
+right and down" is a statement that the dimensions are dependent.
+
+</Derivation>
+
+Measured on exactly that two-dimensional expert, with 21 bins per dimension:
+
+| | mass on demonstrated combinations | mass on never-demonstrated |
+| --- | --- | --- |
+| true joint | **100.0%** | 0.0% |
+| product of marginals | 50.0% | **50.0%** |
+
+Both marginals came out correctly bimodal, with modes recovered at $\pm 1.07$ in
+each dimension. Every per-dimension check passes and half the samples are actions
+the expert never took.
+
+<KeyIdea>
+This is why the working answers — a mixture over joint actions, a quantised
+codebook of action vectors, an energy function on the whole action, a diffusion
+or flow head — all share one property: they model the joint. Autoregressive
+factorisation over dimensions also works, since $\prod_d p(a_d \mid a_{<d}, o)$
+is an exact factorisation rather than an independence assumption. The distinction
+is not discrete versus continuous but joint versus independent.
+</KeyIdea>

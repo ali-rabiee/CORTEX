@@ -1,25 +1,167 @@
 ---
 concept: multimodal_distributions
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Multi-Modal Action Distributions fail in practice, and how
-    would you present it in an interview?
+  prompt: "Give your interview answer on multimodal action distributions. What are the two measurements you bring?"
   keyPoints:
-    - "Mode collapse: the model learns only one of multiple valid modes, losing
-      diversity."
-    - "In VAEs: KL term overpowers reconstruction $\\rightarrow$ posterior
-      collapses to prior ($q(z|x) \\approx p(z)$)."
-    - "In diffusion: insufficient model capacity or training $\\rightarrow$
-      converges to dominant mode."
-check: []
-papers: []
+    - "MSE's optimum is the conditional mean, which for two modes has no expert support — 0.00% of demonstrations within 0.3 of it."
+    - "It is a specification problem: more data and more capacity compute the wrong quantity better."
+    - "No loss escapes it, since every $\\mathbb{E}[\\ell(a-f(o))]$ has a minimiser that is a summary of the conditional."
+    - "Per-dimension bins get every marginal right and put 50% of joint mass on combinations that never occurred."
+interview:
+  answer: >-
+    The situation is that at the same observation the expert sometimes does one
+    thing and sometimes another — goes left or right around an obstacle, grasps
+    from either side — and both are correct. A regression head can't express
+    that. If you train with squared error, the optimum is the conditional mean of
+    the action given the observation, which you can show in two lines: expand the
+    expected square, differentiate, and the minimiser is E of a given o
+    regardless of the shape of that distribution. So for two modes it's the
+    average of them. The part I'd emphasise is that this isn't a compromise
+    between two good actions — it's an action with no support. I measured it on
+    a two-mode distribution with modes at plus and minus one: not a single expert
+    action fell within 0.3 of the mean, while forty-eight percent fell that close
+    to a mode. And in a real task the valley between "go left" and "go right" is
+    usually the obstacle. The framing that follows is that this is a
+    specification problem rather than an estimation problem. More demonstrations
+    estimate the conditional mean more precisely; a bigger network represents it
+    more faithfully. Both make you better at computing the wrong quantity, which
+    is why "collect more data" is the wrong instinct here even though it's right
+    for most other failures. Then there are two fixes people reach for that don't
+    work, and I think knowing why is the interesting part. First, switching to L1
+    — the minimiser becomes the conditional median, which does at least sit
+    inside a mode. But it's discontinuous in the mode balance: as the mixture
+    weight crosses one half it jumps from one mode to the other, so near-balanced
+    modes give you a target that sampling noise decides. I measured the sample
+    median's standard deviation going from 0.007 at a sixty-forty split to 0.65
+    at fifty-fifty. And the symmetric case is exactly the one that motivates the
+    problem, so the fix is weakest where you need it. Second, and this one is
+    subtler — discretise each action dimension and put a softmax on it. That
+    feels like it solves multimodality, and every per-dimension marginal does
+    come out correctly bimodal. But independent heads represent a product of
+    marginals, so the correlations are gone. I ran a two-dimensional case where
+    the expert only ever played left-up or right-down: both marginals were right,
+    and fifty percent of the joint mass landed on the two combinations that never
+    occurred. The general statement is that the KL gap is exactly the mutual
+    information between action dimensions, so finer bins don't help. What that
+    leaves is that the output has to stop being a point and the model has to be
+    joint — a mixture, an energy, a codebook over whole action vectors, or a
+    diffusion head.
+  followUps:
+    - q: "Couldn't you design a better loss?"
+      a: >-
+        No, and I think that's a clean thing to be able to say. Any loss of the
+        form expectation of ell of a minus f of o has a minimiser that's some
+        functional of the conditional distribution — squared error gives the
+        mean, absolute error the median, quantile loss a quantile, certain
+        non-convex penalties a mode. Every one collapses a distribution to a
+        number. That's a consequence of asking a deterministic function to
+        answer, not of which penalty you picked, so loss engineering is
+        misdirected effort here. The move that changes the situation is making
+        the output a distribution, and once you see that, the whole zoo of
+        answers — latent-variable policies, implicit BC, behaviour transformers,
+        diffusion — is one idea with different machinery.
+    - q: "How would you check whether your data is multimodal in the first place?"
+      a: >-
+        Conditionally, which is the part people skip. The marginal action
+        distribution is broad in every robot dataset because the task has phases,
+        so a histogram of all actions is not evidence. I'd embed observations,
+        take k nearest neighbours in observation space, and look at the spread of
+        their actions — disagreement among neighbours is what predicts a
+        regression head will fail. And that localises it to specific states,
+        which is more useful than a dataset-level verdict: usually the
+        multimodality lives at a handful of decision points and the rest of the
+        trajectory is fine.
+    - q: "Your policy samples look right per dimension. Is it working?"
+      a: >-
+        That check has no power against the failure I'd be worried about,
+        because a model that factorises across dimensions matches every marginal
+        by construction — it's precisely what the broken model does well. I'd
+        compare something joint instead: take each sampled action and measure
+        the distance to its nearest demonstrated action, and report the fraction
+        with nothing nearby. Calibrate on the demonstrations against themselves
+        first, so you know the radius isn't the thing generating your result.
+        I'd also sample many actions at a single fixed observation and check
+        they're actually diverse, because a policy that deterministically picks
+        one mode looks fine on success rate whenever either mode works, and
+        fails silently when the choice is context-dependent.
+    - q: "If diffusion solves this, why does anyone still use discrete methods?"
+      a: >-
+        Mostly inference cost and the fit to existing machinery. A binned or
+        codebook head is one forward pass, where a diffusion head is an
+        integration — and for a policy the step budget is set by the control
+        rate. Discrete tokens also drop straight into a transformer that's
+        already doing next-token prediction, which is why VLA models tend to go
+        that route rather than bolting on a sampler. The thing to get right is
+        that the discrete units have to be joint actions — clustered action
+        vectors or a learned codebook over chunks — not per-dimension bins. Get
+        that wrong and you've reintroduced the independence failure while
+        believing you solved the problem.
+  traps:
+    - "Describing the averaged action as a compromise. It has essentially no expert support — measured at 0.00% within a generous tolerance."
+    - "Proposing more data or a bigger model. This is a specification problem; both compute the wrong quantity better."
+    - "Offering L1 as the fix. Its minimiser is discontinuous in the mode balance and unstable exactly at the symmetric case."
+    - "Treating per-dimension discretisation as solving it. Every marginal matches while half the joint mass lands on combinations that never occurred."
+check:
+  - id: md_l5_c1
+    prompt: "A candidate says multimodality is solved by adding more demonstrations of the correct behaviour. What is wrong with that?"
+    options:
+      - "Nothing — more data usually helps"
+      - "It misreads the failure as estimation when it is specification: the conditional mean is what the data says, so more samples estimate it more precisely. Nothing improves until the output stops being a point"
+      - "More data would help but is too expensive to collect"
+      - "The new demonstrations would need to be more consistent"
+    answer: 1
+    explanation: "The instinct is right for most policy failures and wrong for this one, which is what makes it a useful discriminator. Every additional demonstration sharpens the estimate of exactly the quantity that is the problem. The third option contains a real idea — deliberately removing multimodality by having demonstrators follow one convention — and that is a data-collection intervention rather than more of the same, and it forfeits behaviour that is genuinely context-dependent."
+  - id: md_l5_c2
+    prompt: "You must ship a one-forward-pass policy on a task with correlated multimodality. Which head?"
+    options:
+      - "Per-dimension softmax over binned action values"
+      - "A categorical head over clustered joint action vectors, plus a continuous residual offset within the chosen cluster"
+      - "MSE regression with a larger network"
+      - "MSE regression with output noise added at inference"
+    answer: 1
+    explanation: "The constraint rules out a sampler, so the choice is among single-pass heads, and only one of these models the joint. Clustering whole action vectors keeps dimensions coupled, while the residual restores the precision that a coarse categorical choice gives up — the discrete variable handles the genuinely discrete decision and the regression the continuous one. Per-dimension bins are the trap: they look like they represent multimodality and reintroduce independence across exactly the dimensions the modes correlate."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Mode collapse: the model learns only one of multiple valid modes, losing diversity. In VAEs: KL term overpowers reconstruction $\rightarrow$ posterior collapses to prior ($q(z|x) \approx p(z)$). In diffusion: insufficient model capacity or training $\rightarrow$ converges to dominant mode. Symptoms: always takes the same approach despite multiple valid options. Fix: increase model capacity, use $\beta$-VAE scheduling ($\beta: 0 \rightarrow 1$ during training), ensure diverse training data.
+<Steps>
+<Step title="Policy drives into the obstacle it should go around → mode averaging">
+Check whether the demonstrations disagree at that observation. If they do, the
+head is the problem, not the data.
+</Step>
 
-## Interview-ready answer
+<Step title="Fails only at specific decision points → conditional multimodality">
+Rank states by neighbour action spread. Multimodality is usually local, so a few
+states explain most of it.
+</Step>
 
-Multi-modal action distributions are the fundamental reason why diffusion/flow matching policies outperform simple BC for manipulation. The problem: many real tasks have multiple valid solutions, and MSE-loss BC averages them into invalid actions. Solutions ranked by expressiveness: (1) Gaussian mixture models $\sum_k \pi_k \mathcal{N}(\mu_k, \Sigma_k)$ — simple but limited modes, (2) CVAEs — flexible but training can be tricky, (3) diffusion/flow matching — most expressive, handle arbitrary distributions. In practice, the choice depends on real-time requirements: GMMs for fast control ($\sim 1000\,\text{Hz}$), diffusion for complex manipulation ($\sim 10\,\text{Hz}$).
+<Step title="Marginals match, rollouts fail → check the joint">
+The signature of a factorised head. Measure the distance from sampled actions to
+the nearest demonstrated action.
+</Step>
+
+<Step title="Samples at a fixed observation are all identical → picked a mode">
+Passes on success rate whenever either mode works. Fails when the choice is
+context-dependent.
+</Step>
+
+<Step title="Mixture head with one dominant component → unconstrained variances">
+The likelihood is unbounded as $\sigma \to 0$. Floor it before suspecting the
+data.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The strongest version of this answer refuses to stop at "MSE averages the modes",
+which is the sentence everyone has. What separates it is the three follow-through
+claims: that the average has essentially no support rather than being a
+compromise, that no choice of loss escapes because every one yields a summary
+statistic, and that the obvious discretisation fix passes every per-dimension
+check while inventing half its joint mass. The last is the one that most reliably
+surprises, because it is a mistake people make while believing they have solved
+the problem.
+</Warning>

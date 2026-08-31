@@ -1,0 +1,170 @@
+---
+concept: multimodal_distributions
+level: 3
+status: final
+recall:
+  prompt: "How do you detect multimodality in a demonstration dataset, and how do you check a policy actually reproduces it?"
+  keyPoints:
+    - "Detect it conditionally: find near neighbours in observation space and look at the spread of their actions — the marginal action distribution tells you nothing."
+    - "The decisive policy check is a joint one: sample many actions per observation and compare against the demonstrated joint, not against per-dimension histograms."
+    - "A mixture density head needs log-space mixture weights and a floored variance, or it collapses onto one component."
+    - "Per-dimension histograms are the check that hides the failure, since a product of marginals matches all of them by construction."
+check:
+  - id: md_l3_c1
+    prompt: "How do you test whether your demonstration data is multimodal?"
+    options:
+      - "Plot a histogram of the actions"
+      - "Condition first: take near neighbours in observation space and measure the spread of their actions, since multimodality is a property of $p(a \\mid o)$ and the marginal $p(a)$ is broad for reasons that have nothing to do with it"
+      - "Check the variance of the training loss"
+      - "Compare training and validation loss"
+    answer: 1
+    explanation: "The marginal action distribution is wide in essentially every robot dataset simply because the task passes through many phases — that says nothing about whether the expert was inconsistent at a fixed observation. Only after conditioning does spread become evidence, and a bimodal or wide conditional in a neighbourhood of observations is what predicts that a regression head will fail there. It also localises the problem to specific states, which is more actionable than a dataset-level verdict."
+  - id: md_l3_c2
+    prompt: "Why is comparing per-dimension histograms of policy samples against the data an inadequate check?"
+    options:
+      - "Histograms are too coarse"
+      - "Because a model that factorises across dimensions matches every marginal by construction while getting the joint wrong — in the measured case, 50% of its mass on combinations that never occurred. The check has to compare joint statistics"
+      - "The comparison needs more samples"
+      - "Because the action dimensions have different scales"
+    answer: 1
+    explanation: "Matching marginals is exactly what the failing model does well, so the test cannot separate it from a correct one — it is a check with no power against the failure you are worried about. Something joint is needed: the fraction of samples landing in regions with no nearby demonstrations, a two-dimensional histogram over the most correlated pair, or a nearest-neighbour distance from each sample to the demonstrated action set."
+  - id: md_l3_c3
+    prompt: "A mixture density network collapses so that one component takes nearly all the weight. What is the usual cause?"
+    options:
+      - "The learning rate is too low"
+      - "Unconstrained variances: a component can shrink its variance to fit a few points and win unbounded likelihood, so the objective diverges and the other components are starved. Flooring the variance removes the degenerate direction"
+      - "Too many components"
+      - "The data is not actually multimodal"
+    answer: 1
+    explanation: "The Gaussian likelihood contains $-\\log \\sigma$, which is unbounded below as $\\sigma \\to 0$, so a component collapsing onto a handful of points achieves arbitrarily high likelihood. The optimiser finds this because it is genuinely the objective's supremum, not because it is stuck. A variance floor, or predicting log-variance with a clamp, makes the objective bounded and is why nearly every working implementation has one."
+---
+
+## Is your data even multimodal?
+
+<CodeWalk title="Condition first — the marginal tells you nothing">
+
+```python title="detect.py"
+import numpy as np
+from sklearn.neighbors import NearestNeighbors
+
+def conditional_spread(obs_emb, actions, k=25, sample=2000, seed=0):
+    """Multimodality is a property of p(a | o). The marginal p(a) is broad in
+    every robot dataset simply because the task has phases, so a histogram of
+    all actions is not evidence of anything.
+
+    Returns per-query action spread among observation-space neighbours, which
+    localises WHERE a regression head will fail rather than giving a
+    dataset-level verdict.
+    """
+    nn = NearestNeighbors(n_neighbors=k).fit(obs_emb)
+    rng = np.random.default_rng(seed)
+    idx = rng.choice(len(obs_emb), size=min(sample, len(obs_emb)), replace=False)
+
+    out = []
+    for i in idx:
+        _, nbr = nn.kneighbors(obs_emb[i : i + 1])
+        A = actions[nbr[0]]
+        # Spread of neighbours' actions relative to their own mean. Large values
+        # mean the expert disagreed with itself at nearly the same observation.
+        out.append(np.linalg.norm(A - A.mean(0), axis=1).mean())
+    return np.array(out)
+```
+
+</CodeWalk>
+
+Rank observations by this score and look at the top ones. They are the states
+where the expert was inconsistent, and the states where an MSE head will output
+something nobody demonstrated.
+
+## A mixture head, without the collapse
+
+<CodeWalk title="Mixture density network">
+
+```python title="mdn.py"
+import torch, torch.nn as nn
+
+class MDNHead(nn.Module):
+    """Models the JOINT action with K components. Independent per-dimension
+    heads would match every marginal and still put half their mass on
+    combinations that never occurred."""
+
+    def __init__(self, in_dim, act_dim, k=8, min_log_sigma=-4.0):
+        super().__init__()
+        self.k, self.act_dim, self.min_log_sigma = k, act_dim, min_log_sigma
+        self.head = nn.Linear(in_dim, k * (1 + 2 * act_dim))
+
+    def forward(self, h):
+        o = self.head(h)
+        logits = o[:, : self.k]
+        mu = o[:, self.k : self.k + self.k * self.act_dim].view(-1, self.k, self.act_dim)
+        log_sigma = o[:, self.k + self.k * self.act_dim :].view(-1, self.k, self.act_dim)
+        # The Gaussian log-likelihood contains -log(sigma), unbounded below as
+        # sigma -> 0. Without this clamp a component collapses onto a few points
+        # for infinite likelihood and starves the others — the standard failure.
+        return logits, mu, log_sigma.clamp_min(self.min_log_sigma)
+
+    def nll(self, h, a):
+        logits, mu, log_sigma = self(h)
+        d = (a.unsqueeze(1) - mu) / log_sigma.exp()
+        # Per-component log-prob, summed over action dims (a JOINT Gaussian).
+        comp = (-0.5 * d.pow(2) - log_sigma).sum(-1)
+        # logsumexp over components, in log space — computing this with exp()
+        # underflows as soon as one component fits well.
+        return -torch.logsumexp(torch.log_softmax(logits, -1) + comp, dim=-1).mean()
+```
+
+</CodeWalk>
+
+## The check that actually has power
+
+<CodeWalk title="Compare the joint, not the marginals">
+
+```python title="check.py"
+import numpy as np
+from sklearn.neighbors import NearestNeighbors
+
+def joint_support(policy_samples, demo_actions, radius=None):
+    """Fraction of sampled actions with NO demonstrated action nearby.
+
+    Per-dimension histograms cannot detect the factorisation failure, because a
+    product of marginals matches every marginal by construction. This compares
+    the joint: a sample in a region with no demonstrations is an action the
+    expert never took, however plausible each of its components looks.
+    """
+    nn = NearestNeighbors(n_neighbors=1).fit(demo_actions)
+    d, _ = nn.kneighbors(policy_samples)
+    if radius is None:
+        # Scale-free default: the typical demo-to-demo spacing.
+        dd, _ = NearestNeighbors(n_neighbors=2).fit(demo_actions).kneighbors(demo_actions)
+        radius = 3.0 * np.median(dd[:, 1])
+    return float((d[:, 0] > radius).mean()), radius
+
+
+def mode_coverage(policy, obs, n=256):
+    """Does the policy produce BOTH modes at one observation, or commit to one?
+    Sample repeatedly at a fixed observation and cluster the results —
+    a policy that always returns the same action has not solved multimodality,
+    it has picked a mode."""
+    A = np.stack([policy.sample(obs) for _ in range(n)])
+    return A.std(0), A
+```
+
+</CodeWalk>
+
+<KeyIdea>
+`mode_coverage` catches the failure people miss in the other direction. A policy
+that deterministically commits to one mode looks excellent on rollout success
+whenever either mode works, and fails silently when the choice is
+context-dependent — approaching from the left is right only when the right side
+is blocked. Checking that samples at a fixed observation are actually diverse is
+what distinguishes "represents the distribution" from "picked a mode and got
+lucky".
+</KeyIdea>
+
+<Warning>
+Run `joint_support` on your training data first to calibrate: demonstrations
+compared against themselves should score near zero at your chosen radius. If they
+do not, the radius is too tight and every result afterwards will be
+uninterpretable. This is the sort of check that costs two minutes and prevents an
+afternoon of chasing a threshold artefact.
+</Warning>

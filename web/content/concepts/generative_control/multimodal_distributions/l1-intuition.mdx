@@ -1,25 +1,112 @@
 ---
 concept: multimodal_distributions
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Multi-Modal Action Distributions in plain language: what is it,
-    and why does it matter?"
+  prompt: "Why does a regression head fail when several actions are correct, and why are the obvious fixes insufficient?"
   keyPoints:
-    - Asked to go around a table, you can go left or right — both are correct.
-    - A single Gaussian averages these into 'go straight through the table.'
-      Multi-modal methods represent both options and commit to one during
-      execution.
-    - This is why diffusion policies work so well for manipulation — real tasks
-      have many valid solutions.
-check: []
-papers: []
+    - "MSE's optimum is the conditional mean, which for a two-mode distribution sits in the valley — measured, 0.00% of expert actions fall within 0.3 of it against 47.7% near a mode."
+    - "It is a specification problem, not an estimation one: more data estimates the same wrong quantity more precisely."
+    - "L1 does not fix it — the median jumps between modes as the balance crosses 50/50, and its sample standard deviation blows up from 0.007 to 0.65 there."
+    - "Per-dimension discretisation reproduces both marginals correctly and still puts 50% of its joint mass on combinations that never occurred."
+media:
+  - kind: article
+    title: "Diffusion Policy: Visuomotor Policy Learning via Action Diffusion"
+    url: https://diffusion-policy.cs.columbia.edu/
+    source: "Chi et al. · RSS 2023"
+    note: "The project page's rollout videos show mode averaging directly — watch the baseline hesitate between two valid routes and commit to neither."
+  - kind: article
+    title: "Implicit Behavioral Cloning"
+    url: https://arxiv.org/abs/2109.00137
+    source: "Florence et al. · CoRL 2021"
+    note: "Figure 1 and section 3 are the clearest statement that the regression head, not the data, is what fails. Worth reading before any of the generative answers."
+check:
+  - id: md_l1_c1
+    prompt: "An expert sometimes steers left and sometimes right around an obstacle. What does an MSE-trained policy output, and why is that bad?"
+    options:
+      - "One of the two options, chosen arbitrarily"
+      - "Their average — straight at the obstacle. It is not a compromise between two good actions but an action with essentially no expert support: measured, no demonstrated action fell within 0.3 of the mean, while 47.7% fell that close to a mode"
+      - "A noisy blend that is usually acceptable"
+      - "The more frequently demonstrated option"
+    answer: 1
+    explanation: "The squared-error optimum is the conditional mean, and for a symmetric two-mode distribution that lies in the low-density valley between them. The important part is that this is not a slightly worse action — it is in a region the expert never visited, so nothing in the data supports its consequences. In manipulation and driving the valley is frequently the obstacle itself, which is why the failure is often catastrophic rather than merely suboptimal."
+  - id: md_l1_c2
+    prompt: "You discretise each action dimension into bins with a per-dimension softmax. Is multimodality solved?"
+    options:
+      - "Yes — each dimension can now represent several modes"
+      - "No: independent per-dimension heads give a product of marginals, so correlations between dimensions are lost. In a two-dimensional test where the expert only played left-up or right-down, both marginals came out correctly bimodal while 50% of the joint mass landed on the two combinations that never occurred"
+      - "Only if the number of bins exceeds the number of modes"
+      - "Yes, provided the bins are fine enough"
+    answer: 1
+    explanation: "Each marginal being right is exactly what makes this trap hard to spot — a per-dimension histogram looks perfect. But the joint distribution of a product of independent heads is the product of its marginals, which cannot encode that left goes with up and right goes with down. Finer bins do not help, since the failure is about independence rather than resolution. Representing the joint requires a model over the whole action vector: a mixture, a quantised codebook over joint actions, or a generative head."
 ---
 
-## Intuition
+## The failure is in the loss, not the data
 
-Asked to go around a table, you can go left or right — both are correct. A single Gaussian averages these into 'go straight through the table.' Multi-modal methods represent both options and commit to one during execution. This is why diffusion policies work so well for manipulation — real tasks have many valid solutions.
+<Intuition>
+When several different actions are all correct — go left or right around an
+obstacle, grasp from either side — the data contains genuine disagreement at the
+same observation. A regression head cannot express that. Trained with squared
+error, its optimal output is the conditional mean of the action given the
+observation, so it answers a question nobody asked: not "what would the expert
+do?" but "what is the average of everything the expert did?"
+</Intuition>
 
-## In practice
+The distinction that matters is that the average is not a *worse* action. It is
+an action with no support.
 
-Block stacking: the gripper can approach from any direction. BC with MSE loss $\mathcal{L} = \|a - \hat{a}\|^2$ averages all approach angles $\rightarrow$ hovers above block without committing. Diffusion policy samples one valid approach direction each time $\rightarrow$ clean, committed trajectories with varying approach angles across rollouts.
+<Figure src="/figures/multimodal-marginals-trap.svg" alt="Left: a two-mode action distribution with the MSE optimum sitting in the valley, where no expert action falls within 0.3 while 47.7 percent fall that close to a mode. Right: a two-dimensional expert playing only left-up or right-down, where per-dimension discretisation reproduces both marginals correctly yet places half its joint probability mass on the two combinations that never occurred." caption="Two measurements. The mean has no expert support, and the obvious discretisation fix reproduces every marginal while inventing half its joint mass." />
+
+Measured on a two-mode distribution with modes at $\pm 1$ and width $0.15$:
+
+| within 0.3 of… | fraction of expert actions |
+| --- | --- |
+| the MSE optimum | **0.00%** |
+| a mode | 47.7% |
+
+<KeyIdea>
+This is a specification problem rather than an estimation one, and the difference
+determines what to do about it. More demonstrations estimate the conditional mean
+more precisely; a bigger network represents it more faithfully. Both make you
+better at computing the wrong quantity. Nothing improves until the model can
+represent a distribution instead of a point.
+</KeyIdea>
+
+## Two fixes that do not work
+
+<Steps>
+<Step title="Switching to L1 loss">
+The optimum becomes the conditional median, which does at least sit inside a mode
+when one is heavier. But it *jumps* between modes as the balance crosses 50/50,
+and at the symmetric case — the one that motivates the whole problem — it is
+unstable: the sample median's standard deviation goes from 0.007 at a 60/40 split
+to 0.65 at 50/50.
+</Step>
+
+<Step title="Discretising each dimension independently">
+Every marginal comes out correctly bimodal, which is what makes this convincing.
+But independent heads represent a product of marginals, so in the two-dimensional
+test 50% of the joint mass landed on action combinations the expert never played.
+</Step>
+
+<Step title="Adding output noise">
+Sampling around the mean spreads mass through the valley rather than onto the
+modes. It converts a confidently wrong action into an unpredictable one.
+</Step>
+
+<Step title="What actually works">
+Model the distribution over the whole action vector — a mixture, a quantised
+codebook over joint actions, an energy function, or a generative head. What these
+share is a joint representation rather than a per-dimension one.
+</Step>
+</Steps>
+
+<Warning>
+The per-dimension trap is worth dwelling on because it survives the obvious
+check. If you plot a histogram of each action dimension and compare it against
+the data, everything matches. The disagreement is only visible in the joint —
+which for a seven-dimensional action space is not something you can eyeball, so
+it has to be tested deliberately.
+</Warning>
+
+<WatchThis />
