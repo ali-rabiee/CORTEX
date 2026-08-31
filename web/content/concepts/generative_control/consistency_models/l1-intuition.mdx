@@ -1,25 +1,122 @@
 ---
 concept: consistency_models
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Consistency Models for Single-Step Action Generation in plain
-    language: what is it, and why does it matter?"
+  prompt: "What does a consistency model learn, and what stops the objective from being trivially satisfiable?"
   keyPoints:
-    - Diffusion models are like taking 100 small steps from noise to a clean
-      action — accurate but slow.
-    - A consistency model learns to take a single giant leap from any noise
-      level directly to the final answer.
-    - Like training a student who, instead of solving every intermediate step of
-      a math problem, learns to jump straight to the answer.
-check: []
-papers: []
+    - "A map $f(x, \\sigma) \\to x_0$ sending every point on one probability-flow trajectory to that trajectory's endpoint — so sampling is one evaluation, not an integration."
+    - "Self-consistency alone is vacuous: a constant function has a residual of exactly zero and generates garbage."
+    - "The boundary condition $f(x, \\epsilon) = x$ is what makes it non-trivial, and it is enforced by the parameterisation rather than by a loss term."
+    - "Extra sampling steps correct error that is a bias growing with noise level — 7.7× by three steps — and slightly worsen error that is independent noise."
+media:
+  - kind: article
+    title: "Consistency Models"
+    url: https://arxiv.org/abs/2303.01469
+    source: "Song, Dhariwal, Chen, Sutskever · ICML 2023"
+    note: "Section 3 defines the map and the boundary condition; section 4 gives distillation and standalone training. The parameterisation in equation 5 is the part that does the real work."
+  - kind: article
+    title: "What are Diffusion Models?"
+    url: https://lilianweng.github.io/posts/2021-07-11-diffusion-models/
+    source: "Lilian Weng"
+    note: "The consistency-models and distillation sections, read after the probability-flow ODE material — the map only makes sense once that trajectory is a concrete object."
+check:
+  - id: cm_l1_c1
+    prompt: "Why is the self-consistency constraint alone insufficient to define a useful model?"
+    options:
+      - "Because it is difficult to optimise"
+      - "Because any constant function satisfies it perfectly — measured residual exactly zero — while producing samples with no relation to the data, so the constraint has to be paired with a boundary condition that pins down what the map returns at low noise"
+      - "Because trajectories can intersect"
+      - "Because it requires a pretrained teacher"
+    answer: 1
+    explanation: "Self-consistency says only that the map agrees along a trajectory, and a function that ignores its inputs agrees with itself everywhere. In the measurement, $f \\equiv 0$ scored a residual of exactly zero — better than the true solution's 0.00033, which is integration error — while generating a $W_1$ of 2.0 against 0.007. Anchoring the map at the clean end is what converts the constraint from vacuous to determining, which is why it is built into the network rather than added as a penalty."
+  - id: cm_l1_c2
+    prompt: "Your two-step consistency sampler performs no better than one step. What does that tell you?"
+    options:
+      - "The model is undertrained"
+      - "Your error is not a noise-level-dependent bias: extra steps work by re-noising to a smaller $\\sigma$ where the map is easier, so they correct $\\sigma$-dependent bias and do nothing for error that is independent across evaluations"
+      - "The step schedule is wrong"
+      - "Two-step sampling only helps for image models"
+    answer: 1
+    explanation: "The mechanism is specific: the second application runs at a lower noise level where the map is a shorter, easier extrapolation, so it repairs error concentrated at high $\\sigma$. Against a bias growing with $\\sigma$ the measured gain was 3.7× at two steps and 7.7× at three; against independent per-evaluation noise the error crept slightly upward, since each application draws fresh error. So a flat two-step result is informative — it redirects you away from the high-noise end of the map."
 ---
 
-## Intuition
+## Skip the integration
 
-Diffusion models are like taking 100 small steps from noise to a clean action — accurate but slow. A consistency model learns to take a single giant leap from any noise level directly to the final answer. Like training a student who, instead of solving every intermediate step of a math problem, learns to jump straight to the answer. The trade-off: slightly less precise, but 10-100x faster.
+<Intuition>
+Diffusion and flow models both give you a trajectory from noise to data, and
+sampling means following it. Every technique for making that cheaper — better
+integrators, straighter paths — is still about following it well. Consistency
+models ask a different question: if the trajectory is deterministic, then every
+point on it has the same endpoint, so why not learn the map from any point
+directly to that endpoint? Then generation is one function evaluation and there
+is no trajectory to follow at all.
+</Intuition>
 
-## In practice
+Write $f(x, \sigma)$ for that map. Self-consistency is the property that makes it
+well-defined: for any two noise levels $\sigma_a, \sigma_b$ on the same
+trajectory, $f(x_{\sigma_a}, \sigma_a) = f(x_{\sigma_b}, \sigma_b)$. Train the
+network to agree with itself along trajectories and you never need to know the
+endpoint in advance.
 
-Consistency Policy (Prasad et al.): distill a pre-trained diffusion policy into a consistency model for real-time robot control. Original diffusion policy: 10 DDIM steps at 50ms = 500ms per action chunk. Consistency model: 1-2 steps at 50ms = 50-100ms. On Push-T and robotic manipulation benchmarks: achieves $> 95\%$ of the diffusion policy's success rate with $5\text{-}10\times$ faster inference. Enables 20Hz+ closed-loop control on hardware with a single forward pass.
+## The constraint that isn't one
+
+<Figure src="/figures/consistency-map-vs-steps.svg" alt="Left: several points on one probability-flow trajectory all mapping to the same endpoint, with the measured finding that a constant function has a self-consistency residual of exactly zero while producing a sample error of 2.0. Right: error against sampling steps, falling 7.7-fold for a bias that grows with noise level and rising slightly for independent noise." caption="Self-consistency is satisfied perfectly by a function that ignores its input. The boundary condition is what carries the objective." />
+
+Here is the catch, and it is worth checking rather than taking on faith. Take
+$f \equiv 0$. For any two points on any trajectory, $f$ returns zero for both, so
+they agree exactly. Measured on a real trajectory:
+
+| | self-consistency residual | sample $W_1$ |
+| --- | --- | --- |
+| exact $f$ | 0.00033 | 0.007 |
+| constant $f \equiv 0$ | **0.00000** | **2.00** |
+
+The degenerate solution scores *better* on the constraint than the correct one —
+whose residual is nonzero only because of integration error.
+
+<KeyIdea>
+So the boundary condition $f(x, \epsilon) = x$ at the clean end is not a technical
+detail; it is the entire content of the objective. In practice it is enforced by
+the parameterisation, $f_\theta(x,\sigma) = c_{\text{skip}}(\sigma)\,x +
+c_{\text{out}}(\sigma) F_\theta(x,\sigma)$ with $c_{\text{skip}}(\epsilon)=1$ and
+$c_{\text{out}}(\epsilon)=0$, so the constraint holds by construction rather than
+by a penalty the optimiser could trade away.
+</KeyIdea>
+
+## Why anyone takes a second step
+
+If one evaluation is the whole point, a two-step sampler looks like an admission
+of defeat. It is really a targeted repair.
+
+<Steps>
+<Step title="Denoise, re-noise, denoise again">
+Apply $f$ to get an estimate of $x_0$, add noise back at a *smaller* $\sigma$,
+and apply $f$ again.
+</Step>
+
+<Step title="The second application is an easier problem">
+It runs at low noise, where the map is a short extrapolation rather than a jump
+from pure noise — so wherever the model is weakest, it is used least.
+</Step>
+
+<Step title="Which fixes bias concentrated at high noise">
+Against a systematic error growing with $\sigma$, the measurement gives 3.7×
+improvement at two steps and 7.7× at three.
+</Step>
+
+<Step title="And does nothing for independent error">
+Against per-evaluation noise, error crept slightly *upward* with more steps —
+each application contributes a fresh draw rather than cancelling the last.
+</Step>
+</Steps>
+
+<Warning>
+That asymmetry makes the two-step result a diagnostic rather than a default. If
+adding a step helps a lot, your model's weakness is at the high-noise end and
+more capacity or training there should pay. If it changes nothing, the error is
+not $\sigma$-dependent and you should look elsewhere — at the conditioning path,
+or at the teacher if you distilled.
+</Warning>
+
+<WatchThis />

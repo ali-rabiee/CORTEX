@@ -1,0 +1,168 @@
+---
+concept: consistency_models
+level: 3
+status: final
+recall:
+  prompt: "Write the consistency parameterisation, the distillation step, and the multi-step sampler. What must never be a soft penalty?"
+  keyPoints:
+    - "The boundary condition lives in c_skip and c_out, so it holds for every parameter setting — never as a loss term with a weight."
+    - "Distillation regresses f(x at sigma_{n+1}) onto a stop-gradient EMA copy evaluated at the teacher's solver output for sigma_n."
+    - "The sampler is denoise, re-noise smaller, denoise again — and each extra step costs one evaluation."
+    - "Instrument error against noise level, because that is what decides whether extra steps will help at all."
+check:
+  - id: cm_l3_c1
+    prompt: "Why is the distillation target computed under a stop-gradient with an EMA copy of the weights?"
+    options:
+      - "To reduce memory usage"
+      - "Because the target is the network's own output at a neighbouring noise level — differentiating through it lets the model minimise the loss by moving the target, and the constant solution is exactly what that finds"
+      - "Because the teacher is not differentiable"
+      - "To allow a larger learning rate"
+    answer: 1
+    explanation: "Self-consistency compares the network against itself, so without a stop-gradient the optimiser has two ways to reduce the loss: improve the map, or make both sides agree on something arbitrary. The second is easier and the degenerate constant sits at the bottom of it. Freezing the target — and smoothing it with an EMA so it moves slowly — makes agreement achievable only by getting the map right, which is the same reasoning behind target networks in value-based RL."
+  - id: cm_l3_c2
+    prompt: "What is the first thing to instrument when a distilled policy underperforms its teacher?"
+    options:
+      - "Total training loss"
+      - "Error as a function of noise level: it tells you whether the deficit is concentrated at high $\\sigma$, which multi-step sampling can repair, or spread evenly, which it cannot"
+      - "Sample diversity"
+      - "The EMA decay rate"
+    answer: 1
+    explanation: "The aggregate loss cannot distinguish the two cases and they call for opposite responses. A deficit concentrated at high noise means the hardest part of the map is undertrained, so extra sampling steps and more capacity or weighting there will help. A flat profile means the problem is elsewhere — the teacher, the conditioning path, or capacity overall — and adding steps will spend evaluations for nothing, which the measurements show can even be slightly negative."
+  - id: cm_l3_c3
+    prompt: "In the multi-step sampler, why re-noise to a *smaller* sigma each round rather than back to the maximum?"
+    options:
+      - "To save computation"
+      - "Because the point is to place the next evaluation where the map is more accurate — re-noising to the maximum would discard the estimate and repeat the hardest query, giving an independent draw rather than a refinement"
+      - "Because the boundary condition requires it"
+      - "To preserve sample diversity"
+    answer: 1
+    explanation: "The current estimate of $x_0$ is information, and re-noising at a small $\\sigma$ keeps most of it while moving back onto the trajectory manifold where the map is defined. Returning to $\\sigma_{\\max}$ would throw that away and re-run the query the model handles worst — you would be sampling repeatedly rather than refining. The descending schedule is what makes the second pass a correction of the first."
+---
+
+## The parameterisation is the constraint
+
+<CodeWalk title="Boundary condition as an identity, not a penalty">
+
+```python title="model.py"
+import torch, torch.nn as nn
+
+class ConsistencyModel(nn.Module):
+    """f(x, eps) = x holds for EVERY parameter setting, because c_skip(eps) = 1
+    and c_out(eps) = 0 by construction.
+
+    As a loss term this would be one objective among two — and the degenerate
+    constant solution scores perfectly on the other one, so any weighting that
+    under-prices the anchor makes collapse optimal. Here it cannot be traded.
+    """
+    def __init__(self, net, sigma_data=0.5, eps=2e-3):
+        super().__init__()
+        self.net, self.sigma_data, self.eps = net, sigma_data, eps
+
+    def coeffs(self, sigma):
+        d = (sigma - self.eps) ** 2 + self.sigma_data ** 2
+        c_skip = self.sigma_data ** 2 / d
+        c_out = self.sigma_data * (sigma - self.eps) / d.sqrt()
+        return c_skip, c_out
+
+    def forward(self, x, sigma, cond=None):
+        c_skip, c_out = self.coeffs(sigma.view(-1, 1, 1))
+        return c_skip * x + c_out * self.net(x, sigma, cond)
+```
+
+</CodeWalk>
+
+At $\sigma = \epsilon$: $c_{\text{out}} = 0$ and $c_{\text{skip}} = 1$, so the
+output is exactly $x$ whatever the network says.
+
+## Distillation
+
+<CodeWalk title="One solver step of the teacher defines the pair">
+
+```python title="distill.py"
+import copy, torch
+
+def distill_step(student, ema, teacher, x0, cond, sigmas, opt):
+    """sigmas: descending noise levels shared by teacher and student."""
+    n = torch.randint(0, len(sigmas) - 1, (x0.shape[0],), device=x0.device)
+    s_hi, s_lo = sigmas[n + 1], sigmas[n]
+
+    x_hi = x0 + torch.randn_like(x0) * s_hi.view(-1, 1, 1)
+
+    with torch.no_grad():
+        # ONE solver step, teacher's ODE. Its discretisation error is not noise
+        # around a correct target — it IS the target, and the student adds its
+        # own error on top. A second-order step here usually pays for itself.
+        x_lo = heun_step(teacher, x_hi, s_hi, s_lo, cond)
+        target = ema(x_lo, s_lo, cond)          # EMA copy, no gradient
+
+    pred = student(x_hi, s_hi, cond)
+    loss = torch.nn.functional.mse_loss(pred, target)
+
+    opt.zero_grad(); loss.backward(); opt.step()
+
+    # Without the stop-gradient above, the model could satisfy the objective by
+    # moving both sides onto any constant. The EMA makes the target move slowly
+    # enough that agreement has to come from getting the map right.
+    with torch.no_grad():
+        for p_e, p_s in zip(ema.parameters(), student.parameters()):
+            p_e.mul_(0.999).add_(p_s, alpha=0.001)
+    return loss.item()
+```
+
+</CodeWalk>
+
+## Sampling
+
+<CodeWalk title="Denoise, re-noise smaller, denoise again">
+
+```python title="sample.py"
+@torch.no_grad()
+def sample(model, shape, cond, sigmas, device="cuda"):
+    """sigmas: e.g. [80.0] for one step, [80.0, 20.0] for two.
+
+    Each entry costs one network evaluation. Re-noising to a SMALLER sigma is
+    the whole mechanism: it keeps most of the current estimate and places the
+    next query where the map is accurate. Re-noising to sigma_max would discard
+    the estimate and repeat the hardest query.
+    """
+    x = torch.randn(shape, device=device) * sigmas[0]
+    x0 = model(x, torch.full((shape[0],), sigmas[0], device=device), cond)
+
+    for s in sigmas[1:]:
+        x = x0 + torch.randn_like(x0) * s
+        x0 = model(x, torch.full((shape[0],), s, device=device), cond)
+    return x0
+```
+
+</CodeWalk>
+
+## The diagnostic that decides the step count
+
+<CodeWalk title="Error against noise level">
+
+```python title="profile.py"
+@torch.no_grad()
+def error_by_sigma(model, teacher, loader, sigmas, cond_fn, device="cuda"):
+    """Extra steps help only where the error depends on sigma. Measured:
+    a bias growing with sigma improved 7.7x by three steps, while i.i.d. noise
+    got slightly WORSE. So profile before spending evaluations."""
+    for s in sigmas:
+        errs = []
+        for x0 in loader:
+            cond = cond_fn(x0)
+            x = x0 + torch.randn_like(x0) * s
+            sv = torch.full((x0.shape[0],), s, device=device)
+            errs.append((model(x, sv, cond) - x0).abs().mean().item())
+        print(f"  sigma {s:7.3f}   mean |f(x,s) - x0| = {sum(errs)/len(errs):.4f}")
+```
+
+</CodeWalk>
+
+<Warning>
+A rising profile means the high-noise end is undertrained: add sampling steps,
+weight those levels more heavily, or use a better teacher solver. A flat profile
+means extra steps will buy nothing — the measurements show a small *increase* in
+error — and the problem is capacity, conditioning, or the teacher itself. Running
+this before choosing a step count takes minutes and settles a question people
+usually resolve by trying both and guessing why.
+</Warning>

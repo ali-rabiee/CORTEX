@@ -1,13 +1,16 @@
 id: consistency_models
 title: Consistency Models for Single-Step Action Generation
 domain: generative_control
-summary: Diffusion models are like taking 100 small steps from noise to a clean
-  action — accurate but slow.
+summary: Learn the map from any point on a trajectory straight to its endpoint,
+  instead of integrating. Self-consistency alone is vacuous — a constant function
+  satisfies it exactly — so the boundary condition carries the whole objective.
 tags:
   - generative_control
 difficulty: 4
 importance: 4
 related_concept_ids:
-  - diffusion_policy
+  - diffusion_models_basics
   - flow_matching
-  - latency_optimization
+  - diffusion_policy
+  - action_generation
+  - deployment_thinking

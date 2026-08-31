@@ -1,25 +1,164 @@
 ---
 concept: consistency_models
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Consistency Models for Single-Step Action Generation fail in
-    practice, and how would you present it in an interview?
+  prompt: "Give your interview answer on consistency models. What is the objective, and what is the trap in it?"
   keyPoints:
-    - "Quality gap: single-step generation is inherently less precise than
-      multi-step refinement, especially for high-dimensional action spaces."
-    - The distilled model may struggle with the tails of the action distribution
-      (rare but valid modes).
-    - "Symptoms: slightly lower success rate on tasks requiring high precision
-      (e.g., peg insertion with $< 1\\,\\text{mm}$ tolerance)."
-check: []
-papers: []
+    - "Learn the map from any point on a PF-ODE trajectory to its endpoint, so sampling is one evaluation rather than an integration."
+    - "The trap: self-consistency alone is vacuous — a constant function scores exactly zero and generates noise."
+    - "The boundary condition carries the objective, and it is enforced by the parameterisation so it cannot be traded away."
+    - "Multi-step sampling corrects $\\sigma$-dependent bias (7.7× at three steps) and slightly worsens independent noise — so it is a diagnostic, not a default."
+interview:
+  answer: >-
+    The setup is that a diffusion or flow model gives you a deterministic
+    trajectory from noise to data, and every technique for making sampling
+    cheaper — better integrators, straighter paths — is still about following
+    that trajectory well. Consistency models ask a different question: if the
+    trajectory is deterministic, every point on it has the same endpoint, so
+    learn the map from any point directly to that endpoint. Then generation is
+    one function evaluation and there's no path to follow. The property that
+    defines it is self-consistency — two points on the same trajectory must map
+    to the same output — which is nice because you can train it without knowing
+    the endpoint in advance, just by making the network agree with itself along
+    a path. And that's where the trap is, which I think is the most interesting
+    thing about the method. Self-consistency on its own is vacuous. Take f
+    identically zero: for any two points on any trajectory it returns zero for
+    both, so they agree exactly. I checked this numerically — the constant
+    function scored a self-consistency residual of exactly zero, better than the
+    true solution's three-times-ten-to-the-minus-four, which is only nonzero
+    because of integration error. And its samples had a Wasserstein distance of
+    2.0 against 0.007 for the real map. So the degenerate solution is a perfect
+    minimiser of the constraint. What rules it out is the boundary condition,
+    that f of x at near-zero noise returns x. That's the entire content of the
+    objective, and it's why it's built into the parameterisation — f equals
+    c-skip times x plus c-out times the network, with c-skip one and c-out zero
+    at the clean end — rather than being a loss term. As a loss term it's one
+    objective among two with a weight, and since the collapse is optimal for the
+    other one, under-pricing the anchor makes collapse the right answer. As an
+    identity it can't be traded. The related detail is that the training target
+    is an EMA copy of the network under a stop-gradient, for the same reason: if
+    you differentiate through the target, the model can satisfy the objective by
+    moving both sides onto a constant instead of getting the map right. It's the
+    same argument as a target network in value-based RL. And the last thing I'd
+    mention is when a second sampling step helps, because it isn't always. The
+    multi-step sampler denoises, re-noises at a smaller sigma, and denoises
+    again — so its only lever is putting the next evaluation where the map is
+    easier. I measured that: against a bias that grows with sigma it gave seven
+    point seven times lower error at three steps, and against error that's
+    independent noise at every level, more steps made it slightly worse. So a
+    flat two-step result is informative — it tells you the weakness isn't at the
+    high-noise end.
+  followUps:
+    - q: "When would you pick this over just using a better ODE solver?"
+      a: >-
+        It depends where the step budget is. A second-order solver like Heun is
+        free — no retraining — and in a controlled test it reached Euler's
+        hundred-and-sixty-evaluation error in about forty, so a fourfold saving.
+        But it floors out: below roughly twenty evaluations higher order stops
+        helping and actually starts hurting, because the corrector evaluates at a
+        point the oversized step has made unreliable. So if twenty to forty
+        evaluations fits your budget, use the solver and don't add a training
+        stage. If you need one or two — which for a robot policy is set by the
+        control rate, not by patience — then you're in distillation territory and
+        consistency or rectification is what gets you there.
+    - q: "Distillation or standalone consistency training?"
+      a: >-
+        Distillation if you already have a good diffusion model, because the
+        target is well-defined and the optimisation is much better behaved. The
+        thing to watch is that distillation error is additive rather than
+        averaged — the student's target is whatever the teacher's solver produces
+        between adjacent levels, so the teacher's discretisation error isn't
+        noise around a correct answer, it is the answer being taught, and the
+        student adds its own on top. That makes the teacher's step count inside
+        the distillation loop a real hyperparameter with a quality floor
+        attached. Standalone training removes the teacher, which is the more
+        striking claim, but it took a follow-up paper reworking the noise
+        schedule, the distance metric and the EMA before it matched distillation.
+        That's worth knowing as a caution: a lot of whether it works lives in
+        details the original framing doesn't foreground.
+    - q: "How would you debug a distilled policy that underperforms its teacher?"
+      a: >-
+        Profile the error as a function of noise level rather than looking at the
+        aggregate loss, because the aggregate can't distinguish two cases that
+        want opposite responses. If the error rises with sigma, the hard end of
+        the map is undertrained — add a sampling step, weight those levels more,
+        or use a better solver in the distillation loop. If it's flat, extra
+        steps will buy nothing and can cost a little, so the problem is capacity,
+        conditioning, or the teacher itself. It's one cheap sweep and it decides
+        the next week of work.
+    - q: "Does this cost you multimodality? One step from noise to a single output sounds like a mode collapse risk."
+      a: >-
+        In principle no, because different noise inputs map to different modes —
+        the map is deterministic but the input is random, so the pushforward is
+        still multimodal. The stochasticity moved from the sampling loop to the
+        initial draw. In practice it's a fair worry, since the student is fitting
+        a map that has to change sharply between basins, and any smoothing
+        appears exactly as an averaged action between modes — which is the
+        failure diffusion policies were adopted to avoid. So I'd measure it
+        rather than assume: sample many actions for one observation and check
+        the distribution is still multimodal, not just that individual samples
+        look plausible.
+  traps:
+    - "Presenting self-consistency as the objective. On its own it is satisfied exactly by any constant function; the boundary condition is what determines the map."
+    - "Making the boundary condition a weighted loss term. Since collapse is a perfect minimiser of the other term, the weight becomes the difference between a model and a failure."
+    - "Assuming more sampling steps always help. They correct $\\sigma$-dependent bias and slightly worsen independent error."
+    - "Treating distillation error as noise that averages out. The teacher's solver error is the target, so it composes with the student's."
+check:
+  - id: cm_l5_c1
+    prompt: "You need a diffusion policy's inference down to 2 evaluations for a 50 Hz control loop. What is the reasoned path?"
+    options:
+      - "Switch to a second-order sampler with tuned step spacing"
+      - "Solver improvements floor out around twenty evaluations, so they cannot reach two: this needs distillation — consistency or rectification — accepting a second training stage, and then profiling error against noise level to decide between one and two steps"
+      - "Reduce the action chunk length so each evaluation is cheaper"
+      - "Train the diffusion model with fewer timesteps from the start"
+    answer: 1
+    explanation: "The first option is genuinely valuable and stops short of the target: higher-order methods buy roughly fourfold and then degrade below about twenty evaluations, because their asymptotic advantage assumes small steps. Reaching a handful means learning the endpoint map or straightening the coupling, both of which cost a training stage — so the decision is whether the deadline justifies it, and for a control loop it usually does. The profiling step then tells you whether the second evaluation is worth its latency."
+  - id: cm_l5_c2
+    prompt: "A colleague adds the boundary condition as a loss term with weight $\\lambda$ and finds training collapses for small $\\lambda$. What is the explanation?"
+    options:
+      - "The learning rate interacts badly with $\\lambda$"
+      - "The consistency term has a perfect degenerate minimiser — any constant function — so whenever the anchor is under-priced, collapse is genuinely the optimal solution rather than an optimisation failure. This is why the condition belongs in the parameterisation"
+      - "Small $\\lambda$ makes the gradients vanish"
+      - "The two losses have different scales and need normalising"
+    answer: 1
+    explanation: "Nothing is going wrong with the optimiser — it is finding the best solution to the objective as written, and for small $\\lambda$ that solution is the constant. That makes the failure a specification problem rather than a tuning problem, and it means no amount of learning-rate work fixes it while the trade-off exists. Folding the condition into $c_{\\text{skip}}$ and $c_{\\text{out}}$ removes the trade-off entirely, since every reachable parameter setting already satisfies it."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Quality gap: single-step generation is inherently less precise than multi-step refinement, especially for high-dimensional action spaces. The distilled model may struggle with the tails of the action distribution (rare but valid modes). Symptoms: slightly lower success rate on tasks requiring high precision (e.g., peg insertion with $< 1\,\text{mm}$ tolerance). Fix: use 2-4 step inference as a compromise (still much faster than full diffusion), train with larger model capacity, use progressive distillation schedule.
+<Steps>
+<Step title="Samples are constant or near-constant → the anchor is not binding">
+Check that the boundary condition is in the parameterisation, and that the
+distillation target has a stop-gradient. Both failures produce the same collapse.
+</Step>
 
-## Interview-ready answer
+<Step title="Two steps help a lot → the high-noise end is undertrained">
+Weight those levels more, add capacity, or improve the teacher's solver.
+</Step>
 
-Consistency models solve the key deployment bottleneck of diffusion policies: inference speed. By learning to map any noise level directly to the clean sample (self-consistency property $f_\theta(\mathbf{x}_t, t) = f_\theta(\mathbf{x}_{t'}, t')$), we get single-step generation. For robotics: this means going from 10+ denoising steps ($\sim 500\,\text{ms}$) to 1-2 steps ($\sim 50\text{-}100\,\text{ms}$), enabling real-time closed-loop control. The training recipe: take a well-trained diffusion policy, distill with consistency loss using EMA target network. I see consistency models as the deployment form of diffusion policies — train with diffusion for quality, deploy with consistency for speed.
+<Step title="Two steps change nothing → the error is not $\sigma$-dependent">
+Extra evaluations will not pay. Look at conditioning, capacity, or the teacher.
+</Step>
+
+<Step title="Student below teacher by a fixed margin → distillation floor">
+The teacher's discretisation error is the target. Raise the solver order inside
+the distillation loop before touching the student.
+</Step>
+
+<Step title="Actions look averaged between modes → measure, do not assume">
+Sample many actions for one observation and check the distribution, since a
+smoothed map reintroduces exactly the failure diffusion was adopted to avoid.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The single strongest move here is volunteering that the objective is vacuous
+without the boundary condition, with the constant-function argument. It takes ten
+seconds, it is checkable on paper, and it explains three design decisions at once
+— the skip parameterisation, the stop-gradient, and the EMA target. An answer
+that describes self-consistency as *the* objective is the common one, and it
+misses the part where the method is actually interesting.
+</Warning>

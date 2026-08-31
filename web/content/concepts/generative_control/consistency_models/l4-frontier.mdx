@@ -1,0 +1,127 @@
+---
+concept: consistency_models
+level: 4
+status: final
+recall:
+  prompt: "Trace the few-step generation papers. What is the progression of ideas?"
+  keyPoints:
+    - "Salimans and Ho: halve the step count repeatedly by distilling two teacher steps into one student step — effective, but a sequence of training runs."
+    - "Song et al.: learn the endpoint map in one stage, defined by self-consistency plus a boundary condition, and trainable without a teacher."
+    - "Song and Dhariwal: the standalone version is delicate, and fixing the schedule, metric and EMA is what made it competitive."
+    - "Applied to visuomotor policies, the payoff is control-rate inference from a diffusion-quality policy."
+papers:
+  - key: salimans2022progressive
+    title: "Progressive Distillation for Fast Sampling of Diffusion Models"
+    authors: "Tim Salimans, Jonathan Ho"
+    venue: ICLR
+    year: 2022
+    arxiv: "2202.00512"
+    takeaway: "Repeatedly distil a teacher into a student that takes half as many steps. Reaches few-step sampling through a chain of training runs, each one a well-posed regression."
+  - key: song2023consistency
+    title: "Consistency Models"
+    authors: "Yang Song, Prafulla Dhariwal, Mark Chen, Ilya Sutskever"
+    venue: ICML
+    year: 2023
+    arxiv: "2303.01469"
+    takeaway: "Learn the map from any point on a probability-flow trajectory to its endpoint, defined by self-consistency plus a boundary condition — one training stage, one-step sampling, and no teacher required in the standalone form."
+  - key: song2024improvedcm
+    title: "Improved Techniques for Training Consistency Models"
+    authors: "Yang Song, Prafulla Dhariwal"
+    venue: ICLR
+    year: 2024
+    arxiv: "2310.14189"
+    takeaway: "Standalone consistency training needed the noise schedule, the distance metric and the EMA treatment reworked before it matched distillation — a case study in how much of a method's viability sits in details the original framing does not mention."
+  - key: prasad2024consistency
+    title: "Consistency Policy: Accelerated Visuomotor Policies via Consistency Distillation"
+    authors: "Aaditya Prasad, Kevin Lin, Jimmy Wu, Linqi Zhou, Jeannette Bohg"
+    venue: RSS
+    year: 2024
+    arxiv: "2405.07503"
+    takeaway: "Distils a diffusion policy into a few-step consistency policy for robot control, where the step budget is set by the control rate rather than by user patience."
+check:
+  - id: cm_l4_c1
+    prompt: "What is the structural difference between progressive distillation and consistency models?"
+    options:
+      - "Progressive distillation requires a larger student"
+      - "Progressive distillation halves the step count through a chain of training runs, each a clean regression; consistency models define the endpoint map in a single stage via self-consistency, and can be trained without a teacher at all"
+      - "Consistency models cannot be conditioned"
+      - "Progressive distillation applies only to images"
+    answer: 1
+    explanation: "The progressive route is a sequence of well-posed supervised problems — student matches two teacher steps with one — which makes it reliable but means reaching a handful of steps takes several full runs. Consistency training collapses that into one objective by asking the map to agree along a trajectory, and the standalone variant removes the teacher entirely. The cost of that compression is a much more delicate optimisation, which is what the follow-up work addresses."
+  - id: cm_l4_c2
+    prompt: "The improved-techniques paper is mostly about schedules, metrics and EMA. Why does that matter conceptually?"
+    options:
+      - "It does not — those are implementation details"
+      - "Because the original formulation's viability depended on choices its framing did not mention: standalone consistency training only matched distillation once they were fixed, so 'the method' includes them"
+      - "Because it proves consistency models are theoretically sound"
+      - "Because it introduced a new architecture"
+    answer: 1
+    explanation: "The gap between the idea and a working instance was doing real work here, and reporting exactly which knobs closed it is more informative than another variant would have been. It is also a caution about reading results: 'consistency training works' is a claim about a configuration, not just about the objective. The same pattern appears in the diffusion line, where the cosine schedule mattered far more than its presentation as a detail suggested."
+  - id: cm_l4_c3
+    prompt: "Why is few-step sampling more urgent for robot policies than for image generation?"
+    options:
+      - "Robot models are larger"
+      - "Because the step budget is fixed externally by the control rate — a 10 Hz loop leaves about 100 ms for everything, so latency is a hard constraint rather than a matter of user patience"
+      - "Because robot action spaces are higher-dimensional"
+      - "Because robots cannot use GPUs"
+    answer: 1
+    explanation: "An image model taking two seconds is mildly annoying; a policy that misses its control deadline changes the closed-loop system it is part of, and the arithmetic is unforgiving once observation processing and actuation are also in the budget. Action chunks are in fact much lower-dimensional than images, so the pressure comes from the deadline rather than from the data. That is what makes a training stage bought purely for inference speed a reasonable trade here."
+---
+
+## Halving, repeatedly
+
+<PaperCard refKey="salimans2022progressive" />
+
+The first practical answer, and still a good one. Train a student to reproduce
+two of the teacher's steps in one, then treat that student as the new teacher and
+repeat. Each stage is an ordinary regression with a well-defined target, which
+makes it reliable — at the cost of a chain of full training runs to reach a
+handful of steps.
+
+## One stage instead of a chain
+
+<PaperCard refKey="song2023consistency" />
+
+The reframing: rather than compressing the solver step by step, define the object
+you actually want — the map from any point on the trajectory to its endpoint —
+and characterise it by self-consistency plus the boundary condition.
+
+<Steps>
+<Step title="Distillation form">
+Use a pretrained diffusion model's solver to generate adjacent points on a
+trajectory, and train the map to agree across them.
+</Step>
+
+<Step title="Standalone form">
+Construct adjacent points from an unbiased score estimate instead, removing the
+teacher entirely — which is the more surprising claim of the two.
+</Step>
+
+<Step title="The delicate part">
+The target is an EMA copy of the network itself, so the objective compares the
+model against a moving version of itself. That is what makes it powerful and what
+makes it fragile.
+</Step>
+</Steps>
+
+<PaperCard refKey="song2024improvedcm" />
+
+The follow-up is worth reading precisely because it is unglamorous. Standalone
+consistency training did not match distillation until the noise schedule, the
+distance metric and the EMA treatment were reworked — so a substantial part of
+whether the method works lived in choices the original framing did not
+foreground.
+
+## Why robotics wanted this
+
+<PaperCard refKey="prasad2024consistency" />
+
+<KeyIdea>
+The step budget for a policy is set by the control loop, not by patience. That
+changes the economics: paying for an extra training stage purely to reduce
+inference cost is hard to justify for image generation and obviously worth it
+when the alternative is missing a deadline. It is also why this cluster's three
+routes — better integrator, straighter coupling, learned endpoint map — are worth
+holding apart. The first is free and floors out around twenty evaluations; the
+other two cost a training stage and reach one or two.
+</KeyIdea>

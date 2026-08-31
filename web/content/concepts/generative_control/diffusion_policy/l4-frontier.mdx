@@ -82,11 +82,11 @@ check:
     prompt: "$\\pi_0$ uses flow matching rather than DDPM-style diffusion for its action head. What is the practical motivation?"
     options:
       - "Flow matching can represent multi-modal distributions and diffusion cannot"
-      - "Flow matching learns a velocity field along straighter probability paths, so high-quality samples need far fewer integration steps — which is what lets an action head keep up with a large VLM backbone at 50 Hz"
+      - "Flow matching regresses a velocity field with a simulation-free objective and samples by plain ODE integration — no noise schedule, no score conversion — which is a simpler component to bolt onto a large VLM backbone"
       - "Flow matching does not require normalised actions"
       - "Flow matching removes the need for action chunking"
     answer: 1
-    explanation: "Both are continuous-time generative models over the same kind of object, and both represent modes. The difference is the geometry of the path from noise to data: flow matching regresses a velocity field along near-straight paths, so few Euler steps suffice. When the action head sits on top of a multi-billion-parameter VLM and must emit chunks at 50 Hz, step count is the binding constraint — the same pressure that produced consistency distillation, solved a different way."
+    explanation: "Both are continuous-time models over the same object and both represent modes, so expressiveness is not the distinction. What flow matching offers is a closed-form regression target and a sampler that is a bare ODE loop, with none of the schedule and score-conversion bookkeeping a diffusion head needs — worth a lot when the head is one component of a much larger system. Be careful with the common claim that its paths are straight and therefore need few steps: the conditional paths are straight but the marginal trajectory is not, and straightening requires changing the coupling (see flow_matching)."
 ---
 
 ## The diagnosis came first
@@ -170,8 +170,11 @@ demo.
 Once multi-modality was solved, the binding constraint became inference cost —
 and both of these are answers to it. Consistency Policy distils the sampling
 chain into a student that jumps most of the way in one step. $\pi_0$ takes the
-other route: flow matching learns a velocity field along much straighter paths
-from noise to data, so few integration steps are needed by construction.
+other route: a flow-matching action expert, whose draw is a simulation-free
+objective and a sampler that is a plain ODE loop — a much simpler component to
+attach to a large VLM. It is worth resisting the usual gloss that flow matching
+is faster because its paths are straight; that holds only after the coupling is
+rectified, not from the interpolant alone.
 
 <KeyIdea>
 The thirty-second arc: 2021 diagnosed regression as the culprit and paid for it
