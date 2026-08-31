@@ -1,14 +1,18 @@
 id: camera_calibration
 title: Camera Calibration and Hand-Eye Calibration
 domain: perception
-summary: Intrinsics tell the camera 'what does my image mean in 3D?' (how pixels
-  map to rays).
+summary: >-
+  Reprojection error is computed on the data that produced the calibration, so it
+  cannot see a degeneracy — a fronto-parallel capture gives 0.18 px RMS and a
+  focal length wrong by a factor of seven.
 tags:
   - perception
   - systems
 difficulty: 2
 importance: 4
 related_concept_ids:
-  - pose_estimation_6d
-  - point_cloud_processing
   - depth_estimation
+  - pose_estimation_6d
+  - rgb_depth_sensing
+  - states_observations
+  - experiment_tracking

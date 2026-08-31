@@ -1,0 +1,127 @@
+---
+concept: camera_calibration
+level: 4
+status: final
+recall:
+  prompt: "Trace the calibration literature. What did each contribution make possible?"
+  keyPoints:
+    - "Tsai and Lenz gave the first efficient closed-form hand-eye solution, decoupling rotation from translation."
+    - "Park and Martin recast $AX=XB$ on the Euclidean group, which is where the observability conditions become clean."
+    - "Zhang replaced a precision 3D rig with a printed planar board, making calibration something anyone can do — and introducing the fronto-parallel trap."
+    - "Furgale et al. added time: sensors have unknown temporal offsets, and estimating them jointly with the spatial transform is the modern practice."
+papers:
+  - key: tsai1989handeye
+    title: "A new technique for fully autonomous and efficient 3D robotics hand/eye calibration"
+    authors: "Roger Y. Tsai, Reimar Lenz"
+    venue: "IEEE Transactions on Robotics and Automation"
+    year: 1989
+    takeaway: "The first efficient hand-eye method: solve rotation from the motion axes first, then translation linearly, which is why the rotation-axis condition became the practical rule of thumb."
+  - key: park1994axxb
+    title: "Robot sensor calibration: solving AX=XB on the Euclidean group"
+    authors: "Frank C. Park, Bryan J. Martin"
+    venue: "IEEE Transactions on Robotics and Automation"
+    year: 1994
+    takeaway: "Formulates the problem with Lie-group tools, giving a clean least-squares solution over many motions and making the observability conditions explicit rather than procedural."
+  - key: zhang2000flexible
+    title: "A Flexible New Technique for Camera Calibration"
+    authors: "Zhengyou Zhang"
+    venue: "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+    year: 2000
+    takeaway: "Calibrate from a printed planar board at several unknown orientations instead of a machined 3D rig — the method every toolbox implements, and the reason the capture protocol became the thing users get wrong."
+  - key: furgale2013unified
+    title: "Unified temporal and spatial calibration for multi-sensor systems"
+    authors: "Paul Timothy Furgale, Joern Rehder, Roland Siegwart"
+    venue: IROS
+    year: 2013
+    takeaway: "Estimates inter-sensor time offsets jointly with the spatial transforms, treating an unknown latency between streams as a calibration parameter rather than as noise."
+check:
+  - id: cc_l4_c1
+    prompt: "What did Zhang's method change in practice, and what did it introduce?"
+    options:
+      - "It improved accuracy over 3D calibration rigs"
+      - "It replaced a machined 3D target with a printed plane at arbitrary unknown orientations, making calibration accessible — and moved the burden onto the capture protocol, since planar targets are only sufficient when the orientations actually vary"
+      - "It removed the need for lens distortion models"
+      - "It was the first method to use nonlinear refinement"
+    answer: 1
+    explanation: "Precision 3D targets were expensive and rare, so making a printed checkerboard sufficient is what put calibration in everyone's hands. The trade is that a plane provides less constraint than a 3D object, and the missing constraint has to come from varying the plane's orientation — which the user supplies, silently, by how they wave the board. That is why the dominant failure mode moved from equipment to protocol."
+  - id: cc_l4_c2
+    prompt: "Why does the Lie-group formulation of $AX = XB$ matter beyond elegance?"
+    options:
+      - "It is faster to compute"
+      - "It makes the structure explicit: rotations act by conjugation, so the constraint reduces to mapping motion axes onto each other, and the observability condition — non-parallel axes — falls out rather than being an empirical rule"
+      - "It handles non-rigid transforms"
+      - "It removes the need for multiple motions"
+    answer: 1
+    explanation: "Working in the group makes visible that conjugation preserves rotation angle and carries axis to axis, which turns a matrix equation into a statement about where one unit vector goes. From there it is immediate that one motion constrains two degrees of freedom and leaves one, so a second non-parallel motion is necessary. Reaching the same conclusion from a linear-algebraic treatment is possible and considerably less transparent."
+  - id: cc_l4_c3
+    prompt: "Why treat inter-sensor time offset as a calibration parameter rather than a fixed system property?"
+    options:
+      - "Because clocks drift over months"
+      - "Because the offset is real, unknown and often tens of milliseconds — it makes streams describe different instants, which appears as a spatial inconsistency that spatial calibration then tries and fails to absorb"
+      - "Because it simplifies the optimisation"
+      - "Because it is required for stereo rectification"
+    answer: 1
+    explanation: "Exposure, transfer and driver buffering introduce delays nobody specified, and while the platform moves, a fixed time offset looks exactly like a pose error that changes with velocity. A purely spatial calibration will fit some compromise transform that is wrong in a motion-dependent way, which is far harder to diagnose than a constant offset. Estimating the offset jointly removes the confound — the same reasoning as putting a nuisance parameter in the model rather than hoping it averages out."
+---
+
+## Hand-eye, and why the rule is about axes
+
+<PaperGrid>
+<PaperCard refKey="tsai1989handeye" />
+<PaperCard refKey="park1994axxb" />
+</PaperGrid>
+
+Tsai and Lenz's structural move is to solve rotation first, from the motion axes
+alone, and then translation linearly given that rotation. That decomposition is
+why the practical guidance has always been phrased in terms of rotation axes:
+they are literally what the first stage consumes.
+
+Park and Martin then recast the problem on the Euclidean group, which is where
+the condition stops being a rule of thumb. Conjugation preserves angle and maps
+axis to axis, so $R_A = R_X R_B R_X^\top$ says exactly $R_X\hat{b} = \hat{a}$ —
+two constraints, three degrees of freedom, one motion short.
+
+## Making it something anyone can do
+
+<PaperCard refKey="zhang2000flexible" />
+
+Before this, calibration meant a machined 3D target with known point positions.
+Zhang showed a printed plane at several *unknown* orientations is enough, which
+is the reason every toolbox works the way it does.
+
+<Steps>
+<Step title="A plane gives less constraint than a 3D rig">
+So the missing information has to come from somewhere else.
+</Step>
+
+<Step title="It comes from varying the orientation">
+Which is supplied by the user, implicitly, in how they move the board.
+</Step>
+
+<Step title="So the failure mode moved from equipment to protocol">
+And the reported metric does not detect it: measured, fronto-parallel captures
+give 0.184 px RMS with the focal length 650% wrong.
+</Step>
+
+<Step title="Which is why toolbox documentation is mostly about waving the board">
+The geometry requirement, restated as an instruction.
+</Step>
+</Steps>
+
+## Then time
+
+<PaperCard refKey="furgale2013unified" />
+
+The modern addition: sensors do not agree about *when*. Exposure, transfer and
+buffering introduce offsets nobody specified, often tens of milliseconds, and
+while the platform moves a fixed time offset looks exactly like a pose error that
+varies with velocity.
+
+<KeyIdea>
+Estimating the offset jointly is the same move as putting a nuisance parameter in
+the model rather than hoping it averages out — and the failure it prevents is the
+one described in `states_observations`, where a camera 60 ms behind the encoders
+puts the gripper 3 cm from where proprioception says it is. Spatial calibration
+alone will absorb some of that into a compromise transform that is wrong in a
+motion-dependent way, which is much harder to find than a constant offset.
+</KeyIdea>

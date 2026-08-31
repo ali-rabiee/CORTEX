@@ -1,0 +1,202 @@
+---
+concept: camera_calibration
+level: 3
+status: final
+recall:
+  prompt: "How do you validate a calibration, given that reprojection error cannot?"
+  keyPoints:
+    - "Hold out views: fit on some board poses, report reprojection on ones the optimiser never saw."
+    - "Better, measure something metric the calibration never touched — a known distance in the workspace at the working distance."
+    - "Check conditioning directly: the covariance of the fitted parameters exposes a flat direction that the residual hides."
+    - "For hand-eye, log the angle between motion rotation axes and refuse a set whose axes are near-parallel."
+check:
+  - id: cc_l3_c1
+    prompt: "Why does holding out calibration views help, and why is it still not sufficient?"
+    options:
+      - "It is sufficient — held-out error is an unbiased estimate of accuracy"
+      - "It detects overfitting to specific images, but not a degeneracy shared by the whole capture: if every view is fronto-parallel, held-out views are too, and the wrong parameters reproject them perfectly as well"
+      - "It only helps when there are many views"
+      - "It requires a second camera"
+    answer: 1
+    explanation: "A held-out split answers whether the fit generalises across samples from the same capture distribution, and a degeneracy is a property of that distribution rather than of individual images. The flat direction reproduces every frontal view exactly, held out or not. The check that has power has to leave the reprojection metric entirely — measure a known metric quantity in the workspace, which is the one thing the calibration was not fitted to."
+  - id: cc_l3_c2
+    prompt: "What does the parameter covariance from the calibration fit tell you that the residual does not?"
+    options:
+      - "The magnitude of pixel noise"
+      - "The shape of the uncertainty: a large variance along a particular combination of parameters flags the flat direction directly, and it is available from the Jacobian at the solution at no extra cost"
+      - "Whether the distortion model is correct"
+      - "The number of views required"
+    answer: 1
+    explanation: "The residual is a scalar summarising fit quality and says nothing about which directions in parameter space were constrained. The Jacobian's conditioning does exactly that: a near-zero singular value means a direction the data does not determine, and its singular vector names which parameter combination is unresolved. Most toolboxes can report this, few users look, and it turns a silent failure into a number you can threshold."
+  - id: cc_l3_c3
+    prompt: "What is the most trustworthy field validation of a camera-robot calibration?"
+    options:
+      - "Re-running the calibration and checking the parameters agree"
+      - "Command the robot to touch a known point using the vision pipeline, and measure the miss with a ruler — at the working distance, across the workspace, since that is the only test the calibration was not fitted to"
+      - "Checking the reprojection error is below 0.5 px"
+      - "Verifying the focal length matches the lens specification"
+    answer: 1
+    explanation: "Every option except the touch test is computed from the same data or model that the calibration produced, so all of them are consistent with a systematically wrong answer. Repeating the calibration with the same protocol reproduces the same degeneracy and reports agreement, which is actively misleading. Measuring a physical miss closes the loop through the actual quantity you care about, and doing it at several places in the workspace also exposes hand-eye rotation error, which appears as a bias that varies with position."
+---
+
+## The fit
+
+<CodeWalk title="Bundle adjustment over intrinsics and per-view poses">
+
+```python title="calibrate.py"
+import numpy as np
+from scipy.optimize import least_squares
+
+def calibrate(views, board, f0=800.0, cx0=None, cy0=None):
+    """views: list of (N,2) detected corner arrays. board: (N,3) metric points.
+
+    The per-view poses are nuisance parameters optimised jointly with the
+    intrinsics — which is why the residual can be driven to noise level even
+    when the intrinsics are badly wrong: the poses absorb the error.
+    """
+    n = len(views)
+    x0 = np.concatenate([[f0, f0, cx0, cy0]] + [np.r_[0, 0, 0, 0, 0, 0.5]] * n)
+
+    def residuals(x):
+        K4 = x[:4]
+        return np.concatenate([
+            (project(K4, x[4 + 6 * i : 7 + 6 * i], x[7 + 6 * i : 10 + 6 * i], board)
+             - views[i]).ravel()
+            for i in range(n)
+        ])
+
+    sol = least_squares(residuals, x0, method="trf")
+    rms = np.sqrt((sol.fun ** 2).mean())
+    return sol.x[:4], sol, rms
+```
+
+</CodeWalk>
+
+## The check the residual cannot give you
+
+<CodeWalk title="Conditioning from the Jacobian at the solution">
+
+```python title="conditioning.py"
+import numpy as np
+
+def parameter_conditioning(sol, n_intrinsics=4):
+    """A flat direction shows up as a tiny singular value of the Jacobian —
+    available for free at the solution, and invisible in the residual.
+
+    In the fronto-parallel case two different initialisations converged to
+    6000.1 and 6000.0 with 0.184 px RMS. The residual said everything was fine;
+    the conditioning would have said the focal direction was unconstrained.
+    """
+    J = sol.jac
+    s = np.linalg.svd(J, compute_uv=False)
+    print(f"  condition number: {s[0] / s[-1]:.3e}")
+
+    # Which parameter combination is least constrained?
+    _, _, Vt = np.linalg.svd(J, full_matrices=False)
+    weakest = Vt[-1][:n_intrinsics]
+    names = ["fx", "fy", "cx", "cy"]
+    print("  weakest direction, intrinsic components:")
+    for nm, w in zip(names, weakest):
+        print(f"    {nm}: {w:+.3f}")
+
+
+def parameter_std(sol, n_obs):
+    """Approximate standard errors: sigma^2 * (J^T J)^{-1}, with sigma^2 the
+    residual variance. Wide intervals on fx are the alarm."""
+    dof = max(n_obs - len(sol.x), 1)
+    s2 = (sol.fun ** 2).sum() / dof
+    cov = s2 * np.linalg.pinv(sol.jac.T @ sol.jac)
+    return np.sqrt(np.diag(cov))[:4]
+```
+
+</CodeWalk>
+
+<KeyIdea>
+Two lines of SVD convert a silent failure into a printed number. The reason
+almost nobody does it is that the toolbox already prints a reassuring scalar, and
+a second, less familiar number that contradicts it feels redundant. It is the
+opposite — the residual and the conditioning answer different questions, and only
+the second one is about the parameters.
+</KeyIdea>
+
+## Capture protocol, enforced in code
+
+<CodeWalk title="Reject a capture set that cannot determine the parameters">
+
+```python title="protocol.py"
+import numpy as np
+
+def check_capture(poses, min_tilt_deg=20.0, min_views_tilted=6):
+    """Refuse to calibrate from geometry that cannot identify f.
+
+    Frontal views leave f and Z coupled: N views give N scale measurements and
+    N+1 unknowns, so no number of them is enough. Tilt is the fix and 10 deg
+    already brings the error to ~1%.
+    """
+    tilts = np.array([np.rad2deg(np.arccos(np.clip(rod(r)[2, 2], -1, 1)))
+                      for r, _ in poses])
+    n_tilted = int((tilts > min_tilt_deg).sum())
+    depths = np.array([t[2] for _, t in poses])
+
+    ok = n_tilted >= min_views_tilted and depths.ptp() > 0.3 * depths.mean()
+    print(f"  views tilted > {min_tilt_deg}°: {n_tilted}/{len(poses)}")
+    print(f"  depth range: {depths.min():.2f}–{depths.max():.2f} m")
+    if not ok:
+        raise ValueError("capture geometry cannot identify the focal length")
+    return True
+
+
+def check_handeye_motions(motions, min_axis_angle_deg=30.0):
+    """Two motions with near-parallel rotation axes are formally sufficient and
+    numerically useless: 0.15 deg of noise gave 3.02 deg of error at 5 deg
+    separation, against 0.41 deg at 90. The solver will not complain."""
+    axes = [logm(R) / max(np.linalg.norm(logm(R)), 1e-9) for R, _ in motions]
+    best = max(np.rad2deg(np.arccos(abs(np.clip(a @ b, -1, 1))))
+               for i, a in enumerate(axes) for b in axes[i + 1:])
+    print(f"  largest angle between motion axes: {best:.1f}°")
+    if best < min_axis_angle_deg:
+        raise ValueError("hand-eye motions are near-coaxial; add a different rotation")
+    return True
+```
+
+</CodeWalk>
+
+## The validation that actually closes the loop
+
+<CodeWalk title="Measure a metric quantity the calibration never saw">
+
+```python title="validate.py"
+def touch_test(robot, perceive_fn, targets, ruler_readings):
+    """Command the robot to touch known points through the full vision pipeline
+    and measure the miss physically.
+
+    This is the only check that leaves the reprojection metric, and therefore
+    the only one a degenerate calibration cannot pass. Sample across the
+    workspace, not one point: hand-eye rotation error appears as a bias that
+    VARIES with position, so a single point can be fitted by a wrong transform.
+    """
+    errs = []
+    for tgt, measured in zip(targets, ruler_readings):
+        p = perceive_fn(tgt)
+        robot.move_to(p)
+        errs.append(measured)
+        print(f"  target {tgt}: miss {measured * 1000:.1f} mm")
+
+    import numpy as np
+    e = np.array(errs)
+    print(f"  mean {e.mean()*1000:.1f} mm   max {e.max()*1000:.1f} mm")
+    # A constant offset points at hand-eye translation; a position-dependent
+    # one points at hand-eye rotation or at the focal length.
+    return e
+```
+
+</CodeWalk>
+
+<Warning>
+The pattern in the last line is the diagnostic. A miss that is the same
+everywhere is a translation offset. A miss that grows with distance from the
+camera is a focal-length or hand-eye rotation error. A miss that grows towards
+the image edges is distortion. Recording *where* in the workspace each
+measurement was taken costs nothing and turns one number into three
+distinguishable hypotheses.
+</Warning>

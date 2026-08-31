@@ -1,25 +1,163 @@
 ---
 concept: camera_calibration
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Camera Calibration and Hand-Eye
-    Calibration, including the key equations.
+  prompt: "Show why fronto-parallel views cannot determine focal length, and state the observability condition for hand-eye calibration."
   keyPoints:
-    - "Intrinsic calibration: focal lengths $(f_x, f_y)$, principal point $(c_x,
-      c_y)$, distortion coefficients $(k_1, k_2, p_1, p_2, k_3)$."
-    - "The projection model maps 3D to pixel: $$\\begin{bmatrix} u \\\\ v
-      \\end{bmatrix} = \\begin{bmatrix} f_x & 0 & c_x \\\\ 0 & f_y & c_y
-      \\end{bmatrix} \\begin{bmatrix} X/Z \\\\ Y/Z \\\\ 1 \\end{bmatrix}$$
-      Extrinsic calibration: transformation $T \\in SE(3)$ between camera frame
-      and world/robot frame."
-    - "Hand-eye calibration: $AX = XB$ problem to find the fixed transform $X$
-      between camera and robot end-effector (eye-in-hand) or camera and robot
-      base (eye-to-hand)."
-check: []
-papers: []
+    - "For a frontal plane the projection depends on $f$ and $Z$ only through $f/Z$, so the pair is unidentifiable — and each new distance adds an unknown along with its equation."
+    - "Tilt introduces foreshortening that depends on $f$ and $Z$ differently, which breaks the coupling."
+    - "Hand-eye $AX = XB$ needs two motions whose rotation axes are not parallel; one motion leaves a one-parameter family."
+    - "Conditioning degrades continuously: measured $R_X$ error was 0.41° at 90° between axes and 15.96° at 1°, from the same 0.15° of noise."
+check:
+  - id: cc_l2_c1
+    prompt: "Why does varying the board's distance, without tilting it, fail to make $f$ identifiable?"
+    options:
+      - "Because the detector is less accurate at long range"
+      - "Because each new view brings its own unknown distance along with its equation — $N$ frontal views give $N$ scale measurements and $N+1$ unknowns, so the system stays one short no matter how many you add"
+      - "Because the depth range is too small"
+      - "Because lens distortion dominates at close range"
+    answer: 1
+    explanation: "Counting is the whole argument. A frontal board at distance $Z_i$ tells you the image scale $f/Z_i$, one number per view, while introducing $Z_i$ as a new unknown alongside the single shared $f$. Adding views therefore never closes the gap. It also matches the measurement: fronto-parallel with varied depth still recovered $f$ 446% too large, only marginally better than the fixed-depth case."
+  - id: cc_l2_c2
+    prompt: "What does a single relative motion determine about the hand-eye rotation $R_X$?"
+    options:
+      - "Nothing"
+      - "It determines $R_X$ up to a rotation about the motion's own axis — the constraint $R_A R_X = R_X R_B$ fixes where the axis of $B$ maps, leaving one free parameter, which is why a second non-parallel motion is required"
+      - "It determines $R_X$ completely"
+      - "It determines only the translation"
+    answer: 1
+    explanation: "Conjugation preserves rotation angle and carries axis to axis, so one motion says exactly that $R_X$ maps $B$'s axis onto $A$'s — a constraint on two of three degrees of freedom. Rotation about that axis is unconstrained. A second motion with a different axis pins the remaining freedom, and the more different the two axes, the better conditioned that determination is."
+  - id: cc_l2_c3
+    prompt: "Your two calibration motions rotate about axes 5° apart. What should you expect?"
+    options:
+      - "A valid calibration, since two motions suffice"
+      - "A poorly conditioned one: the second axis barely adds information, so measurement noise is amplified — measured, 0.15° of noise produced 3.02° of error at 5° separation against 0.41° at 90°"
+      - "Failure with a singular-matrix error"
+      - "A correct rotation but a wrong translation"
+    answer: 1
+    explanation: "Observability is not binary here: the system is formally determined and numerically close to the degenerate case, so it returns an answer without complaint. The measured amplification is roughly sevenfold at 5° separation and about fortyfold at 1°, from identical input noise. The practical form of the requirement is therefore to rotate about genuinely different axes, and the measurement shows 45° is already as good as 90°."
 ---
 
-## Formal definition
+## The projection, and where the coupling lives
 
-Intrinsic calibration: focal lengths $(f_x, f_y)$, principal point $(c_x, c_y)$, distortion coefficients $(k_1, k_2, p_1, p_2, k_3)$. The projection model maps 3D to pixel: $$\begin{bmatrix} u \\ v \end{bmatrix} = \begin{bmatrix} f_x & 0 & c_x \\ 0 & f_y & c_y \end{bmatrix} \begin{bmatrix} X/Z \\ Y/Z \\ 1 \end{bmatrix}$$ Extrinsic calibration: transformation $T \in SE(3)$ between camera frame and world/robot frame. Hand-eye calibration: $AX = XB$ problem to find the fixed transform $X$ between camera and robot end-effector (eye-in-hand) or camera and robot base (eye-to-hand).
+For a point $P$ on a plane at distance $Z$, the pinhole model gives
+
+$$
+u = f_x \frac{X}{Z} + c_x, \qquad v = f_y \frac{Y}{Z} + c_y
+$$
+
+<Derivation title="A frontal plane cannot separate $f$ from $Z$">
+
+Take the board fronto-parallel, so every point shares the same depth $Z$. A board
+point at planar coordinate $(X, Y)$ projects to
+
+$$
+u = \frac{f_x}{Z}X + c_x
+$$
+
+The image depends on $f_x$ and $Z$ **only through the ratio** $f_x/Z$. Replacing
+$(f_x, Z)$ with $(\lambda f_x, \lambda Z)$ leaves every pixel identical, so the
+data cannot distinguish them.
+
+Now try to fix it with more views. View $i$ at distance $Z_i$ contributes one
+measurable quantity, the image scale $s_i = f_x/Z_i$, and one new unknown $Z_i$.
+With $N$ views:
+
+$$
+\text{measurements} = N, \qquad \text{unknowns} = \underbrace{N}_{Z_i} + \underbrace{1}_{f_x}
+$$
+
+Always one short. **The assumption doing the work is that the board is planar and
+frontal**, which makes the per-view projection a pure similarity. Tilt the board
+and a point's depth becomes $Z + \Delta Z(X,Y)$, so the near edge projects larger
+than the far edge by an amount depending on $f_x$ and $Z$ differently — and the
+degeneracy is gone.
+
+</Derivation>
+
+Measured, calibrating a camera with true $f_x = 800$ from ten views:
+
+| protocol | RMS reproj | $f_x$ | error |
+| --- | --- | --- | --- |
+| fronto-parallel, fixed $Z$ | 0.184 px | 6000 | +650% |
+| fronto-parallel, varied $Z$ | 0.184 px | 4365 | +446% |
+| tilt 10° | 0.192 px | 809 | +1.1% |
+| tilt 35° | 0.190 px | 799 | −0.1% |
+
+<KeyIdea>
+Two different initialisations, $f_0 = 700$ and $f_0 = 600$, converged to 6000.1
+and 6000.0. Identical to four significant figures from different starting points
+is the signature of a genuine flat direction rather than a stuck optimiser — the
+residual is insensitive along it, so the returned value is decided by whatever
+weakly breaks the tie, here small lateral translations and pixel noise. This is
+the same unobservability argument as monocular metric depth, and worth
+recognising as one idea in two places.
+</KeyIdea>
+
+## Error propagation
+
+For an object of known size $W$ spanning $w$ pixels, $Z = fW/w$, so
+
+$$
+\frac{\delta Z}{Z} = \frac{\delta f}{f}
+$$
+
+Focal error transfers into depth error one-for-one. The 446% figure above is
+27 cm of depth error at a 60 cm working distance. And for detection noise:
+
+$$
+\delta X = \frac{Z}{f}\,\delta u
+$$
+
+At $f = 800$ px, one pixel is 0.75 mm at 60 cm and 6.25 mm at 5 m — **linear** in
+$Z$, in contrast with stereo depth error, which grows quadratically.
+
+## Hand-eye observability
+
+The hand-eye transform $X$ satisfies $AX = XB$ for corresponding robot and camera
+motions. Taking rotations:
+
+$$
+R_A R_X = R_X R_B \quad\Longleftrightarrow\quad R_A = R_X R_B R_X^{\top}
+$$
+
+<Derivation title="Why one motion is not enough">
+
+Conjugation by $R_X$ preserves rotation angle and maps axis to axis: if $R_B$ has
+axis $\hat{b}$, then $R_X R_B R_X^\top$ has axis $R_X \hat{b}$. So the constraint
+says exactly
+
+$$
+R_X \hat{b} = \hat{a}
+$$
+
+which fixes where one unit vector goes — two constraints on three rotational
+degrees of freedom. **Rotation about $\hat{a}$ itself is unconstrained**, leaving
+a one-parameter family.
+
+A second motion with axis $\hat{b}_2 \neq \pm\hat{b}_1$ adds
+$R_X \hat{b}_2 = \hat{a}_2$, which removes the remaining freedom. If the axes are
+parallel the second constraint duplicates the first and the family survives.
+
+</Derivation>
+
+Observability is not binary in practice — it degrades continuously as the axes
+approach parallel. Measured with 0.15° of noise on the observed camera motions:
+
+| angle between motion axes | recovered $R_X$ error |
+| --- | --- |
+| 1° | **15.96°** |
+| 5° | 3.02° |
+| 15° | 1.09° |
+| 45° | 0.46° |
+| 90° | 0.41° |
+
+<Warning>
+Nothing in this fails loudly. At 5° separation the system is formally determined,
+the solver returns a rotation, and it is 3° wrong — which at a 50 cm working
+distance is about 2.6 cm of position error, applied consistently. The practical
+rule that follows is to rotate about genuinely different axes during collection,
+and the table says 45° is already as good as 90°, so this costs nothing but
+intent.
+</Warning>

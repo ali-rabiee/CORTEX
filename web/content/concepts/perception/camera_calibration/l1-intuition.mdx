@@ -1,25 +1,121 @@
 ---
 concept: camera_calibration
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Camera Calibration and Hand-Eye Calibration in plain language:
-    what is it, and why does it matter?"
+  prompt: "What does calibration recover, and why is a low reprojection error not evidence that it worked?"
   keyPoints:
-    - Intrinsics tell the camera 'what does my image mean in 3D?' (how pixels
-      map to rays).
-    - Extrinsics tell the robot 'where is the camera in my coordinate system?'
-      Without accurate calibration, a robot pointing at pixel $(320, 240)$ might
-      reach 2cm off — which is the difference between a successful grasp and a
-      miss.
-check: []
-papers: []
+    - "Intrinsics map pixels to rays; hand-eye maps the camera frame to the robot frame. Both are needed before a detection can become a place to move to."
+    - "Reprojection error is measured on the same board images that were fitted, so it is blind to a flat direction in the parameters."
+    - "Fronto-parallel captures leave focal length and distance coupled: measured 0.18 px RMS with the focal length 650% wrong."
+    - "Tilt breaks the degeneracy — 10° of it already brings the focal error to about 1%."
+media:
+  - kind: video
+    title: "Intrinsic Camera Calibration — 5 Minutes with Cyrill"
+    url: https://www.youtube.com/watch?v=26nV4oDLiqc
+    source: "Cyrill Stachniss"
+    minutes: 6
+    note: "Six minutes for the whole picture: what the parameters mean and why the board has to move the way it does."
+  - kind: article
+    title: "Multiple camera calibration — Kalibr wiki"
+    url: https://github.com/ethz-asl/kalibr/wiki/multiple-camera-calibration
+    source: "ETH Zürich ASL"
+    note: "Read the capture-protocol guidance before your first calibration. It encodes the geometric requirements as instructions about how to move the target."
+check:
+  - id: cc_l1_c1
+    prompt: "Your calibration reports 0.18 px RMS reprojection error. What does that establish?"
+    options:
+      - "That the calibration is accurate to well under a pixel"
+      - "Only that the fitted model explains the board images it was fitted on — if the capture geometry left a flat direction in the parameters, the fit is exact along it and the error is uninformative about the parameters themselves"
+      - "That the lens distortion model is adequate"
+      - "That the camera is in focus"
+    answer: 1
+    explanation: "Reprojection error is a training residual, so it answers 'did the optimiser fit these images' rather than 'are these the right parameters'. Along a degenerate direction the model reproduces the data exactly for a whole family of parameter values, so the residual stays small while the recovered numbers are arbitrary. Measured: fronto-parallel captures gave 0.184 px RMS with a focal length 650% too large — a better reprojection error than the correctly calibrated case."
+  - id: cc_l1_c2
+    prompt: "Why must calibration images include the board at a range of tilts rather than facing the camera?"
+    options:
+      - "To cover more of the image area"
+      - "Because with a fronto-parallel board, doubling the focal length and doubling the distance produce an identical image — the two are coupled, and only perspective foreshortening from a tilted board separates them"
+      - "To average out detection noise"
+      - "To sample the lens distortion at more radii"
+    answer: 1
+    explanation: "A frontal plane projects with a single uniform scale factor $f/Z$, so nothing in the image distinguishes a long lens far away from a short lens close up — the same ambiguity that makes monocular metric depth unobservable. Tilting the board makes the near edge project larger than the far edge by an amount that depends on $f$ and $Z$ differently, which is what pins them down. Image coverage and distortion sampling are real reasons for varying pose too, and they are not the one that makes calibration possible at all."
 ---
 
-## Intuition
+## Two transforms, both required
 
-Intrinsics tell the camera 'what does my image mean in 3D?' (how pixels map to rays). Extrinsics tell the robot 'where is the camera in my coordinate system?' Without accurate calibration, a robot pointing at pixel $(320, 240)$ might reach 2cm off — which is the difference between a successful grasp and a miss.
+<Intuition>
+Calibration is what turns a detection into an instruction. Intrinsics say which
+ray in space a pixel corresponds to; hand-eye says where the camera sits in the
+robot's frame. Without both, "the mug is at pixel (312, 208)" cannot become "move
+the gripper here". It is unglamorous plumbing, and it is also the layer where a
+surprising share of manipulation failures originate — usually diagnosed as a
+perception or control problem for weeks first.
+</Intuition>
 
-## In practice
+The thing worth knowing is not how the method works. It is that **the number your
+calibration tool reports cannot tell you whether it worked.**
 
-Eye-in-hand calibration: mount checkerboard on table, move robot to 15-20 poses capturing the board from different angles. Solve $AX = XB$ where $A$ = robot pose changes, $B$ = camera pose changes (from checkerboard detection). Validate: command robot to touch known points, measure error. Target: $< 2\,\text{mm}$ reprojection error.
+## The metric is blind
+
+<Figure src="/figures/calibration-reprojection-blind.svg" alt="Left: a board at twice the distance viewed with twice the focal length projects to an identical image, so the two cannot be separated from frontal views. Right: across four capture protocols, RMS reprojection error stays between 0.184 and 0.192 pixels while the recovered focal length is wrong by 650%, 446%, 1.1% and 0.1%." caption="Four calibrations of the same camera. The reported error is flat across all of them; the recovered focal length spans a factor of seven." />
+
+I simulated a camera with a true focal length of 800 px and calibrated it from
+ten board views under four capture protocols:
+
+| protocol | RMS reprojection | recovered $f_x$ | error |
+| --- | --- | --- | --- |
+| fronto-parallel, fixed depth | 0.184 px | 6000 | **+650%** |
+| fronto-parallel, varied depth | 0.184 px | 4365 | **+446%** |
+| slight tilt (10°) | 0.192 px | 809 | +1.1% |
+| good tilt (35°) | 0.190 px | 799 | −0.1% |
+
+The two badly wrong calibrations have the *best* reprojection error. Starting the
+optimiser from 700 and from 600 both converged to 6000.1 and 6000.0 — the same
+wrong answer, which confirms a genuine flat direction rather than an optimiser
+that got stuck.
+
+<KeyIdea>
+The reason is the same unobservability that makes monocular metric depth
+impossible: a frontal plane projects with a single scale factor $f/Z$, so
+doubling both leaves every pixel unchanged. Varying the *distance* does not help,
+because each new view adds an unknown distance along with its equation. Only tilt
+helps, and it helps fast — 10° already brings the error to about 1%.
+</KeyIdea>
+
+## What the error becomes downstream
+
+<Steps>
+<Step title="Focal error passes straight into depth">
+For a known-size object, $Z = fW/w$, so $\delta Z / Z = \delta f / f$ exactly. A
+1% focal error is 6 mm at 60 cm; the 446% error above is 27 cm.
+</Step>
+
+<Step title="Pixel noise scales linearly with distance">
+At $f = 800$ px, one pixel of detection error is 0.75 mm at 60 cm and 6.25 mm at
+5 m — linear in $Z$, unlike stereo depth error, which is quadratic.
+</Step>
+
+<Step title="Hand-eye error is a rigid offset">
+A rotation error in the hand-eye transform becomes a position error proportional
+to the distance from the camera to the target, so it shows up as a systematic
+bias that changes across the workspace.
+</Step>
+
+<Step title="And all of it is silent">
+None of these produce an error message. They produce a robot that misses by a
+consistent amount, which reads like a control or perception problem.
+</Step>
+</Steps>
+
+<Warning>
+The same structure appears in `states_observations`: a metric computed on the
+training data cannot detect a problem that only exists at deployment. There, a
+policy's loss was flat across the range from working to useless; here,
+reprojection error is flat across a factor of seven in focal length. The remedy
+is the same in both cases — the check has to be made on something other than the
+data that was fitted, which for calibration means measuring a known distance in
+the workspace.
+</Warning>
+
+<WatchThis />

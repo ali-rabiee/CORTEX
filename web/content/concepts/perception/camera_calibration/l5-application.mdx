@@ -1,24 +1,163 @@
 ---
 concept: camera_calibration
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Camera Calibration and Hand-Eye Calibration fail in practice,
-    and how would you present it in an interview?
+  prompt: "Give your interview answer on calibration. What is the framing, and what number do you bring?"
   keyPoints:
-    - "Insufficient pose diversity: all calibration poses from similar angles
-      $\\rightarrow$ poorly constrained rotation estimate."
-    - "Symptoms: accurate in calibration region, large errors elsewhere."
-    - "Also: thermal drift changes intrinsics over time, especially for cheap
-      sensors."
-check: []
-papers: []
+    - "Reprojection error is a training residual — it cannot see a degeneracy, because the fit is exact along the flat direction."
+    - "Measured: fronto-parallel capture, 0.184 px RMS, focal length 650% wrong; two initialisations converged to the same wrong value."
+    - "The cause is the $f/Z$ coupling, the same unobservability as monocular metric depth; tilt fixes it and 10° is nearly enough."
+    - "Hand-eye needs non-parallel rotation axes, and it degrades continuously — 3° of error at 5° separation from 0.15° of noise."
+interview:
+  answer: >-
+    Calibration is what turns a detection into an instruction — intrinsics say
+    which ray a pixel corresponds to, hand-eye says where the camera sits in the
+    robot's frame, and without both you can't convert "the mug is at pixel three
+    twelve, two oh eight" into a place to move. The part I'd actually want to
+    talk about is that the number your calibration tool reports can't tell you
+    whether it worked. Reprojection error is computed on the same board images
+    the parameters were fitted to, so it's a training residual. If your capture
+    geometry leaves a flat direction in the parameter space, the model reproduces
+    those images exactly along that whole direction, and the residual stays small
+    while the recovered numbers are arbitrary. The concrete case is
+    fronto-parallel capture. For a board facing the camera, every point is at the
+    same depth, so the projection depends on focal length and distance only
+    through their ratio — double both and every pixel is identical. It's the same
+    unobservability that makes monocular metric depth impossible. I simulated it:
+    true focal length eight hundred pixels, ten views, and fronto-parallel
+    capture gave point one eight four pixels RMS with a recovered focal length of
+    six thousand. Six hundred and fifty percent wrong, with a better reprojection
+    error than the correctly calibrated case. And starting the optimiser from
+    seven hundred and from six hundred both converged to six thousand point one
+    and six thousand point zero — identical to four figures from different
+    initialisations, which is the signature of a genuine flat direction rather
+    than a solver that got stuck. What I'd add is that varying the distance
+    doesn't fix it, which surprises people: each new frontal view gives you one
+    scale measurement and introduces one new unknown distance, so N views give N
+    equations and N plus one unknowns and you're always one short. Only tilt
+    works, because foreshortening depends on focal length and depth differently.
+    The good news is it's cheap — ten degrees of tilt already brought the error
+    to about one percent. And the propagation is one-for-one: for a known-size
+    object Z equals f W over w, so a one percent focal error is a one percent
+    depth error, six millimetres at sixty centimetres. So the practical
+    conclusion is that you have to validate on something the calibration wasn't
+    fitted to — touch a known point with the robot through the full pipeline and
+    measure the miss with a ruler, at the working distance and at several places
+    in the workspace.
+  followUps:
+    - q: "Wouldn't holding out some calibration views catch this?"
+      a: >-
+        It catches overfitting to particular images and not a degeneracy, because
+        the degeneracy is a property of the capture distribution rather than of
+        individual frames. If every view is fronto-parallel then the held-out
+        ones are too, and the wrong parameters reproject them perfectly as well —
+        the flat direction fits all frontal views exactly by construction. What
+        does work without leaving the software is looking at conditioning: take
+        the SVD of the Jacobian at the solution and a near-zero singular value
+        names the unconstrained parameter combination directly. That's two lines,
+        it's free at the solution, and almost nobody looks because the toolbox
+        already printed a reassuring scalar.
+    - q: "What's the equivalent trap in hand-eye calibration?"
+      a: >-
+        Near-parallel rotation axes. The constraint is R_A equals R_X R_B R_X
+        transpose, and conjugation preserves the rotation angle and maps axis to
+        axis — so one motion says only that R_X carries B's axis onto A's, which
+        is two constraints on three degrees of freedom. Rotation about that axis
+        is free, so you need a second motion with a different axis. The trap is
+        that it isn't binary: at five degrees of separation the system is
+        formally determined, the solver returns an answer without complaining,
+        and it's wrong. I measured about three degrees of error from point one
+        five degrees of input noise at five degrees separation, against point
+        four at ninety — roughly sevenfold amplification, and about fortyfold at
+        one degree. Three degrees at half a metre is around two and a half
+        centimetres of consistent miss.
+    - q: "How would you diagnose a robot that consistently misses by a couple of centimetres?"
+      a: >-
+        I'd measure the miss at several places in the workspace rather than one,
+        because the spatial pattern separates the hypotheses. A miss that's the
+        same everywhere is a translation offset in hand-eye. A miss that grows
+        with distance from the camera points at focal length or hand-eye
+        rotation, since both scale with range. A miss that grows towards the
+        image edges is distortion. And a miss that only appears while the robot
+        is moving is a time offset between streams rather than a spatial problem
+        at all — that one gets misdiagnosed as spatial constantly, because a
+        fixed latency looks exactly like a pose error that depends on velocity.
+        Recording where each measurement was taken costs nothing and turns one
+        number into three distinguishable causes.
+    - q: "How often should you recalibrate?"
+      a: >-
+        I'd rather monitor than schedule, because both fixed answers are wrong in
+        the usual way — recalibrating monthly is either wasteful or too late, and
+        you can't tell which without a signal. So I'd keep the touch test as a
+        periodic health check, a couple of known points, a minute to run, logged
+        over time so drift is visible as a trend rather than discovered as a
+        failure. Things that should trigger an immediate recalibration are any
+        mechanical event: the camera being bumped, a lens changed or refocused,
+        the mount being reworked. Thermal drift over a shift is real for some
+        setups and the log will show it if it matters for yours.
+  traps:
+    - "Quoting reprojection error as evidence of accuracy. It is a training residual and is flat across a factor of seven in focal length."
+    - "Believing more views, or a wider depth range, fixes a fronto-parallel capture. The count argument says you stay one equation short."
+    - "Treating hand-eye observability as binary. It degrades continuously, and a near-degenerate set returns a confident wrong answer."
+    - "Diagnosing a constant miss without mapping it across the workspace. The spatial pattern is what separates translation, focal, distortion and timing."
+check:
+  - id: cc_l5_c1
+    prompt: "A colleague reports 0.15 px reprojection error and concludes the calibration is excellent. What is the strongest response?"
+    options:
+      - "Agree — that is a good result"
+      - "That number is a training residual computed on the fitted board images, so it is compatible with a badly wrong calibration: measured, a fronto-parallel capture gave 0.184 px with the focal length 650% wrong. Check the capture had real tilt, look at the Jacobian conditioning, and validate against a metric measurement"
+      - "Ask for the distortion coefficients as well"
+      - "Ask whether enough views were used"
+    answer: 1
+    explanation: "The response has to name why the metric cannot answer the question rather than just doubting it — the fit is exact along a flat direction, so a small residual carries no information about the parameters there. The three follow-ups are ordered by cost: capture geometry is free to check, conditioning is two lines at the solution, and the metric touch test is the only one that leaves the reprojection metric entirely. More views is precisely the remedy that does not work here."
+  - id: cc_l5_c2
+    prompt: "Your robot misses by about 2 cm, and the miss grows with the distance from the camera to the target. What does that point to?"
+    options:
+      - "Lens distortion"
+      - "Focal length or hand-eye rotation error — both produce a miss proportional to range, whereas a hand-eye translation offset is constant and distortion grows toward the image edges rather than with depth"
+      - "A time offset between the camera and the robot"
+      - "Detector noise"
+    answer: 1
+    explanation: "Range-proportional error is the discriminating signature: $\\delta Z/Z = \\delta f/f$ makes focal error scale with distance, and a hand-eye rotation error swings the camera ray by a fixed angle, which also grows linearly with range. A translation offset would be constant and distortion is a function of image position rather than depth. A timing error is a good hypothesis for a different symptom — a miss that appears only while moving — which is why noting whether the robot was in motion matters."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Insufficient pose diversity: all calibration poses from similar angles $\rightarrow$ poorly constrained rotation estimate. Symptoms: accurate in calibration region, large errors elsewhere. Also: thermal drift changes intrinsics over time, especially for cheap sensors. Fix: capture from diverse angles/distances, recalibrate after thermal stabilization, use online calibration refinement.
+<Steps>
+<Step title="Constant miss everywhere → hand-eye translation">
+A rigid offset. Cheapest to fix and the easiest to confirm.
+</Step>
 
-## Interview-ready answer
+<Step title="Miss grows with range → focal length or hand-eye rotation">
+Both scale linearly with distance. Separate them by checking the calibration's
+capture geometry first.
+</Step>
 
-Camera calibration is foundational for any vision-based robot system. Intrinsic calibration (OpenCV's calibrateCamera) gives you the lens model. The critical piece for robotics is hand-eye calibration — relating the camera to the robot frame. For eye-in-hand: solve $AX = XB$ with diverse poses. For eye-to-hand: similar but the camera is fixed. Key practical details: use at least 15 diverse poses, verify with physical touch tests (not just reprojection error), and recalibrate when the setup changes. The biggest mistake I see: not accounting for the time delay between capturing the image and reading the robot pose.
+<Step title="Miss grows toward image edges → distortion">
+A function of image position, not depth. Check the distortion model order and
+whether the capture covered the periphery.
+</Step>
+
+<Step title="Miss only while moving → time offset, not geometry">
+Latency between streams looks like a velocity-dependent pose error. No amount of
+spatial recalibration fixes it.
+</Step>
+
+<Step title="Everything looks fine and the numbers are wrong → check conditioning">
+SVD of the Jacobian at the solution. A near-zero singular value names the
+parameter combination the data never determined.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The move that makes this answer strong is treating reprojection error as a
+training residual and saying why that matters — it is the same structure as a
+policy's validation loss being flat across the range from working to useless.
+Backing it with the measured 0.184 px at 650% focal error, and the detail that
+two initialisations converged to the same wrong number, turns a general caution
+about metrics into a specific claim about this one. The counting argument for why
+more views cannot help is the part most people have not thought through.
+</Warning>
