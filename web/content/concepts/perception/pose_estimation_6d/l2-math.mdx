@@ -1,22 +1,186 @@
 ---
 concept: pose_estimation_6d
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of 6D Object Pose Estimation, including the
-    key equations.
+  prompt: "Why is no rotation representation below five dimensions continuous, and what is the L2-optimal prediction for a symmetric object?"
   keyPoints:
-    - Estimating the full 6-DOF pose (3D rotation $R \in SO(3)$ + 3D translation
-      $\mathbf{t} \in \mathbb{R}^3$) of known objects from RGB or RGB-D images.
-    - "The pose transforms a point from object frame to camera frame:
-      $\\mathbf{p}_{\\text{cam}} = R\\,\\mathbf{p}_{\\text{obj}} +
-      \\mathbf{t}$."
-    - "Methods: template matching, keypoint detection + PnP, direct regression,
-      render-and-compare."
-check: []
-papers: []
+    - "A representation needs a continuous right inverse from SO(3); quaternions double-cover, so nearby rotations can demand antipodal outputs."
+    - "Zhou et al.'s result is topological: SO(3) admits no continuous representation in $\\mathbb{R}^n$ for $n < 5$, so 6D via Gram–Schmidt is the smallest practical continuous choice."
+    - "For a symmetry group $G$, the L2-optimal single rotation is $\\frac{1}{|G|}\\sum_g R g$ — measured rank 1 for 2-fold, 4-fold and continuous symmetry."
+    - "ADD is correspondence-based, so it is not invariant to symmetry; ADD-S uses nearest-neighbour matching and is."
+check:
+  - id: pe_l2_c1
+    prompt: "What precisely fails about the quaternion representation for regression?"
+    options:
+      - "Quaternions cannot represent all rotations"
+      - "The map from SO(3) to unit quaternions is not continuous: $q$ and $-q$ are the same rotation, so any single-valued choice must jump somewhere, and a continuous network cannot reproduce that jump"
+      - "Quaternion normalisation is numerically unstable"
+      - "Quaternions require four parameters for three degrees of freedom"
+    answer: 1
+    explanation: "Coverage is not the issue — unit quaternions surject onto SO(3), twice over. The problem is the direction that matters for a network, which must produce a representation *from* an input as a continuous function; the double cover means any consistent choice of sign has a cut where nearby rotations map to nearly opposite outputs. The redundancy of four parameters for three degrees of freedom is shared by the 6D representation, which works, so it cannot be the explanation."
+  - id: pe_l2_c2
+    prompt: "For an object with symmetry group $G$, what does an L2 loss on the rotation matrix drive the prediction toward?"
+    options:
+      - "The element of the orbit closest to the previous prediction"
+      - "The orbit mean $\\frac{1}{|G|}\\sum_{g \\in G} Rg$, which is generally not a rotation — measured rank 1 for 2-fold, 4-fold and continuous symmetry about an axis"
+      - "A random element of the orbit"
+      - "The identity rotation"
+    answer: 1
+    explanation: "Squared loss is minimised by the conditional mean, and here the conditional distribution is uniform over the orbit, so the optimum is the orbit average. Averaging rotation matrices leaves the linear space of matrices, and for these symmetry groups the result is rank 1 — every direction except the symmetry axis cancels. This is exactly the mode-averaging result from multi-modal action distributions, with SO(3) in place of an action space."
+  - id: pe_l2_c3
+    prompt: "Why does ADD-S resolve the symmetry problem where ADD does not?"
+    options:
+      - "It uses a larger tolerance"
+      - "It replaces point correspondence with nearest-neighbour matching, so a transform mapping the model onto itself while permuting points gives zero distance — which is exactly what a symmetry element does"
+      - "It normalises by object diameter"
+      - "It is computed in the camera frame"
+    answer: 1
+    explanation: "A symmetry element leaves the point *set* unchanged while relabelling which point sits where, so any correspondence-based distance sees large displacements and any set-based distance sees none. Measured on an exactly four-fold symmetric object, ADD-S gives 0.00 mm for 90° and 180° rotations about the axis and 9.64 mm for a genuine 15° error. The cost is that ADD-S is more forgiving in general, so it can mask real errors that happen to move points along the surface."
 ---
 
-## Formal definition
+## Why the representation matters
 
-Estimating the full 6-DOF pose (3D rotation $R \in SO(3)$ + 3D translation $\mathbf{t} \in \mathbb{R}^3$) of known objects from RGB or RGB-D images. The pose transforms a point from object frame to camera frame: $\mathbf{p}_{\text{cam}} = R\,\mathbf{p}_{\text{obj}} + \mathbf{t}$. Methods: template matching, keypoint detection + PnP, direct regression, render-and-compare. Rotation representations: quaternion $\mathbf{q} \in \mathbb{S}^3$, rotation matrix $R \in \mathbb{R}^{3 \times 3}$, 6D continuous representation (Zhou et al.).
+A network computes a function $\phi: \mathcal{X} \to \mathbb{R}^n$ and a fixed
+map $f: \mathbb{R}^n \to SO(3)$ turns its output into a rotation. For the network
+to be able to fit the task, there must exist a *continuous*
+$g: SO(3) \to \mathbb{R}^n$ with $f(g(R)) = R$.
+
+<Derivation title="Where the quaternion representation breaks">
+
+Unit quaternions double-cover $SO(3)$: the map $\pi: S^3 \to SO(3)$ sends both
+$q$ and $-q$ to the same rotation. To use quaternions as an output space, we need
+a continuous section — a continuous choice of one of the two preimages for every
+rotation.
+
+Suppose $g: SO(3) \to S^3$ were such a continuous section. Take a loop in
+$SO(3)$ that is not contractible — a full $2\pi$ rotation about a fixed axis.
+Lifting it to $S^3$ traces a path from $q$ to $-q$: the lift of a closed loop is
+*not closed*. But $g$ being continuous and single-valued would force the lift to
+return to $g$ of the starting rotation, which is $q$, not $-q$.
+
+Contradiction. **The assumption doing the work is that $SO(3)$ is not simply
+connected** — its fundamental group is $\mathbb{Z}_2$, which is exactly what the
+double cover expresses. Any single-valued choice of quaternion must therefore
+have a discontinuity somewhere.
+
+Zhou et al. generalise this: $SO(3)$ admits no continuous representation in
+$\mathbb{R}^n$ for $n < 5$. Six dimensions with Gram–Schmidt is the smallest
+practical continuous choice.
+
+</Derivation>
+
+The 6D representation outputs two vectors and orthonormalises them:
+
+$$
+b_1 = \frac{a_1}{\|a_1\|}, \qquad
+b_2 = \frac{a_2 - (b_1 \!\cdot\! a_2)b_1}{\|a_2 - (b_1 \!\cdot\! a_2)b_1\|}, \qquad
+b_3 = b_1 \times b_2
+$$
+
+This is continuous everywhere except the measure-zero set where $a_1 = 0$ or the
+two are parallel, and — crucially — it admits a continuous section: just take the
+first two columns of $R$.
+
+Measured, four identical networks differing only in the output map:
+
+| representation | mean | 90th pct | worst |
+| --- | --- | --- | --- |
+| Euler (3) | 6.93° | 9.67° | 179.63° |
+| axis-angle (3) | 4.96° | 6.95° | 172.61° |
+| quaternion (4) | 4.74° | 7.90° | 178.66° |
+| 6D | 0.44° | 0.68° | 1.27° |
+
+<KeyIdea>
+The signature to recognise is a distribution with a reasonable centre and a
+catastrophic tail. Mean error of a few degrees looks like an ordinary model that
+needs more training; a worst case of 178° is not a bad fit but a structural
+impossibility, and no amount of data removes it. If your rotation errors are
+mostly fine with occasional total inversions, check the representation before
+anything else.
+</KeyIdea>
+
+## Symmetry
+
+Let $G \subset SO(3)$ be the object's symmetry group, so $Rg$ describes the same
+physical configuration as $R$ for every $g \in G$.
+
+<Derivation title="The L2-optimal prediction is not a rotation">
+
+Under a squared loss on the rotation matrix, the optimal single prediction given
+that all orbit elements are equally valid is the conditional mean:
+
+$$
+\hat{R} = \frac{1}{|G|}\sum_{g \in G} R g
+$$
+
+Take $G$ = rotations about $\hat{z}$. For 2-fold symmetry,
+$\tfrac{1}{2}(I + R_z(\pi)) = \mathrm{diag}(0,0,1)$. For continuous symmetry,
+
+$$
+\frac{1}{2\pi}\int_0^{2\pi} R_z(\theta)\, d\theta = \mathrm{diag}(0,0,1)
+$$
+
+since $\int \cos = \int \sin = 0$ over the full circle.
+
+Measured singular values of the orbit mean:
+
+| symmetry | singular values | rank |
+| --- | --- | --- |
+| 2-fold | $(1, 0, 0)$ | 1 |
+| 4-fold | $(1, 0, 0)$ | 1 |
+| continuous | $(1, 0, 0)$ | 1 |
+
+</Derivation>
+
+Rank 1. Everything except the symmetry axis cancels — which is informative rather
+than merely broken: the axis is exactly the part of the pose that *is*
+determined, and the rest is exactly what is not.
+
+## Metrics
+
+$$
+\mathrm{ADD} = \frac{1}{|\mathcal{M}|}\sum_{x \in \mathcal{M}} \left\| (Rx + t) - (\hat{R}x + \hat{t}) \right\|
+$$
+
+$$
+\mathrm{ADD\text{-}S} = \frac{1}{|\mathcal{M}|}\sum_{x_1 \in \mathcal{M}} \min_{x_2 \in \mathcal{M}} \left\| (Rx_1 + t) - (\hat{R}x_2 + \hat{t}) \right\|
+$$
+
+ADD compares *corresponding* points; ADD-S compares the point *sets*. A symmetry
+element maps the model onto itself while permuting which point is where, so it is
+invisible to the second and maximal to the first.
+
+Measured on an exactly 4-fold symmetric object:
+
+| predicted pose | ADD | ADD-S |
+| --- | --- | --- |
+| exact | 0.00 mm | 0.00 mm |
+| 90° about the symmetry axis | **82.21 mm** | **0.00 mm** |
+| 180° about the symmetry axis | **116.26 mm** | **0.00 mm** |
+| 5° genuine error | 5.07 mm | 3.75 mm |
+| 15° genuine error | 15.17 mm | 9.64 mm |
+
+<Warning>
+ADD ranks a physically perfect pose about eight times worse than a genuinely
+wrong one. But ADD-S is not simply better: it is invariant to any transform that
+maps the point set onto itself *approximately*, so it forgives real errors that
+slide points along a smooth surface — a sphere scores near zero under ADD-S for
+every rotation. The correct practice is to declare each object's symmetry group
+and evaluate modulo exactly that, rather than choosing one metric for everything.
+</Warning>
+
+## What the error costs downstream
+
+A rotation error $\delta\theta$ displaces a point at radius $r$ from the object
+centre by $2r\sin(\delta\theta/2) \approx r\,\delta\theta$:
+
+| object size | 1° | 5° | 10° |
+| --- | --- | --- | --- |
+| 5 cm | 0.44 mm | 2.18 mm | 4.34 mm |
+| 10 cm | 0.87 mm | 4.36 mm | 8.68 mm |
+| 20 cm | 1.75 mm | 8.72 mm | 17.36 mm |
+
+So a 5° pose error on a 10 cm object is about 4 mm at the rim — comfortably
+inside a parallel gripper's tolerance for a large object, and fatal for an
+insertion with 50 µm clearance.

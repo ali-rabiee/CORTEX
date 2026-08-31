@@ -1,26 +1,124 @@
 ---
 concept: pose_estimation_6d
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain 6D Object Pose Estimation in plain language: what is it, and
-    why does it matter?"
+  prompt: "What are the two output-space problems in 6D pose estimation, and what do they cost?"
   keyPoints:
-    - "Given an image of a mug on a table, figure out exactly where it is
-      (translation: 30cm forward, 10cm left, 5cm above table) and how it's
-      rotated (handle pointing right, tilted 15 degrees)."
-    - This is the information a robot needs to plan a grasp.
-    - "The hard part: rotation is tricky to represent — quaternions have
-      double-cover ($\\mathbf{q}$ and $-\\mathbf{q}$ represent the same
-      rotation), Euler angles have gimbal lock."
-check: []
-papers: []
+    - "Rotation representations below five dimensions are discontinuous, so a network cannot fit them smoothly — measured worst-case errors near 180° for Euler, axis-angle and quaternions."
+    - "The 6D representation is continuous, and in an identical experiment it gave 0.44° mean against 4.74° for quaternions, with a worst case of 1.27° against 178°."
+    - "Symmetry makes the target ambiguous: the L2-optimal single prediction is the mean of the symmetry orbit, which is rank 1 — not a rotation at all."
+    - "And it breaks the standard metric: ADD scores a physically identical pose as 82–116 mm wrong while a genuinely wrong 15° pose scores 15 mm."
+media:
+  - kind: article
+    title: "On the Continuity of Rotation Representations in Neural Networks"
+    url: https://arxiv.org/abs/1812.07035
+    source: "Zhou et al., 2019"
+    note: "Sections 3 and 4. The claim is topological — no representation of SO(3) in fewer than five dimensions is continuous — and it explains a failure mode people usually blame on training."
+  - kind: article
+    title: "BOP: Benchmark for 6D Object Pose Estimation"
+    url: https://bop.felk.cvut.cz/home/
+    source: "CTU Prague"
+    note: "The standard benchmark. Read the metric definitions before the leaderboard — how symmetry is handled is the part that determines what the numbers mean."
+check:
+  - id: pe_l1_c1
+    prompt: "Two identical networks regress rotation, one outputting a quaternion and one a 6D representation. What difference should you expect?"
+    options:
+      - "Very little — both parameterise SO(3) exactly"
+      - "A large one, concentrated in the tail: measured 4.74° mean and 178° worst case for the quaternion against 0.44° mean and 1.27° worst case for 6D, because representations below five dimensions are discontinuous and the network cannot fit the jump"
+      - "The quaternion will be better since it has fewer parameters to learn"
+      - "The 6D version will be better only with more training data"
+    answer: 1
+    explanation: "Both parameterise rotations exactly, which is why the difference is surprising — the issue is not coverage but continuity of the map from SO(3) into the output space. A quaternion double-covers, so nearby rotations can require nearly antipodal outputs, and a continuous network cannot produce that jump. The failure concentrates where the discontinuity lives, which is why the mean is a few degrees while the worst case is a near-total inversion."
+  - id: pe_l1_c2
+    prompt: "Your pose estimator scores badly on a symmetric object under ADD. What should you check first?"
+    options:
+      - "Whether the network needs more capacity"
+      - "Whether the predictions differ from ground truth by a symmetry element — ADD compares corresponding points, so a physically identical pose scores 82–116 mm on a four-fold symmetric object while a genuinely wrong 15° pose scores 15 mm"
+      - "Whether the depth sensor is accurate enough"
+      - "Whether the training set covers enough viewpoints"
+    answer: 1
+    explanation: "ADD averages the distance between corresponding points under the two poses, and a symmetry element maps the object onto itself while permuting which point is where — so the physical configuration is identical and the correspondence-based distance is large. Measured, ADD ranks a perfect pose about eight times worse than a genuinely wrong one. ADD-S, which matches each point to its nearest neighbour instead, scores those cases at zero, and using it is the fix rather than retraining."
 ---
 
-## Intuition
+## The hard part is the output
 
-Given an image of a mug on a table, figure out exactly where it is (translation: 30cm forward, 10cm left, 5cm above table) and how it's rotated (handle pointing right, tilted 15 degrees). This is the information a robot needs to plan a grasp. The hard part: rotation is tricky to represent — quaternions have double-cover ($\mathbf{q}$ and $-\mathbf{q}$ represent the same rotation), Euler angles have gimbal lock.
+<Intuition>
+6D pose estimation asks where an object is and how it is oriented — three numbers
+for translation, three degrees of freedom for rotation. The translation half is
+ordinary regression. The rotation half is where the difficulty is, and it is not
+mainly a perception problem: two of the biggest failure modes come from the
+*output space* being wrong, and both persist however good your features are.
+</Intuition>
 
-## In practice
+The first is that the obvious ways to write down a rotation cannot be learned
+smoothly. The second is that for symmetric objects the correct answer is not
+unique, so the standard loss and the standard metric are both asking the wrong
+question.
 
-FoundationPose: category-level 6D pose estimation using render-and-compare. Given a CAD model and an RGB-D observation, iteratively refine the pose by rendering the model at the current estimate and comparing to the observation. Loss combines mask IoU, depth $L_1$, and feature similarity. Works for unseen object instances within a category.
+<Figure src="/figures/pose-representation-symmetry.svg" alt="Left: geodesic error for identical networks differing only in rotation representation — Euler, axis-angle and quaternion have means around 5 to 7 degrees with worst cases near 180, while the 6D representation has mean 0.44 and worst case 1.27. Right: for a four-fold symmetric object, ADD scores physically identical poses at 82 and 116 millimetres while ADD-S scores them zero." caption="Two output-space failures. Neither is fixed by better features." />
+
+## Representations below five dimensions do not work
+
+I trained the same network four times, changing only the output representation
+and converting each to a rotation matrix before an identical loss:
+
+| representation | mean | median | 90th pct | worst |
+| --- | --- | --- | --- | --- |
+| Euler (3) | 6.93° | 4.17° | 9.67° | **179.63°** |
+| axis-angle (3) | 4.96° | 3.07° | 6.95° | **172.61°** |
+| quaternion (4) | 4.74° | 3.36° | 7.90° | **178.66°** |
+| **6D** | **0.44°** | 0.43° | 0.68° | **1.27°** |
+
+Eleven times better in the mean, and the tail is the real story: the low-
+dimensional representations produce near-total inversions, while 6D's worst case
+over twenty thousand test rotations is 1.27°.
+
+<KeyIdea>
+The cause is topological rather than statistical. A quaternion double-covers
+SO(3) — $q$ and $-q$ are the same rotation — so two nearby rotations can require
+nearly antipodal outputs, and a continuous function cannot make that jump. Zhou
+et al. show no representation of SO(3) in fewer than five dimensions is
+continuous. More data and more capacity do not help, because the function being
+asked for does not exist.
+</KeyIdea>
+
+## Symmetry makes the target ambiguous
+
+For an object with a symmetry, several rotations describe the same physical
+configuration. Ask a regression head for one and it averages them.
+
+<Steps>
+<Step title="The average is not a rotation">
+The L2-optimal single output is the mean of the symmetry orbit. For 2-fold,
+4-fold *and* continuous symmetry about an axis, that mean has singular values
+$(1, 0, 0)$ — rank 1. Only the symmetry axis survives.
+</Step>
+
+<Step title="Which is the mode-averaging failure again">
+Same structure as a policy asked to go left or right: the loss-minimising answer
+is not one of the valid options and is not valid itself.
+</Step>
+
+<Step title="And the standard metric agrees with the wrong answer">
+ADD compares corresponding points, so a pose differing by a symmetry element
+scores 82 mm (90°) or 116 mm (180°) on a four-fold symmetric object — while a
+genuinely wrong 15° pose scores 15 mm.
+</Step>
+
+<Step title="ADD-S is the fix for the metric">
+Matching each point to its nearest neighbour instead scores both symmetry cases
+at exactly 0.00 mm, and the 15° error at 9.64 mm.
+</Step>
+</Steps>
+
+<Warning>
+ADD ranking a correct pose roughly eight times worse than an incorrect one is
+worth sitting with. Any training signal, model selection, or leaderboard built on
+it is actively steering away from correct answers on symmetric objects — and
+symmetric objects are most of them, since manufactured parts are full of
+cylinders, boxes and rotationally-symmetric fasteners. This is why benchmark
+metric definitions deserve reading before benchmark numbers.
+</Warning>
+
+<WatchThis />

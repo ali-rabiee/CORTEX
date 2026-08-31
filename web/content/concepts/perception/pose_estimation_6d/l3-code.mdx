@@ -1,0 +1,190 @@
+---
+concept: pose_estimation_6d
+level: 3
+status: final
+recall:
+  prompt: "Write the 6D rotation head, a symmetry-aware loss, and the evaluation. What must never be regressed directly?"
+  keyPoints:
+    - "Never regress Euler angles or a quaternion — output 6 numbers and Gram–Schmidt them."
+    - "Train with a geodesic or matrix loss on R, minimised over the object's declared symmetry group."
+    - "Evaluate modulo the declared symmetry, rather than picking ADD or ADD-S globally."
+    - "Report the error distribution, not the mean: the representation failure lives entirely in the tail."
+check:
+  - id: pe_l3_c1
+    prompt: "Why take the minimum over symmetry elements inside the loss rather than canonicalising the ground-truth pose beforehand?"
+    options:
+      - "It is faster"
+      - "Canonicalising picks one orbit element by a rule that is itself discontinuous in the pose, so it reintroduces a jump — taking the minimum inside the loss lets the network settle into whichever branch it is already near"
+      - "Canonicalisation requires knowing the symmetry group"
+      - "The minimum is differentiable and canonicalisation is not"
+    answer: 1
+    explanation: "Any canonical choice — smallest rotation angle, say — has a boundary where the selected element switches, and nearby ground-truth poses across that boundary get labels far apart. That is the same discontinuity as the quaternion double cover, imported into the labels. Minimising over the group inside the loss removes the need to choose: the network is rewarded for matching *any* valid element, so it can be continuous."
+  - id: pe_l3_c2
+    prompt: "Which summary should you report for rotation error?"
+    options:
+      - "The mean geodesic error"
+      - "The full distribution or at least median, 90th percentile and maximum, since the representation failure is concentrated in the tail — measured, quaternions gave a 4.74° mean and a 178° worst case"
+      - "The mean squared error on the rotation matrix"
+      - "Accuracy at a 5° threshold"
+    answer: 1
+    explanation: "A mean of a few degrees is compatible with both a uniformly mediocre model and an excellent one that catastrophically inverts a small fraction of the time, and those need completely different responses. The measured quaternion run had a 3.36° median with a 178.66° maximum — the median suggests a decent model and the maximum reveals a structural defect. A threshold accuracy is useful alongside but hides the same thing, since a 178° error and a 6° error are both just failures."
+  - id: pe_l3_c3
+    prompt: "What is the right way to handle a continuously symmetric object such as a cylinder?"
+    options:
+      - "Use ADD-S and regress a full pose as usual"
+      - "Predict only the observable part — the symmetry axis — and mark the rotation about it as undefined, since no single full pose is correct and any reported value is arbitrary"
+      - "Add more training data covering all rotations about the axis"
+      - "Use a classification head over discretised angles"
+    answer: 1
+    explanation: "The orbit mean for continuous symmetry has rank 1, which is precisely the statement that only the axis is determined — so the honest output has fewer degrees of freedom than a general pose. Reporting a full rotation forces a downstream consumer to trust a number that is meaningless, whereas reporting the axis plus an explicit 'unconstrained' flag lets a grasp planner choose the roll for its own reasons. More data cannot help, since the ambiguity is in the object rather than in the observations."
+---
+
+## The head
+
+<CodeWalk title="6D output, Gram–Schmidt to SO(3)">
+
+```python title="head.py"
+import torch, torch.nn as nn
+
+def rot6d_to_matrix(v):
+    """Zhou et al.'s continuous representation. The network outputs 6 numbers;
+    this orthonormalises them.
+
+    Measured against identical networks that output Euler, axis-angle or
+    quaternion: 0.44 deg mean and 1.27 deg worst case here, against ~5 deg mean
+    and ~178 deg worst case there. The tail is the whole point — a near-180 deg
+    error is not a bad fit, it is a discontinuity the network cannot represent.
+    """
+    a1, a2 = v[:, :3], v[:, 3:]
+    b1 = a1 / a1.norm(dim=1, keepdim=True).clamp_min(1e-8)
+    a2 = a2 - (b1 * a2).sum(1, keepdim=True) * b1
+    b2 = a2 / a2.norm(dim=1, keepdim=True).clamp_min(1e-8)
+    return torch.stack([b1, b2, torch.cross(b1, b2, dim=1)], dim=2)
+
+
+class PoseHead(nn.Module):
+    def __init__(self, in_dim):
+        super().__init__()
+        self.rot = nn.Linear(in_dim, 6)      # never 3 or 4
+        self.trans = nn.Linear(in_dim, 3)
+
+    def forward(self, h):
+        return rot6d_to_matrix(self.rot(h)), self.trans(h)
+```
+
+</CodeWalk>
+
+## A loss that knows about symmetry
+
+<CodeWalk title="Minimise over the declared symmetry group">
+
+```python title="loss.py"
+import torch
+
+def geodesic_loss(R_pred, R_gt):
+    """Angle of the residual rotation. Preferable to an L2 on the matrix
+    because it is the metric you report, so training and evaluation agree."""
+    rel = R_pred.transpose(1, 2) @ R_gt
+    c = ((rel.diagonal(dim1=1, dim2=2).sum(1) - 1) / 2).clamp(-1 + 1e-6, 1 - 1e-6)
+    return c.acos()
+
+
+def symmetric_loss(R_pred, R_gt, sym_group):
+    """sym_group: (K,3,3) rotations mapping the object onto itself.
+
+    The minimum is taken INSIDE the loss rather than canonicalising the label
+    beforehand. Any canonical choice has a boundary where the selected element
+    switches, so nearby ground-truth poses get labels far apart — the same
+    discontinuity as the quaternion double cover, imported into the data.
+    """
+    # (B, K, 3, 3): every valid ground-truth pose
+    targets = torch.einsum('bij,kjl->bkil', R_gt, sym_group)
+    losses = torch.stack([geodesic_loss(R_pred, targets[:, k])
+                          for k in range(sym_group.shape[0])], dim=1)
+    return losses.min(dim=1).values.mean()
+```
+
+</CodeWalk>
+
+<KeyIdea>
+Without the `min`, an L2 loss over an ambiguous target drives the prediction to
+the orbit mean, which is rank 1 for every axis symmetry — not a rotation at all.
+Six lines convert an impossible regression into a well-posed one, and the group
+is metadata you already have from the CAD model.
+</KeyIdea>
+
+## Continuous symmetry needs a different output
+
+<CodeWalk title="Predict what is observable, and say what is not">
+
+```python title="axis_only.py"
+import torch
+
+class AxisSymmetricPose(torch.nn.Module):
+    """For a cylinder, the orbit mean has rank 1: only the symmetry axis is
+    determined. Reporting a full rotation makes a downstream planner trust a
+    number that is arbitrary, so report the axis and flag the roll as free."""
+
+    def __init__(self, in_dim):
+        super().__init__()
+        self.axis = torch.nn.Linear(in_dim, 3)
+        self.trans = torch.nn.Linear(in_dim, 3)
+
+    def forward(self, h):
+        a = self.axis(h)
+        return {
+            "axis": a / a.norm(dim=1, keepdim=True).clamp_min(1e-8),
+            "translation": self.trans(h),
+            "roll_about_axis": None,        # genuinely undefined; do not invent it
+        }
+
+    @staticmethod
+    def loss(pred_axis, gt_axis):
+        # Symmetric under axis flip for a cylinder: +a and -a are the same object.
+        return (1.0 - (pred_axis * gt_axis).sum(1).abs()).mean()
+```
+
+</CodeWalk>
+
+## Evaluation
+
+<CodeWalk title="Evaluate modulo the declared symmetry, and report the tail">
+
+```python title="eval.py"
+import numpy as np
+
+def pose_report(R_pred, R_gt, sym_group):
+    """Report the DISTRIBUTION. The representation failure lives entirely in the
+    tail: the measured quaternion run had a 3.36 deg median and a 178.66 deg
+    maximum, and the median alone reads as a merely mediocre model."""
+    e = np.stack([geodesic_deg(R_pred, R_gt @ g) for g in sym_group]).min(0)
+    for name, v in (("mean", e.mean()), ("median", np.median(e)),
+                    ("90th", np.percentile(e, 90)), ("99th", np.percentile(e, 99)),
+                    ("max", e.max())):
+        print(f"  {name:>7}: {v:7.2f}°")
+    print(f"  fraction > 90° (inversions): {(e > 90).mean():.4%}")
+    return e
+
+
+def add_s(model_pts, R_gt, t_gt, R_pred, t_pred):
+    """Nearest-neighbour matching, so a symmetry element scores zero.
+
+    Use it only where symmetry is genuine: it is invariant to any transform that
+    approximately maps the point set onto itself, so it forgives real errors that
+    slide points along a smooth surface. A sphere scores ~0 for every rotation.
+    """
+    A = model_pts @ R_gt.T + t_gt
+    B = model_pts @ R_pred.T + t_pred
+    d = np.linalg.norm(A[:, None, :] - B[None, :, :], axis=2)
+    return d.min(1).mean()
+```
+
+</CodeWalk>
+
+<Warning>
+`fraction > 90°` is the line worth adding to every pose report. An inversion rate
+of a fraction of a percent is invisible in a mean, survives every threshold
+metric that treats 91° and 178° identically, and is the exact signature of a
+discontinuous representation. If it is nonzero and you are outputting quaternions,
+the fix is the head rather than the training schedule.
+</Warning>

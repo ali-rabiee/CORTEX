@@ -1,24 +1,163 @@
 ---
 concept: pose_estimation_6d
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does 6D Object Pose Estimation fail in practice, and how would you
-    present it in an interview?
+  prompt: "Give your interview answer on 6D pose estimation. Which two failures do you lead with?"
   keyPoints:
-    - "Symmetry ambiguity: a bowl looks the same from many angles, so multiple
-      rotations are equally correct."
-    - Training with a single ground-truth rotation causes the network to average
-      between valid poses.
-    - "Symptoms: predicted rotation is incorrect but loss is low."
-check: []
-papers: []
+    - "Frame most of the difficulty as being in the output space rather than in perception."
+    - "Rotation representations below five dimensions are discontinuous — measured 178° worst case for quaternions against 1.27° for 6D."
+    - "Symmetry makes the L2-optimal prediction the orbit mean, which is rank 1 — not a rotation."
+    - "And it breaks ADD: a physically identical pose scores 82–116 mm while a genuinely wrong 15° pose scores 15 mm."
+interview:
+  answer: >-
+    Six-D pose is where an object is and how it's oriented — three for
+    translation and three degrees of freedom for rotation. The translation half
+    is ordinary regression. What I find worth talking about is that two of the
+    biggest failure modes aren't perception problems at all, they're output-space
+    problems, and they persist however good your features are. The first is the
+    rotation representation. The natural things to output — Euler angles, a
+    quaternion — can't be learned smoothly, and the reason is topological rather
+    than statistical. SO(3) isn't simply connected: a full two-pi rotation is a
+    loop you can't contract, and if you lift it to unit quaternions it ends at
+    minus q rather than back at q. So any single-valued choice of quaternion has
+    to jump somewhere, and a continuous network can't reproduce a jump. Zhou and
+    colleagues generalised that — there's no continuous representation of SO(3)
+    in fewer than five dimensions. I ran the comparison: same network, same loss
+    on the rotation matrix, only the output map changed. Quaternions gave four
+    point seven degrees mean error with a worst case of a hundred and
+    seventy-nine. The six-D representation — output two vectors, Gram-Schmidt
+    them — gave point four four mean and a worst case of one point two seven over
+    twenty thousand test rotations. The tail is the real signal. A worst case
+    near a hundred and eighty degrees isn't a bad fit, it's a structural
+    impossibility, and more data won't touch it. The second failure is symmetry.
+    If an object has a symmetry group, several rotations describe the same
+    physical configuration, so asking a regression head for one makes it average
+    them — and the L2-optimal answer is the mean of the symmetry orbit. I
+    computed that for two-fold, four-fold and continuous symmetry about an axis,
+    and in all three cases the mean has singular values one, zero, zero. It's
+    rank one. Not a rotation at all — only the symmetry axis survives, which is
+    actually informative, because the axis is exactly the part that is determined
+    and the rest is exactly what isn't. And the same thing breaks the standard
+    metric. ADD compares corresponding points, so a pose that differs by a
+    symmetry element — physically identical — scored eighty-two millimetres for
+    ninety degrees and a hundred and sixteen for a hundred and eighty on a
+    four-fold symmetric object, while a genuinely wrong fifteen-degree pose
+    scored fifteen. ADD ranks a correct pose about eight times worse than an
+    incorrect one. ADD-S, which matches nearest neighbours instead of
+    correspondences, gives exactly zero for both symmetry cases.
+  followUps:
+    - q: "So should everyone just use ADD-S?"
+      a: >-
+        No, and I'd push back on that specifically because it's the obvious
+        conclusion and it's wrong. ADD-S is invariant to any transform that
+        approximately maps the point set onto itself, so it forgives real errors
+        that slide points along a smooth surface — a sphere scores near zero
+        under ADD-S for every rotation, including one that's completely wrong for
+        a task that cares about a marking on it. The right practice is to declare
+        each object's symmetry group as metadata, which you have from the CAD
+        model anyway, and evaluate modulo exactly that group. Picking one metric
+        globally trades one systematic error for another.
+    - q: "How do you handle a continuously symmetric object like a cylinder?"
+      a: >-
+        Predict what's observable and be explicit that the rest isn't. The
+        rank-one result is precisely the statement that only the axis is
+        determined, so I'd output the axis and the translation, and mark the roll
+        about the axis as undefined rather than emitting a number. That matters
+        downstream: a grasp planner given a full pose will trust the roll and
+        plan around it, whereas one told the roll is free can choose it for its
+        own reasons — approach angle, collision avoidance, cable routing. Making
+        the ambiguity explicit turns it from a source of error into a degree of
+        freedom someone else can spend.
+    - q: "Your rotation errors are mostly fine but occasionally near 180 degrees. Diagnosis?"
+      a: >-
+        That's close to diagnostic for a discontinuous representation, so I'd
+        check the head before anything else. The shape is the tell: a reasonable
+        median with catastrophic outliers, because the discontinuity is confined
+        to a cut in rotation space rather than spread over it — my measured
+        quaternion run had a three point four degree median and a hundred and
+        seventy-nine degree maximum. The other candidate is symmetry, if the
+        object has a two-fold symmetry and you're not evaluating modulo it, since
+        a correct pose then reads as a hundred and eighty degrees wrong. Both are
+        output-space problems and neither is fixed by training longer. I'd also
+        add the fraction of errors above ninety degrees to the standard report,
+        because an inversion rate of a fraction of a percent is invisible in a
+        mean and survives every threshold metric.
+    - q: "How accurate does pose need to be for manipulation?"
+      a: >-
+        It depends entirely on the task tolerance, and the conversion is simple —
+        a rotation error displaces a point at radius r by roughly r times the
+        angle. Five degrees on a ten centimetre object is about four millimetres
+        at the rim. That's comfortably inside a parallel gripper's tolerance for
+        picking something up, and hopeless for an insertion with fifty micron
+        clearance. Which is the useful framing: for grasping, a few degrees is
+        fine and the effort should go elsewhere; for tight assembly, no realistic
+        pose accuracy is enough, and you switch to a compliant search where
+        contact forces do the final alignment rather than trying to see your way
+        in.
+  traps:
+    - "Regressing quaternions or Euler angles. It is a topological obstruction, not a tuning problem, and the tail is where it shows."
+    - "Reporting only mean rotation error. A good median coexists with near-180° inversions, and they need different responses."
+    - "Reading a bad ADD score on a symmetric object as a model failure. ADD ranks a correct pose eight times worse than a wrong one there."
+    - "Switching everything to ADD-S. It is invariant to real errors along smooth surfaces; declare the symmetry group instead."
+check:
+  - id: pe_l5_c1
+    prompt: "A candidate proposes regressing a quaternion and normalising it, arguing that quaternions avoid gimbal lock. What is the issue?"
+    options:
+      - "Nothing — that is standard practice"
+      - "Avoiding gimbal lock is true and does not address the problem: quaternions double-cover SO(3), so no continuous single-valued output exists, and the measured consequence is a 178° worst case against 1.27° for a 6D head"
+      - "Normalisation makes the gradients unstable"
+      - "Quaternions cannot represent all rotations"
+    answer: 1
+    explanation: "The gimbal-lock argument is a correct comparison against Euler angles and answers a different question — it is about singularities in a chart, not about whether a continuous section exists. Both representations are discontinuous as network outputs for related but distinct reasons, which is why the measured errors are similar: 6.93° mean for Euler and 4.74° for quaternions, both with near-180° worst cases. The fix is dimensionality, not choosing between two three- or four-dimensional options."
+  - id: pe_l5_c2
+    prompt: "You need to insert a peg with 50 µm clearance and your pose estimator achieves 2° rotation error on a 10 cm part. What follows?"
+    options:
+      - "Improve the estimator until the error is under 0.1°"
+      - "Pose estimation cannot close this: 2° is about 1.7 mm at the rim, more than an order of magnitude beyond the clearance, so the approach should switch to a compliant search where contact supplies the final alignment"
+      - "Add a second camera for stereo pose estimation"
+      - "Use a higher-resolution sensor"
+    answer: 1
+    explanation: "Converting the angle to a displacement settles it immediately — 2° at 5 cm radius is roughly 1.7 mm against a 50 µm target, so the gap is not a matter of incremental improvement. Pushing the estimator toward 0.1° would demand accuracy beyond what calibration and detection noise permit anyway. The productive move is recognising this as the regime where positioning stops being the right frame and contact becomes the measurement, which is the contact-rich manipulation argument."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Symmetry ambiguity: a bowl looks the same from many angles, so multiple rotations are equally correct. Training with a single ground-truth rotation causes the network to average between valid poses. Symptoms: predicted rotation is incorrect but loss is low. Fix: use symmetry-aware loss functions (e.g., $\mathcal{L} = \min_{R_s \in \text{Sym}} d(R_{\text{pred}}, R_{\text{gt}} R_s)$), predict distributions over rotations, or use canonical orientation definitions.
+<Steps>
+<Step title="Good median, occasional ~180° errors → discontinuous representation">
+Check the head before the training schedule. Add the fraction of errors above 90°
+to your report.
+</Step>
 
-## Interview-ready answer
+<Step title="Bad ADD on symmetric objects, good visual results → the metric">
+Evaluate modulo the declared symmetry group rather than switching metrics
+globally.
+</Step>
 
-6D pose estimation maps visual observations to $SE(3)$ poses for robotic manipulation. Key design choices: the 6D continuous rotation representation (Zhou et al.) avoids discontinuities of quaternions/Euler angles. For known objects with CAD models, render-and-compare methods (MegaPose, FoundationPose) work well. For novel objects, category-level methods generalize across instances. The main challenges: symmetry (handle with symmetry-aware losses), occlusion (handle with multi-view fusion), and specular/transparent objects (handle with RGB-D fusion or specialized networks).
+<Step title="Predictions collapse toward a degenerate matrix → orbit averaging">
+An ambiguous target with a plain L2 loss. Take the minimum over the symmetry
+group inside the loss.
+</Step>
+
+<Step title="Systematic offset that scales with range → calibration, not pose">
+Focal length or hand-eye rotation error. The pose estimator is reporting
+faithfully in a wrong frame.
+</Step>
+
+<Step title="Accurate pose, failed insertion → the wrong tool">
+Convert the angle to a displacement at the part radius. Below the task tolerance,
+switch to compliant search.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+What makes this answer land is refusing to treat either problem as a perception
+issue. Saying the rotation failure is topological — SO(3) is not simply connected,
+so the function being asked for does not exist — is checkable in one line and
+explains why more data cannot help. Pairing it with the symmetry result, and
+especially with ADD ranking a correct pose worse than an incorrect one, shows you
+have looked at what the metrics actually compute rather than reading the
+leaderboard.
+</Warning>

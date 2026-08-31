@@ -1,0 +1,129 @@
+---
+concept: pose_estimation_6d
+level: 4
+status: final
+recall:
+  prompt: "Trace the 6D pose literature. What did each contribution change about the problem formulation?"
+  keyPoints:
+    - "PoseCNN: decouple the problem — segment, regress translation via centre voting, regress rotation separately, and handle symmetry in the loss."
+    - "DenseFusion: fuse RGB and depth per-pixel rather than late, so appearance and geometry inform the same feature."
+    - "Zhou et al.: the output representation is a topological constraint, not a stylistic choice."
+    - "FoundationPose: pose for novel objects from a model or a few references, moving the field off per-object training."
+papers:
+  - key: xiang2018posecnn
+    title: "PoseCNN: A Convolutional Neural Network for 6D Object Pose Estimation in Cluttered Scenes"
+    authors: "Yu Xiang, Tanner Schmidt, Venkatraman Narayanan, Dieter Fox"
+    venue: RSS
+    year: 2018
+    arxiv: "1711.00199"
+    takeaway: "Splits pose into segmentation, centre-direction voting for translation and separate rotation regression, and introduces a symmetry-aware loss — the decomposition most later work inherits."
+  - key: wang2019densefusion
+    title: "DenseFusion: 6D Object Pose Estimation by Iterative Dense Fusion"
+    authors: "Chen Wang, Danfei Xu, Yuke Zhu, Roberto Martín-Martín, Cewu Lu, Li Fei-Fei, Silvio Savarese"
+    year: 2019
+    arxiv: "1901.04780"
+    takeaway: "Fuses colour and depth features per-pixel rather than concatenating late, so geometry and appearance constrain the same estimate — and adds an iterative refinement step."
+  - key: zhou2019continuity
+    title: "On the Continuity of Rotation Representations in Neural Networks"
+    authors: "Yi Zhou, Connelly Barnes, Jingwan Lu, Jimei Yang, Hao Li"
+    year: 2019
+    arxiv: "1812.07035"
+    takeaway: "Shows SO(3) has no continuous representation in fewer than five dimensions, so Euler angles and quaternions impose a discontinuity a network cannot fit — and proposes the 6D Gram–Schmidt alternative."
+  - key: wen2024foundationpose
+    title: "FoundationPose: Unified 6D Pose Estimation and Tracking of Novel Objects"
+    authors: "Bowen Wen, Wei Yang, Jan Kautz, Stan Birchfield"
+    venue: CVPR
+    year: 2024
+    arxiv: "2312.08344"
+    takeaway: "One model for pose estimation and tracking of objects it was never trained on, given either a CAD model or a handful of reference images — removing the per-object training that made deployment expensive."
+check:
+  - id: pe_l4_c1
+    prompt: "Why does PoseCNN regress translation by voting for the object centre rather than regressing it directly?"
+    options:
+      - "Voting is more accurate for large objects"
+      - "Because a direct regression from the whole image must localise and estimate simultaneously, whereas each pixel voting for a direction to the centre lets every visible pixel contribute — which degrades gracefully under occlusion instead of failing"
+      - "Voting removes the need for depth"
+      - "It makes the network smaller"
+    answer: 1
+    explanation: "The voting formulation is a robustness argument: the estimate is an aggregate over many local predictions, so occluding part of the object removes some votes rather than corrupting a single global one. It also sidesteps the difficulty that a direct regression head has to encode absolute image position, which convolutions are structurally poor at. The decomposition into segmentation, translation and rotation is the part later work inherits most consistently."
+  - id: pe_l4_c2
+    prompt: "What kind of claim is the continuity result, and why does that matter?"
+    options:
+      - "An empirical finding that 6D representations train better in practice"
+      - "A topological one: $SO(3)$ is not simply connected, so no continuous representation exists below five dimensions — which means the failure cannot be fixed with more data, more capacity or better optimisation"
+      - "A statement about numerical conditioning of the loss"
+      - "A claim about which representation is most compact"
+    answer: 1
+    explanation: "The distinction determines what to do when you see the failure. An empirical finding invites tuning; a topological obstruction says the function you are asking the network to compute does not exist, so the only fix is changing the output space. It also explains the characteristic shape of the failure — a fine median with occasional near-180° inversions — since the discontinuity is confined to a cut in rotation space rather than spread over it."
+  - id: pe_l4_c3
+    prompt: "What changed practically with model-free pose estimation for novel objects?"
+    options:
+      - "Accuracy on standard benchmarks improved substantially"
+      - "The deployment cost: previously each new object needed its own trained model or extensive per-object data, so adding an object to a production line was a training project rather than a configuration change"
+      - "It removed the need for depth sensing"
+      - "It made pose estimation real-time for the first time"
+    answer: 1
+    explanation: "Per-object training is what kept pose estimation out of settings where the object set changes — a warehouse or a small-batch line cannot retrain per SKU. Generalising from a CAD model or a few reference images turns that into a data-entry step. Benchmark accuracy is a separate axis, and it is worth noticing that the practically decisive contribution here was about the cost of adding an object rather than about the error on a fixed set."
+---
+
+## The decomposition that stuck
+
+<PaperCard refKey="xiang2018posecnn" />
+
+Three tasks rather than one: segment the object, estimate translation by having
+each pixel vote for a direction to the centre, and regress rotation separately.
+The voting is a robustness choice — occlusion removes votes instead of corrupting
+a single global estimate — and the decomposition is what most later systems
+inherit.
+
+PoseCNN also introduced a symmetry-aware loss, which is the practical
+acknowledgement that the target is not unique.
+
+<PaperCard refKey="wang2019densefusion" />
+
+The fusion argument: RGB tells you what and where in the image, depth tells you
+the geometry, and combining them late throws away the chance for each to
+disambiguate the other locally. Per-pixel fusion lets a depth discontinuity and a
+colour edge inform the same feature.
+
+## The output space is a constraint
+
+<PaperCard refKey="zhou2019continuity" />
+
+The paper that reframes a widespread practice as a mistake, and does so with a
+topological argument rather than a benchmark.
+
+<Steps>
+<Step title="$SO(3)$ is not simply connected">
+Its fundamental group is $\mathbb{Z}_2$ — a $2\pi$ rotation is a loop that cannot
+be contracted, and lifting it to the quaternion double cover ends at $-q$.
+</Step>
+
+<Step title="So no continuous section exists">
+Any single-valued quaternion output must jump somewhere, and a network is
+continuous.
+</Step>
+
+<Step title="Below five dimensions, this is unavoidable">
+Not a quaternion quirk. Euler angles and axis-angle have their own cuts.
+</Step>
+
+<Step title="Six dimensions with Gram–Schmidt is the practical fix">
+Measured in a controlled comparison: 0.44° mean and 1.27° worst case, against
+4.74° and 178.66° for quaternions.
+</Step>
+</Steps>
+
+## Off per-object training
+
+<PaperCard refKey="wen2024foundationpose" />
+
+<KeyIdea>
+The economically decisive change is not accuracy but the cost of adding an
+object. Per-object models meant a warehouse with a changing catalogue, or a
+small-batch line, could not use pose estimation at all — each SKU was a training
+project. Generalising from a CAD model or a few reference images makes it a
+configuration step. That is the same pattern as elsewhere in robot learning:
+the contribution that moves a method into production is often the one that
+removes a per-instance setup cost rather than the one that improves a benchmark.
+</KeyIdea>

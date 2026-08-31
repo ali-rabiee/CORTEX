@@ -1,15 +1,18 @@
 id: pose_estimation_6d
 title: 6D Object Pose Estimation
 domain: perception
-summary: "Given an image of a mug on a table, figure out exactly where it is
-  (translation: 30cm forward, 10cm left, 5cm above table) and how it's rotated
-  (handle pointing right, tilted 15 degrees)."
+summary: >-
+  Most of the difficulty is in the output space, not the perception. Rotation
+  representations below five dimensions are discontinuous and produce near-180°
+  failures, and object symmetry makes a correct pose score worse than a wrong one.
 tags:
   - perception
   - robot_learning
-difficulty: 4
+difficulty: 3
 importance: 4
 related_concept_ids:
-  - point_cloud_processing
   - camera_calibration
-  - grasp_prediction
+  - depth_estimation
+  - multimodal_distributions
+  - grasp_planning
+  - object_detection
