@@ -1,26 +1,159 @@
 ---
 concept: flow_matching
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Flow Matching for Action Generation,
-    including the key equations.
+  prompt: "Prove that the conditional flow matching objective has the same gradient as the marginal one, and explain why the marginal path curves."
   keyPoints:
-    - Flow matching learns a continuous-time vector field $v_\theta(\mathbf{x},
-      t)$ that transports samples from a simple distribution $p_0 =
-      \mathcal{N}(\mathbf{0}, \mathbf{I})$ to the target distribution $p_1$
-      (actions).
-    - "The trajectory follows the ODE: $\\frac{d\\mathbf{x}}{dt} =
-      v_\\theta(\\mathbf{x}, t)$ for $t \\in [0, 1]$."
-    - "Conditional flow matching (CFM) enables efficient training by regressing
-      to the conditional vector field: $$\\mathcal{L}_{\\text{CFM}} =
-      \\mathbb{E}_{t, q(\\mathbf{x}_1)} \\left[ \\| v_\\theta(\\mathbf{x}_t, t)
-      - (\\mathbf{x}_1 - \\mathbf{x}_0) \\|^2 \\right]$$ where $\\mathbf{x}_t =
-      (1-t)\\mathbf{x}_0 + t\\mathbf{x}_1$ is the linear interpolation path."
-check: []
-papers: []
+    - "The marginal velocity is $u_t(x) = \\mathbb{E}[u_t(x \\mid x_1) \\mid x_t = x]$, an intractable posterior expectation."
+    - "Expanding both squared losses, the cross terms agree because of that identity and the leftover differs by a term with no $\\theta$ in it — so the gradients are equal."
+    - "Curvature arises because the marginal field averages conditional velocities that disagree; each conditional path is straight and their average field is not."
+    - "Reflow removes the disagreement by replacing the independent coupling with the ODE's own pairing, after which the straight line is the trajectory."
+check:
+  - id: fm_l2_c1
+    prompt: "Why does the conditional objective have the same gradient as the marginal one?"
+    options:
+      - "Because the two losses are equal"
+      - "Because expanding both squares gives the same $\\theta$-dependent terms — the quadratic in $v_\\theta$ matches, and the cross term matches by the tower property — leaving a difference that is a conditional variance with no dependence on $\\theta$"
+      - "Because the conditional velocity is an unbiased estimate of the network's output"
+      - "Because the expectation over $x_1$ commutes with the gradient"
+    answer: 1
+    explanation: "The losses are genuinely different in value — the conditional one is larger by exactly the conditional variance of the velocity, which is why its minimum is not zero. What matters is that this gap is a property of the data and interpolant rather than of the parameters, so it vanishes under differentiation. This is the same argument that licenses denoising score matching, and recognising the shared structure is more useful than memorising either instance."
+  - id: fm_l2_c2
+    prompt: "Every conditional path is a straight line. Why is the marginal trajectory curved?"
+    options:
+      - "Because of numerical integration error"
+      - "Because $u_t(x)$ averages the conditional velocities of all paths through $x$, and where paths bound for different modes overlap, that average points in a direction none of them takes — an integral curve of the averaged field is not an average of the curves"
+      - "Because the interpolant is only approximately linear"
+      - "Because the noise distribution is not uniform"
+    answer: 1
+    explanation: "The failure is one of composition: averaging vector fields and then integrating is not the same as integrating and then averaging, and they differ precisely where the fields disagree. Early in the trajectory a point in the middle is plausibly headed to either mode, so the marginal velocity is near zero there while every conditional velocity is large. Measured on a one-dimensional mixture the resulting trajectory sits 21% of its displacement away from its own chord."
+  - id: fm_l2_c3
+    prompt: "What does reflow change, and why does it make one-step sampling exact?"
+    options:
+      - "It changes the interpolant from linear to a smoother curve"
+      - "It changes the coupling: pairs are taken from the ODE's own map rather than independently, so the paths through any point agree, the averaged field is the shared direction, and the trajectory is the straight line the one-step Euler update follows"
+      - "It increases the number of training steps"
+      - "It replaces the Gaussian source with a learned one"
+    answer: 1
+    explanation: "The interpolant was never the problem — it is linear before and after. What reflow removes is the disagreement between paths sharing a region, by matching each noise sample to the data sample the current flow actually sends it to. With a non-crossing coupling the marginal velocity at a point equals the conditional velocity there, so the trajectory is straight and Euler's linear extrapolation is not an approximation. The measured result is one-step error at the sampling-noise floor."
 ---
 
-## Formal definition
+## The objective
 
-Flow matching learns a continuous-time vector field $v_\theta(\mathbf{x}, t)$ that transports samples from a simple distribution $p_0 = \mathcal{N}(\mathbf{0}, \mathbf{I})$ to the target distribution $p_1$ (actions). The trajectory follows the ODE: $\frac{d\mathbf{x}}{dt} = v_\theta(\mathbf{x}, t)$ for $t \in [0, 1]$. Conditional flow matching (CFM) enables efficient training by regressing to the conditional vector field: $$\mathcal{L}_{\text{CFM}} = \mathbb{E}_{t, q(\mathbf{x}_1)} \left[ \| v_\theta(\mathbf{x}_t, t) - (\mathbf{x}_1 - \mathbf{x}_0) \|^2 \right]$$ where $\mathbf{x}_t = (1-t)\mathbf{x}_0 + t\mathbf{x}_1$ is the linear interpolation path. Simpler training than diffusion (no noise schedule), faster inference (fewer ODE solver steps).
+Pick an interpolant. The simplest is linear:
+
+$$
+x_t = (1-t)\,x_0 + t\,x_1, \qquad x_0 \sim p_{\text{noise}},\; x_1 \sim p_{\text{data}}
+$$
+
+Conditioned on the endpoints, the velocity is immediate:
+$u_t(x \mid x_0, x_1) = x_1 - x_0$. What generates the correct marginals, though,
+is the *marginal* field
+
+$$
+u_t(x) = \mathbb{E}\!\left[\,u_t(x \mid x_1) \;\middle|\; x_t = x\,\right]
+$$
+
+which is a posterior expectation over which data point you are heading towards —
+not something you can evaluate.
+
+<Derivation title="Why regressing the conditional target suffices">
+
+Compare the two objectives:
+
+$$
+\mathcal{L}_{\text{FM}} = \mathbb{E}_{t, x_t}\left\|v_\theta(x_t,t) - u_t(x_t)\right\|^2,
+\qquad
+\mathcal{L}_{\text{CFM}} = \mathbb{E}_{t, x_1, x_t}\left\|v_\theta(x_t,t) - u_t(x_t \mid x_1)\right\|^2
+$$
+
+Expand both. The quadratic term $\|v_\theta\|^2$ is identical. The cross terms:
+
+$$
+\mathbb{E}\!\left[\langle v_\theta, u_t(x_t \mid x_1)\rangle\right]
+= \mathbb{E}\!\left[\langle v_\theta, \mathbb{E}[u_t(x_t \mid x_1) \mid x_t]\rangle\right]
+= \mathbb{E}\!\left[\langle v_\theta, u_t(x_t)\rangle\right]
+$$
+
+by the tower property, since $v_\theta(x_t,t)$ is measurable with respect to
+$x_t$. So the two differ only in their last terms:
+
+$$
+\mathcal{L}_{\text{CFM}} - \mathcal{L}_{\text{FM}}
+= \mathbb{E}\left[\|u_t(x_t \mid x_1)\|^2\right] - \mathbb{E}\left[\|u_t(x_t)\|^2\right]
+$$
+
+a conditional variance — positive, and with **no $\theta$ in it**. Hence
+$\nabla_\theta \mathcal{L}_{\text{CFM}} = \nabla_\theta \mathcal{L}_{\text{FM}}$.
+
+**The assumption doing the work is that $v_\theta$ depends only on $x_t$ and $t$**,
+never on $x_1$. That is what licenses the conditioning step, and it is why you
+cannot pass the endpoint to the network as a shortcut.
+
+</Derivation>
+
+<KeyIdea>
+The minimum of $\mathcal{L}_{\text{CFM}}$ is not zero — it is the conditional
+variance, which can be large. A flow matching loss that plateaus well above zero
+is behaving correctly, and reading that plateau as underfitting is a standard
+misdiagnosis. It is the same situation as a denoising loss that cannot go below
+the noise variance.
+</KeyIdea>
+
+## Why the trajectory bends
+
+The conditional paths are straight. The field they induce is not.
+
+<Derivation title="Averaging directions that disagree">
+
+For the linear interpolant with $x_0 \sim \mathcal{N}(0,I)$, the marginal
+velocity works out to
+
+$$
+u_t(x) = \frac{\mathbb{E}[x_1 \mid x_t = x] - x}{1-t}
+$$
+
+Consider a symmetric two-mode target and a point $x$ near the origin at small
+$t$. Conditional paths through it are heading to the left mode and to the right
+mode in roughly equal proportion, so $\mathbb{E}[x_1 \mid x_t] \approx 0$ and the
+marginal velocity is small — while every individual conditional velocity is
+large. As $t$ grows the posterior sharpens onto one mode and the velocity turns
+towards it.
+
+That turn is the curvature. Integrating an averaged field is not averaging the
+integral curves, and the two differ exactly where the fields disagree.
+
+</Derivation>
+
+Measured on such a target, with $u_t$ computed in closed form so there is no
+network error: the trajectory's mean distance from its own chord is $0.254$
+against a mean displacement of $1.202$ — **21% relative curvature**.
+
+And the consequence, against a variance-preserving diffusion path on the same
+target:
+
+| NFE | 1 | 2 | 4 | 8 | 16 | 32 |
+| --- | --- | --- | --- | --- | --- | --- |
+| diffusion (VP) | 1.201 | 0.303 | 0.063 | 0.027 | 0.0146 | 0.0086 |
+| linear interpolant | 1.999 | 0.636 | 0.244 | 0.123 | 0.0623 | 0.0314 |
+
+<Warning>
+Clustering the integration grid near $t=1$, where the $1/(1-t)$ factor makes the
+velocity large, makes this *worse* rather than better — 0.593 against 0.244 at
+four steps. So the penalty is genuine path geometry and not a discretisation
+artefact that a smarter grid would remove. It is worth checking this kind of
+alternative explanation before attributing a result to the mechanism you expected.
+</Warning>
+
+## Rectification
+
+Reflow changes the coupling, not the interpolant. Run the current ODE to obtain
+matched pairs $(x_0, \Phi(x_0))$, then retrain on the linear interpolant between
+each matched pair. Because $\Phi$ is a deterministic map, the paths no longer
+cross, the marginal velocity at a point equals the conditional one, and the
+trajectory *is* the straight line.
+
+One Euler step then reproduces the target to $W_1 = 0.0036$, against a
+sampling-noise floor of $0.0037$ — exact to the resolution of the measurement,
+and roughly $550\times$ better than one step on the original coupling.

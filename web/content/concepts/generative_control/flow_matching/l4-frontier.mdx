@@ -1,0 +1,131 @@
+---
+concept: flow_matching
+level: 4
+status: final
+recall:
+  prompt: "Trace the flow matching papers. What did each establish, and where do they disagree with the popular summary?"
+  keyPoints:
+    - "Lipman et al. gave the conditional objective, which made simulation-free training of continuous flows possible."
+    - "Albergo and Vanden-Eijnden reached the same construction from stochastic interpolants, framing the path as a free choice."
+    - "Liu et al. supplied rectification — the part that actually produces one-step generation, by changing the coupling rather than the interpolant."
+    - "Esser et al. scaled it and found the timestep-sampling distribution mattered, which is the flow-matching version of the noise-schedule result."
+papers:
+  - key: lipman2023flowmatching
+    title: "Flow Matching for Generative Modeling"
+    authors: "Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Maximilian Nickel, Matt Le"
+    venue: ICLR
+    year: 2023
+    arxiv: "2210.02747"
+    takeaway: "Conditional flow matching: regressing a closed-form conditional velocity has the same gradient as regressing the intractable marginal field, so continuous normalising flows can be trained without integrating anything."
+  - key: albergo2023interpolants
+    title: "Building Normalizing Flows with Stochastic Interpolants"
+    authors: "Michael S. Albergo, Eric Vanden-Eijnden"
+    venue: ICLR
+    year: 2023
+    arxiv: "2209.15571"
+    takeaway: "Arrives at the same objective from an interpolant construction, making explicit that the path between the two distributions is a design choice rather than something inherited from a noising process."
+  - key: liu2023rectified
+    title: "Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow"
+    authors: "Xingchao Liu, Chengyue Gong, Qiang Liu"
+    venue: ICLR
+    year: 2023
+    arxiv: "2209.03003"
+    takeaway: "Reflow: retrain on the coupling the current ODE implements. Because those paths do not cross, the trajectory straightens and one-step sampling becomes viable — the mechanism behind the speed claims."
+  - key: esser2024sd3
+    title: "Scaling Rectified Flow Transformers for High-Resolution Image Synthesis"
+    authors: "Patrick Esser, Sumith Kulal, Andreas Blattmann, Rahim Entezari, Jonas Müller, Harry Saini, Yam Levi, Dominik Lorenz, Axel Sauer, Frederic Boesel, Dustin Podell, Tim Dockhorn, Zion English, Kyle Lacey"
+    venue: ICML
+    year: 2024
+    arxiv: "2403.03206"
+    takeaway: "Systematic comparison at scale, finding that how you sample the timestep during training — weighting the middle of the interval — matters substantially, mirroring the noise-schedule result for diffusion."
+check:
+  - id: fm_l4_c1
+    prompt: "What did conditional flow matching change relative to earlier continuous normalising flows?"
+    options:
+      - "It replaced the ODE with a discrete-time process"
+      - "It removed simulation from training: the marginal velocity is intractable, but conditioning on a data point makes the target closed-form, and the two objectives share a gradient"
+      - "It allowed non-Gaussian source distributions"
+      - "It made the flow invertible"
+    answer: 1
+    explanation: "Earlier CNFs had to integrate the ODE inside the training loop, and often compute a divergence term, which made them expensive and delicate at scale. The conditional objective replaces that with a single regression on a point sampled from an interpolant — the same cost per step as diffusion training. Invertibility and continuous time were already properties of CNFs; what was missing was a way to train them cheaply."
+  - id: fm_l4_c2
+    prompt: "Rectified flow is often credited with 'straight paths'. What did the paper actually contribute?"
+    options:
+      - "The linear interpolant"
+      - "The reflow procedure — retraining on the coupling induced by the model's own ODE. The linear interpolant alone leaves the marginal path curved, so the contribution is the change of coupling rather than the choice of path"
+      - "A proof that linear paths are optimal transport"
+      - "A faster ODE solver"
+    answer: 1
+    explanation: "The interpolant is linear before and after reflow, so it cannot be what changes. Straightness comes from replacing an independent pairing with the deterministic map the flow implements, which removes the path crossings that make the averaged field curve. In the measured one-dimensional case the effect is decisive: one-step error at the sampling-noise floor after rectification against roughly 550 times worse before it."
+  - id: fm_l4_c3
+    prompt: "Esser et al. found the training-time timestep distribution matters. What is the analogy to diffusion?"
+    options:
+      - "It corresponds to the choice of ODE solver"
+      - "It is the noise-schedule result in different coordinates: uniform sampling over the interpolant parameter spends capacity unevenly across difficulties, so weighting towards the middle of the interval is the same fix as the cosine schedule"
+      - "It corresponds to classifier-free guidance strength"
+      - "It concerns the number of reflow rounds"
+    answer: 1
+    explanation: "Both cases are about which difficulties the network trains on, since the sampled parameter determines how much signal remains at the point being regressed. The ends of the interval are near-trivial — at $t \\approx 0$ the target is nearly the noise and at $t \\approx 1$ nearly the data — while the middle carries the ambiguity. Recognising these as the same result in different coordinates is more useful than treating them as two separate empirical findings."
+---
+
+## The objective
+
+<PaperGrid>
+<PaperCard refKey="lipman2023flowmatching" />
+<PaperCard refKey="albergo2023interpolants" />
+</PaperGrid>
+
+Two papers, one construction, reached from different directions. The shared
+contribution is that a continuous normalising flow can be trained by regression,
+with no integration in the loop — which is what moved CNFs from an elegant idea
+with an awkward training story to something that scales.
+
+Albergo and Vanden-Eijnden's framing is the more useful one for building things:
+the interpolant between the two distributions is an explicit object you choose,
+rather than a consequence of a noising process you inherited.
+
+## The part that produces the speed
+
+<PaperCard refKey="liu2023rectified" />
+
+Worth being precise about, because the popular summary attributes rectified
+flow's speed to its linear paths and that is not where it comes from.
+
+<Steps>
+<Step title="The interpolant is linear before and after">
+So it cannot be the source of the improvement.
+</Step>
+
+<Step title="What changes is the coupling">
+Reflow pairs each noise sample with the data sample the current ODE actually
+sends it to, then retrains on those pairs.
+</Step>
+
+<Step title="Deterministic maps do not cross">
+So the paths through any region agree, the averaged field equals the individual
+velocities, and the trajectory is genuinely straight.
+</Step>
+
+<Step title="Then Euler is exact rather than approximate">
+Which is what makes one step sufficient — measured at the sampling-noise floor,
+against roughly 550× worse before rectification.
+</Step>
+</Steps>
+
+## At scale
+
+<PaperCard refKey="esser2024sd3" />
+
+The systematic comparison, and a finding that should look familiar: how you
+sample $t$ during training matters, and weighting the middle of the interval
+beats uniform sampling.
+
+<KeyIdea>
+That is the cosine-schedule result in flow-matching coordinates. Both say the
+same thing — the sampled parameter determines the difficulty of the regression
+problem, the ends of the range are nearly trivial, and uniform sampling therefore
+spends a large share of capacity where little is learnable. Seeing them as one
+result rather than two is the kind of connection that makes the diffusion and
+flow literatures navigable, and it is exactly what the "diffusion meets flow
+matching" line of work argues in general.
+</KeyIdea>

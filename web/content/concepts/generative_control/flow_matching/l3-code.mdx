@@ -1,0 +1,174 @@
+---
+concept: flow_matching
+level: 3
+status: final
+recall:
+  prompt: "Write the flow matching training step, the sampler, and the reflow loop. What is the one line that changes between diffusion and flow matching?"
+  keyPoints:
+    - "Training is four lines: sample t, sample a noise point, interpolate, regress the velocity — which for the linear path is just x1 - x0."
+    - "Sampling is a plain ODE integration of the learned field; no score conversion and no schedule bookkeeping."
+    - "Reflow is a separate stage: generate matched pairs with the current model, then retrain on those pairs. It costs a full generation pass over the dataset."
+    - "For action generation the field is conditioned on the observation, which changes nothing structurally — you learn the conditional field instead of the marginal one."
+check:
+  - id: fm_l3_c1
+    prompt: "In the reflow stage, why must the pairs come from the model's own ODE rather than from a fresh independent pairing?"
+    options:
+      - "To save computation"
+      - "Because the point is to adopt the map the current flow already implements: those pairs do not cross, so the linear interpolant between them is the actual trajectory. An independent pairing reintroduces exactly the crossing that curves the field"
+      - "Because independent pairs would change the target distribution"
+      - "Because the ODE pairs have lower variance"
+    answer: 1
+    explanation: "Reflow is not resampling — it is reading off the transport map the model has learned and then declaring that map to be the training coupling. Since a deterministic map sends distinct points to distinct points, the resulting paths do not intersect and the averaged field agrees with each conditional velocity. Pairing independently would give exactly the configuration you started from, which is why the generation pass is not an optimisation you can skip."
+  - id: fm_l3_c2
+    prompt: "Your flow matching loss plateaus well above zero. What is the correct interpretation?"
+    options:
+      - "The model is underfitting and needs more capacity"
+      - "Expected: the conditional objective's minimum is the conditional variance of the velocity, not zero, so a plateau is where a perfectly fitted model sits — compare against a run with the same interpolant rather than against zero"
+      - "The learning rate is too high"
+      - "The interpolant is poorly chosen"
+    answer: 1
+    explanation: "The conditional target is a noisy estimate of the field being learned, and the irreducible gap is exactly the variance of that estimate. A perfectly trained network sits at that plateau by construction, so treating the residual as a defect leads to spending capacity on noise. The practical consequence is that absolute loss values carry no information here — only comparisons at a fixed interpolant and data distribution do."
+  - id: fm_l3_c3
+    prompt: "What changes structurally when moving flow matching from images to observation-conditioned action chunks?"
+    options:
+      - "The interpolant must be redefined for action spaces"
+      - "Nothing structural: the network takes the observation as an extra input and learns the conditional field, with the same objective and the same sampler — the differences that matter are dimensionality and step budget, not the formulation"
+      - "The velocity target must be normalised by the action bounds"
+      - "Time must be discretised to match the control rate"
+    answer: 1
+    explanation: "Conditioning enters as an extra network input and leaves the derivation untouched, since the tower-property argument never referenced what the field is conditioned on. What genuinely changes is practical: action chunks are far lower-dimensional than images, and the step budget is set by the control rate rather than by a user's patience — which is what makes rectification or distillation worth the extra training stage here even where it would not be elsewhere."
+---
+
+## Training
+
+<CodeWalk title="Four lines, no simulation">
+
+```python title="train.py"
+import torch
+
+def train_step(model, x1, cond, opt):
+    """x1: data (an action chunk). cond: the observation embedding.
+
+    Nothing here integrates anything — that is the whole advance over earlier
+    continuous normalising flows, which had to solve the ODE inside the loop.
+    """
+    b = x1.shape[0]
+    t = torch.rand(b, device=x1.device)
+    x0 = torch.randn_like(x1)
+
+    xt = (1 - t).view(-1, 1, 1) * x0 + t.view(-1, 1, 1) * x1
+    target = x1 - x0                      # the conditional velocity, in closed form
+
+    return torch.nn.functional.mse_loss(model(xt, t, cond), target)
+```
+
+</CodeWalk>
+
+The target is the entire trick. It is an unbiased but *noisy* estimate of the
+field being learned, so the loss floor is the conditional variance rather than
+zero — expect a plateau, and compare runs to each other rather than to zero.
+
+## Sampling
+
+<CodeWalk title="Plain ODE integration">
+
+```python title="sample.py"
+@torch.no_grad()
+def sample(model, shape, cond, n_steps, device="cuda"):
+    """No score conversion, no noise-level bookkeeping, no schedule object.
+    The network output IS the velocity."""
+    x = torch.randn(shape, device=device)
+    ts = torch.linspace(0, 1, n_steps + 1, device=device)
+
+    for i in range(n_steps):
+        t = ts[i].expand(shape[0])
+        x = x + (ts[i + 1] - ts[i]) * model(x, t, cond)
+    return x
+```
+
+</CodeWalk>
+
+<KeyIdea>
+Compare this against the diffusion sampler, which needs a schedule object, a
+conversion from predicted noise to score, and a choice of $\sigma$ spacing. The
+simplification is real and it is the practical reason people reach for flow
+matching — not a speed advantage, which the measurements do not support for the
+plain interpolant.
+</KeyIdea>
+
+## Rectification, as a second stage
+
+<CodeWalk title="Reflow: adopt the map the model already implements">
+
+```python title="reflow.py"
+@torch.no_grad()
+def build_pairs(model, loader, cond_fn, n_steps=64, device="cuda"):
+    """Generate matched (noise, sample) pairs with the CURRENT model.
+
+    These pairs are the transport map the flow has learned. Because a
+    deterministic map sends distinct points to distinct points, the straight
+    lines between them do not cross — which is the property the original
+    independent pairing lacked.
+    """
+    pairs = []
+    for batch in loader:
+        cond = cond_fn(batch)
+        x0 = torch.randn(batch.shape, device=device)
+        x = x0.clone()
+        ts = torch.linspace(0, 1, n_steps + 1, device=device)
+        for i in range(n_steps):
+            x = x + (ts[i + 1] - ts[i]) * model(x, ts[i].expand(len(x)), cond)
+        pairs.append((x0.cpu(), x.cpu(), cond.cpu()))
+    return pairs
+
+
+def reflow_step(model, x0, x1, cond, opt):
+    """Identical objective — only the coupling changed. x0 is now the specific
+    noise point that maps to x1, not an independent draw."""
+    t = torch.rand(x1.shape[0], device=x1.device)
+    xt = (1 - t).view(-1, 1, 1) * x0 + t.view(-1, 1, 1) * x1
+    return torch.nn.functional.mse_loss(model(xt, t, cond), x1 - x0)
+```
+
+</CodeWalk>
+
+<Warning>
+Reflow costs a full generation pass over the dataset plus a retraining run, and
+it compounds error: the new model is trained on the old model's outputs, so any
+bias in the first flow is baked into the second. Repeated rounds straighten
+further and drift further from the data. One round is the usual choice, and the
+quantity to watch is sample quality at *high* step counts — if that degrades, the
+straightening is costing you fidelity rather than only inference time.
+</Warning>
+
+## Measuring straightness directly
+
+<CodeWalk title="The diagnostic that tells you whether few-step sampling will work">
+
+```python title="straightness.py"
+@torch.no_grad()
+def curvature(model, shape, cond, n_steps=200, device="cuda"):
+    """Mean distance from the trajectory to its own chord, relative to the total
+    displacement. Predicts few-step quality without running a sweep — and it is
+    the number that tells you whether reflow is worth a training stage."""
+    x0 = torch.randn(shape, device=device)
+    ts = torch.linspace(0, 1, n_steps + 1, device=device)
+
+    x, traj = x0.clone(), []
+    for i in range(n_steps):
+        traj.append(x.clone())
+        x = x + (ts[i + 1] - ts[i]) * model(x, ts[i].expand(shape[0]), cond)
+    x1 = x
+
+    dev = 0.0
+    for i, xi in enumerate(traj):
+        chord = x0 + (ts[i] / ts[-1]) * (x1 - x0)
+        dev += (xi - chord).abs().mean().item()
+    return (dev / n_steps) / (x1 - x0).abs().mean().item()
+```
+
+</CodeWalk>
+
+On the one-dimensional mixture this returns $0.21$ for the independent coupling
+and approximately zero after rectification — a two-hundred-step diagnostic that
+tells you what a full step-count sweep would.

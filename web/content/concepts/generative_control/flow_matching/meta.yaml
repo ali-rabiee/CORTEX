@@ -1,13 +1,17 @@
 id: flow_matching
 title: Flow Matching for Action Generation
 domain: generative_control
-summary: Imagine a river that flows from a random starting point to exactly
-  where you need to go.
+summary: Learn a velocity field instead of a score, trained without ever
+  simulating the path. The often-repeated claim that this gives straight
+  trajectories is false as stated — straightening requires fixing the coupling,
+  and that is where one-step generation actually comes from.
 tags:
   - generative_control
 difficulty: 4
 importance: 4
 related_concept_ids:
+  - diffusion_models_basics
   - diffusion_policy
-  - action_chunking
   - consistency_models
+  - action_generation
+  - multimodal_distributions

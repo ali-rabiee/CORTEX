@@ -1,26 +1,163 @@
 ---
 concept: flow_matching
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Flow Matching for Action Generation fail in practice, and how
-    would you present it in an interview?
+  prompt: "Give your interview answer on flow matching. What is the real contribution, and what would you push back on?"
   keyPoints:
-    - "ODE solver instability: the learned vector field $v_\\theta$ may have
-      regions where the flow is poorly defined (large Lipschitz constant),
-      causing numerical issues."
-    - "Symptoms: occasional action jumps or NaN outputs."
-    - "Fix: use adaptive ODE solvers (Dopri5), train with flow regularization
-      $\\mathcal{L}_{\\text{reg}} = \\mathbb{E}[\\|\\nabla_\\mathbf{x}
-      v_\\theta\\|^2]$, clip extreme vector field values during inference."
-check: []
-papers: []
+    - "The contribution is a simulation-free objective plus an explicit path — not speed from the interpolant."
+    - "Give the conditional-flow-matching argument: same gradient, difference is a conditional variance with no parameters in it."
+    - "Push back on 'straight paths': conditional paths are straight, the marginal path is not, measured at 21% off its chord."
+    - "One-step sampling comes from reflow changing the coupling — and it costs a generation pass plus retraining."
+interview:
+  answer: >-
+    Flow matching learns a velocity field that carries noise onto data, rather
+    than a score. They're close relatives — the probability-flow ODE of a
+    diffusion model is exactly such a field — but starting from transport makes
+    the path an explicit choice instead of something you inherit from a noising
+    process. The real contribution is the training objective. The velocity you
+    want is a posterior expectation over which data point you're heading towards,
+    which you can't evaluate. But conditioned on a data point, the velocity along
+    your interpolant is closed-form algebra — for the linear path it's just x1
+    minus x0. The theorem is that regressing the conditional target has the same
+    gradient as regressing the intractable marginal one, because when you expand
+    both squares the quadratic terms are identical, the cross terms agree by the
+    tower property, and what's left over is a conditional variance with no
+    parameters in it. So it vanishes under differentiation. That's the same
+    manoeuvre that lets denoising score matching stand in for score matching, and
+    it's what made continuous normalising flows trainable at scale — previously
+    you had to integrate the ODE inside the training loop. Now, the thing I'd
+    push back on is the usual sales pitch, which is that flow matching gives you
+    straight paths so you can take a few large steps. The first half is true and
+    the second doesn't follow. Each conditional path is a straight line, but the
+    sampler follows the marginal field, which at any point averages over every
+    conditional path through it — and averaging directions that disagree gives a
+    field whose integral curves bend. I measured this on a one-dimensional
+    mixture with the field computed exactly, so there's no network error: the
+    trajectory sits twenty-one percent of its total displacement away from its
+    own chord. And on the same target, plain linear interpolation was worse than
+    a variance-preserving diffusion path at every step budget from one to
+    thirty-two — by about a factor of three. I also checked whether that was a
+    discretisation artefact by clustering the grid where the velocity is largest,
+    and it got worse, so it's genuine geometry. Where one-step generation
+    actually comes from is rectification. Reflow runs the ODE to get matched
+    pairs, then retrains on the straight line between each matched pair. Since
+    that's a deterministic map, distinct points go to distinct points, the paths
+    stop crossing, and the marginal velocity equals the conditional one — so the
+    trajectory really is the straight line and one Euler step is exact rather
+    than approximate. In my measurement, one step after rectification hit the
+    sampling-noise floor, about five hundred times better than one step before
+    it. So the speed is real, it comes from the coupling rather than the
+    interpolant, and it costs a full generation pass plus a retraining stage.
+  followUps:
+    - q: "So would you use flow matching or diffusion for a robot policy?"
+      a: >-
+        For the first version I'd pick flow matching, but not for speed — for
+        simplicity. The sampler is a plain ODE integration with no schedule
+        object, no conversion from predicted noise to score, and no sigma
+        spacing to get wrong, and a whole class of quiet bugs comes from
+        training and sampling deriving noise levels independently. Then if the
+        control rate needs single-digit steps I'd add rectification as a second
+        stage, with the measurement to justify it. What I wouldn't do is claim
+        flow matching is faster out of the box, because on the plain interpolant
+        it isn't — and pi-zero using a flow model is about the training and
+        conditioning story, not about the interpolant being faster.
+    - q: "Your flow matching loss plateaus well above zero. Is the model underfitting?"
+      a: >-
+        Almost certainly not. The conditional target is a noisy estimate of the
+        field you're learning, and the objective's minimum is exactly the
+        conditional variance of that estimate, not zero. A perfectly fitted
+        network sits on that plateau by construction. The practical consequence
+        is that absolute loss values carry no information for this objective —
+        only comparisons at a fixed interpolant and data distribution do — so I'd
+        judge it by sample quality and by the curvature diagnostic rather than by
+        the number. It's the same situation as a denoising loss that can't go
+        below the noise variance, and people misread both the same way.
+    - q: "How would you know in advance whether few-step sampling will work?"
+      a: >-
+        Measure the straightness directly rather than sweeping step counts.
+        Integrate finely, then compute the mean distance from the trajectory to
+        the chord between its own endpoints, normalised by the displacement. It's
+        one two-hundred-step run and it predicts what a full sweep would tell
+        you. On my mixture it gave twenty-one percent for the independent
+        coupling and essentially zero after rectification. It's also the right
+        number to decide whether reflow is worth a training stage — if curvature
+        is already low, it isn't.
+    - q: "Are diffusion and flow matching actually different models?"
+      a: >-
+        Largely not, and I think that's the honest position. Both learn a
+        time-dependent vector field whose integral curves transport noise to
+        data; you can map between the score parameterisation and the velocity
+        parameterisation, and a diffusion model's probability-flow ODE is a flow.
+        The genuine differences are in framing and in what each framing makes
+        easy to vary. Flow matching puts the interpolant in your hands, which is
+        what makes rectification even expressible — it's a statement about the
+        coupling, and diffusion's formulation doesn't have a natural place to say
+        it. So I'd call it the same family with a more convenient
+        parameterisation, rather than a rival.
+  traps:
+    - "Claiming flow matching gives straight paths and therefore few-step sampling. The conditional paths are straight; the marginal path measured 21% off its chord."
+    - "Crediting rectified flow's speed to the linear interpolant. The interpolant is linear before and after reflow — the coupling is what changes."
+    - "Reading the loss plateau as underfitting. The objective's minimum is a conditional variance, not zero."
+    - "Presenting reflow as free. It costs a generation pass over the dataset plus retraining, and it trains the model on its own outputs."
+check:
+  - id: fm_l5_c1
+    prompt: "A colleague proposes switching a diffusion policy to flow matching to cut inference from 50 steps to 5. What is the accurate response?"
+    options:
+      - "Good idea — flow matching's straight paths make few-step sampling work"
+      - "Switching the interpolant alone will not do it; on a controlled comparison the plain linear path was about 3× worse than diffusion at matched budgets. Getting to a few steps needs rectification or distillation, which is a second training stage"
+      - "Flow matching cannot be conditioned on observations, so it does not apply"
+      - "It will work, but only if the action chunks are short"
+    answer: 1
+    explanation: "The proposal conflates the parameterisation with the property people want from it. Flow matching genuinely simplifies the sampler and makes the path explicit, and neither of those reduces the step count on its own — the measured comparison has the plain interpolant losing at every budget. What buys few-step sampling is straightening the trajectory by changing the coupling, and that is a separate stage with a real cost, so it should be planned rather than assumed."
+  - id: fm_l5_c2
+    prompt: "Which measurement best predicts whether a trained flow will sample well in few steps?"
+    options:
+      - "The final training loss"
+      - "Trajectory curvature — the mean deviation from the chord between the trajectory's own endpoints, relative to the displacement — since that is the quantity a large Euler step fails to follow"
+      - "The variance of generated samples"
+      - "The Lipschitz constant of the velocity network"
+    answer: 1
+    explanation: "A single Euler step follows the chord, so the error it incurs is precisely how far the true path departs from that chord — which makes curvature the directly relevant quantity rather than a proxy. Training loss cannot serve, since its floor is a conditional variance that varies with the interpolant and tells you nothing about geometry. Curvature is also cheap: one fine integration, against a full sweep over step counts."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-ODE solver instability: the learned vector field $v_\theta$ may have regions where the flow is poorly defined (large Lipschitz constant), causing numerical issues. Symptoms: occasional action jumps or NaN outputs. Fix: use adaptive ODE solvers (Dopri5), train with flow regularization $\mathcal{L}_{\text{reg}} = \mathbb{E}[\|\nabla_\mathbf{x} v_\theta\|^2]$, clip extreme vector field values during inference.
+<Steps>
+<Step title="Few-step samples poor, many-step samples good → curvature">
+Measure deviation from the chord before changing anything. If it is high,
+rectification is the fix and a better solver is not.
+</Step>
 
-## Interview-ready answer
+<Step title="Loss plateaus above zero → expected">
+The minimum is the conditional variance. Compare runs to each other, never to
+zero.
+</Step>
 
-Flow matching is emerging as a cleaner alternative to diffusion for robot action generation. The advantage: simpler training objective (regress to the conditional vector field $v_\theta(\mathbf{x}_t, t) \approx \mathbf{x}_1 - \mathbf{x}_0$), faster inference (5-10 ODE steps vs 20-100 diffusion steps), and no noise schedule to tune. $\pi_0$ from Physical Intelligence shows this works at scale for multi-task robot control. Compared to diffusion policies, flow matching offers similar multimodality with simpler training and faster inference. I expect flow matching to become the default generative approach for robot control.
+<Step title="Quality degrades at HIGH step counts after reflow → over-rectification">
+The model is training on its own outputs. One round is usually the limit; watch
+the high-budget number, not the low one.
+</Step>
+
+<Step title="Flow matching no faster than diffusion → nothing is wrong">
+That is the measured baseline for the plain interpolant. The speed was always in
+the rectification.
+</Step>
+
+<Step title="Samples collapse to an average → check the conditioning path">
+The formulation represents multimodality fine. Suspect an MSE head elsewhere or a
+conditioning signal that is being ignored.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+This is a question where the strongest move is disagreeing with the common
+summary, carefully. Nearly everyone repeats "straight paths, hence few steps".
+Separating the conditional path from the marginal path, giving a measured
+curvature, and then locating the speed correctly in the coupling shows you have
+looked at the object rather than the abstract. Just make sure to give flow
+matching its actual due — the simulation-free objective and the explicit
+interpolant — so it reads as precision rather than contrarianism.
+</Warning>

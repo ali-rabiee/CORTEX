@@ -1,25 +1,131 @@
 ---
 concept: flow_matching
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Flow Matching for Action Generation in plain language: what is
-    it, and why does it matter?"
+  prompt: "What does flow matching learn, and what is the widely repeated claim about it that is wrong?"
   keyPoints:
-    - Imagine a river that flows from a random starting point to exactly where
-      you need to go.
-    - Flow matching learns the current of this river — given any point in the
-      flow, it tells you which direction to move.
-    - Compared to diffusion (which adds and removes noise), flow matching
-      directly learns the transport map.
-check: []
-papers: []
+    - "It learns a velocity field that transports noise to data, trained by regressing a conditional velocity that is available in closed form — no simulation of the path during training."
+    - "The path is an explicit design choice rather than a consequence of a noising process, which is the real conceptual gain."
+    - "The claim that linear interpolation gives straight trajectories is false: the conditional paths are straight but they cross, so the marginal path curves — measured at 21% off its own chord."
+    - "One-step generation comes from fixing the coupling (reflow), not from the interpolant. Rectified: at the noise floor in one step; plain linear: worse than diffusion at every budget."
+media:
+  - kind: article
+    title: "An introduction to Flow Matching"
+    url: https://mlg.eng.cam.ac.uk/blog/2024/01/20/flow-matching.html
+    source: "Cambridge Machine Learning Group"
+    note: "Builds the conditional-flow-matching argument carefully. The section on why the conditional objective has the same gradient as the intractable marginal one is the part worth slowing down for."
+  - kind: article
+    title: "Diffusion Meets Flow Matching"
+    url: https://diffusionflow.github.io/
+    source: "Google DeepMind"
+    note: "Works through the claim that the two are the same model in different coordinates. Read it after forming your own view, then check which of your intuitions were about the framing rather than the model."
+check:
+  - id: fm_l1_c1
+    prompt: "Why can flow matching train without simulating the generative path, when earlier continuous normalising flows could not?"
+    options:
+      - "Because the velocity field is simpler to represent"
+      - "Because conditioning on a single data point makes the target velocity available in closed form, and regressing that conditional target has the same gradient as regressing the intractable marginal one"
+      - "Because it uses a discrete rather than continuous time variable"
+      - "Because the path is deterministic"
+    answer: 1
+    explanation: "The marginal velocity field involves an expectation over which data point the current state might have come from, which is intractable. Conditioning removes the expectation: given the endpoint, the velocity along the chosen interpolant is just algebra. The theorem is that the two objectives differ by a term with no dependence on the parameters, so their gradients coincide — structurally the same trick that makes denoising score matching work in place of direct score matching."
+  - id: fm_l1_c2
+    prompt: "Each conditional path is a straight line from noise sample to data sample. Why is the sampling trajectory still curved?"
+    options:
+      - "Because the network cannot represent a straight field exactly"
+      - "Because the conditional paths cross: the marginal velocity at a point averages over every path through it, and averaging directions that disagree produces a field whose integral curves bend"
+      - "Because the time discretisation introduces curvature"
+      - "Because the source distribution is Gaussian"
+    answer: 1
+    explanation: "Straightness of each conditional path says nothing about the field they induce. Where paths headed to different modes pass through the same region, the marginal velocity is their average, and the trajectory following that average is not any of them. Measured on a one-dimensional mixture the marginal trajectory deviates from its own chord by 21% of the total displacement — which is why plain linear interpolation does not give few-step sampling for free."
 ---
 
-## Intuition
+## What it learns
 
-Imagine a river that flows from a random starting point to exactly where you need to go. Flow matching learns the current of this river — given any point in the flow, it tells you which direction to move. Compared to diffusion (which adds and removes noise), flow matching directly learns the transport map. Simpler math, faster in practice.
+<Intuition>
+Diffusion learns a score, and the sampler recovers a velocity from it. Flow
+matching skips the intermediate step and learns the velocity directly: a field
+$v_\theta(x, t)$ whose integral curves carry the noise distribution onto the data
+distribution. The two are close relatives — the probability-flow ODE of a
+diffusion model is exactly such a field — but starting from transport rather than
+from noising makes the path an explicit choice instead of a consequence of the
+noise schedule.
+</Intuition>
 
-## In practice
+The training trick is what made it practical. The velocity you want is an
+expectation over which data point the current state might be heading towards,
+which you cannot evaluate. But *conditioned* on a data point, the velocity along
+your chosen interpolant is closed-form algebra. The theorem is that regressing
+the conditional target has the same gradient as regressing the intractable one —
+the same manoeuvre that lets denoising score matching stand in for score
+matching.
 
-$\pi_0$ (Physical Intelligence): uses flow matching to generate robot action sequences from observations. Trains on large-scale multi-task robot data. Generates 50-step action chunks using an ODE solver (Euler or Dopri5) with 5-10 integration steps. Achieves real-time control at 15Hz. Architecture: pre-trained VLM backbone $\rightarrow$ flow matching action head conditioned on visual + language tokens.
+<KeyIdea>
+So training never simulates a trajectory. Sample $t$, sample a data point, sample
+a noise point, place yourself on the interpolant between them, and regress the
+velocity you know analytically. This is what separates flow matching from earlier
+continuous normalising flows, which had to integrate the ODE inside the training
+loop.
+</KeyIdea>
+
+## The claim that does not survive measurement
+
+The usual sales pitch is that flow matching uses straight paths, so you can take
+few large steps. The first half is true and the second does not follow.
+
+<Figure src="/figures/flow-path-straightness.svg" alt="Left: with an independent coupling the straight conditional paths cross, so the marginal trajectory bends — measured 21 percent off its own chord; after reflow the paths do not cross and the trajectory is straight. Right: error against evaluations, where linear interpolation is worse than the diffusion path at every budget while the rectified coupling sits at the noise floor after one step." caption="Straight conditional paths, curved marginal path. Fixing the coupling is what buys one-step sampling." />
+
+Each conditional path *is* a straight line. But the sampler follows the
+**marginal** field, which at any point averages over every conditional path
+passing through it — and averaging directions that disagree gives a field whose
+integral curves bend. On a one-dimensional mixture with the field computed
+exactly, that trajectory deviates from its own chord by **21%** of the total
+displacement.
+
+Measured against a variance-preserving diffusion path on the same target:
+
+| evaluations | 1 | 2 | 4 | 8 | 16 | 32 |
+| --- | --- | --- | --- | --- | --- | --- |
+| diffusion | 1.20 | 0.303 | 0.063 | 0.027 | 0.015 | 0.0086 |
+| linear interpolation | 2.00 | 0.636 | 0.244 | 0.123 | 0.062 | 0.031 |
+| rectified coupling | **0.0036** | 0.0036 | 0.0036 | 0.0036 | 0.0036 | 0.0036 |
+
+Plain linear interpolation is **worse** than diffusion at every budget. The
+rectified version is at the sampling-noise floor of 0.0037 after a single step.
+
+## Where one-step generation comes from
+
+<Steps>
+<Step title="The interpolant is not the problem">
+Choosing a straight line between noise and data does not make the induced flow
+straight, because you do not choose which noise sample pairs with which data
+sample.
+</Step>
+
+<Step title="The coupling is">
+Reflow runs the ODE once to obtain matched pairs, then retrains on the straight
+line between each *matched* pair. Those paths no longer cross.
+</Step>
+
+<Step title="Then straightness is real">
+With a non-crossing coupling the marginal trajectory is the straight line, so one
+Euler step is exact rather than approximate.
+</Step>
+
+<Step title="And it costs a generation pass">
+Reflow needs a full sampling run over the dataset to build the pairs, plus
+retraining. One-step sampling is bought, not free — which is the same trade
+consistency distillation makes by a different route.
+</Step>
+</Steps>
+
+<Warning>
+Be careful with the phrase "flow matching is faster than diffusion". As a
+statement about the interpolant it is not supported — the measurement above has
+it losing. What flow matching genuinely provides is a simulation-free objective
+and an explicit, editable path, which is what makes rectification expressible in
+the first place. The speed comes from the rectification.
+</Warning>
+
+<WatchThis />
