@@ -1,27 +1,164 @@
 ---
 concept: action_generation
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Action Generation with Generative Models fail in practice, and
-    how would you present it in an interview?
+  prompt: "Give your interview answer on action generation. What is the framing and the number you bring?"
   keyPoints:
-    - "Temporal inconsistency at chunk boundaries: if the replanning frequency
-      is too low or the observation changes significantly between chunks,
-      successive action chunks may be discontinuous, causing jerky motion."
-    - "Action drift: small errors in early actions of a chunk compound by the
-      end, pushing the robot off-trajectory."
-    - "Observation staleness: conditioning on observation from the start of the
-      chunk, but the world changes during chunk execution (other moving objects,
-      deformable materials)."
-check: []
-papers: []
+    - "The chunk is one joint object; correct per-step marginals buy nothing."
+    - "Coherence under per-step independence is $M^{1-H}$ — 0.003% at $H=16$, with 31× the jerk and a quarter of the displacement."
+    - "So chunking and generative heads are one decision, not two: longer chunks make a joint model necessary."
+    - "The parameterisation matters too — absolute actions carry 1877× the variance of deltas for the same motion, and deltas accumulate error."
+interview:
+  answer: >-
+    The framing I'd start with is that generating an action chunk is generating
+    one joint object, not H predictions — and the reason that distinction earns
+    its keep is that you can get every per-timestep marginal exactly right and
+    still produce something no robot could execute. The cleanest way to see it is
+    to hold the marginals fixed and vary only the dependence structure. Suppose
+    the expert reaches one of two goals with a smooth profile, so at each
+    timestep the correct action is one of two values. If you sample each timestep
+    independently from its correct marginal, the probability that the whole chunk
+    stays on one mode is M to the one minus H — two to the one minus H for two
+    modes. That's twelve and a half percent at a four-step horizon and about
+    three thousandths of a percent at sixteen. I measured what the other
+    ninety-nine point nine nine seven percent look like: thirty-one times the
+    expert's jerk, and because the sign flips cancel, a net displacement of 0.24
+    against the expert's 1.00. The robot vibrates in place and goes almost
+    nowhere, while every marginal check passes. So it's the same independence
+    failure you get from per-dimension action bins, with time as the dimension —
+    except far worse, because the penalty compounds exponentially in the horizon
+    rather than sitting at a fixed fraction. And the consequence I'd want to draw
+    out is that action chunking and generative action heads aren't two
+    independent design decisions. At horizon one there's no temporal structure to
+    get wrong, so a regression head loses nothing on that axis. At horizon sixteen
+    ignoring the joint destroys almost every sample. Chunking is what turns a
+    generative head from a refinement into a requirement, which is why ACT and
+    Diffusion Policy adopted both at the same time rather than by coincidence. I'd
+    add one caution about vocabulary: sequential isn't the same as independent. An
+    autoregressive head over timesteps factorises by the chain rule, which is
+    exact — each step conditions on what was already committed to, so the first
+    sample effectively picks the mode and the rest follow. Its costs are H
+    sequential forward passes and exposure bias, not incoherence. A diffusion or
+    flow head over the whole chunk avoids both by generating every timestep
+    together.
+  followUps:
+    - q: "How would you validate an action-generation head?"
+      a: >-
+        Not with per-timestep marginals, because that check has no power — a
+        model with the failure matches them by construction. I'd measure
+        sequence-level statistics: jerk, net displacement, and the fraction of
+        sampled chunks that violate velocity or acceleration limits. The most
+        direct test is the distance from each sampled chunk to its nearest
+        demonstrated trajectory, treating the whole chunk as one vector, because
+        a chunk that switches modes has every step near some demonstration and
+        the whole sequence near none. And I'd calibrate it by running the
+        demonstrations against themselves first, so the threshold isn't what's
+        producing the result.
+    - q: "How do you handle the seam between consecutive chunks?"
+      a: >-
+        The problem is that consecutive chunks are independent samples from a
+        multi-modal conditional, so a policy can commit to going left and then,
+        eight steps later, to going right. Temporal ensembling — averaging the
+        overlapping predictions for a given timestep — spreads that transition
+        over several steps instead of concentrating it in one. But I'd be careful,
+        because blending is itself an averaging operation, so averaging across a
+        genuine mode switch produces the action neither mode would take. That's
+        the failure the generative head exists to prevent, reintroduced at the
+        seam. Weighting newer predictions more heavily limits it, and if seams
+        are frequently the problem, the better fix is usually replanning less
+        often so each chunk runs further.
+    - q: "Absolute or delta actions?"
+      a: >-
+        It depends, and I'd resist the reflex that deltas are simply better. The
+        argument for them is that an absolute target is start pose plus motion,
+        so its distribution convolves the skill with wherever the arm happened to
+        be. I measured that for one motion — reach eight centimetres forward,
+        four millimetres of execution noise, start poses over a thirty-centimetre
+        workspace — and the absolute parameterisation had about nineteen hundred
+        times the variance, eleven nats more entropy, to describe the same
+        behaviour. So the model spends capacity on location rather than skill.
+        Against that, deltas are cumulative: an error at step three displaces
+        every later target, so open-loop execution of a long chunk drifts where
+        absolute targets self-correct. And anything anchored to a fixed frame —
+        place this in that bin — is more natural absolutely. It's a real trade, so
+        it deserves a decision rather than a default.
+    - q: "Does any of this change if you use a VLA with discrete action tokens?"
+      a: >-
+        The requirement is identical and the mechanism differs. A token-per-
+        timestep model generated autoregressively is fine, because the chain rule
+        factorisation is exact and each token conditions on the previous ones —
+        so coherence comes from the conditioning. What would break it is
+        predicting all the timesteps' tokens independently in one shot, which is
+        the same 2-to-the-1-minus-H failure wearing different clothes. The other
+        thing to get right is that the tokens should quantise joint actions —
+        clustered action vectors or a codebook over chunks — rather than binning
+        each dimension separately, since per-dimension bins reintroduce the
+        independence failure across dimensions while you're busy fixing it across
+        time.
+  traps:
+    - "Treating chunk generation as H independent predictions. Correct marginals are compatible with 99.997% of samples being incoherent."
+    - "Validating with per-timestep histograms. The broken model matches them exactly, so the check has no power."
+    - "Conflating sequential with independent. Autoregressive factorisation is exact; its costs are latency and exposure bias, not incoherence."
+    - "Presenting delta actions as strictly better. They remove workspace variance and make errors cumulative."
+check:
+  - id: ag_l5_c1
+    prompt: "A team reports that their chunked policy produces jittery, barely-progressing motion, and that per-timestep action histograms match the data well. What is the diagnosis?"
+    options:
+      - "The control frequency is too high"
+      - "The head is modelling timesteps independently: matching marginals with incoherent sequences is exactly that failure's signature, and it produces high jerk with near-zero net displacement because mode switches cancel"
+      - "The action normalisation statistics are wrong"
+      - "The chunk horizon is too short"
+    answer: 1
+    explanation: "The two symptoms together are close to diagnostic, since correct marginals rule out most alternatives while incoherent sequences rule out the model simply being inaccurate. The measured signature matches: 31× the jerk and 0.24 of the net displacement, because the sign flips largely cancel. Note the horizon points the other way — a shorter chunk would reduce the damage, since coherence scales as $2^{1-H}$, so lengthening it is the opposite of the fix."
+  - id: ag_l5_c2
+    prompt: "Which change most directly increases the cost of ignoring temporal dependence?"
+    options:
+      - "Adding more action dimensions"
+      - "Lengthening the chunk horizon, since coherence under per-step independence scales as $M^{1-H}$ — going from $H=4$ to $H=16$ takes it from 12.5% to 0.003%"
+      - "Increasing the control frequency"
+      - "Collecting demonstrations from more operators"
+    answer: 1
+    explanation: "The horizon is the exponent, so it dominates everything else in the expression. More action dimensions and more operators both matter — the first for per-dimension independence and the second by adding modes, which raises $M$ — but neither compounds the way $H$ does. This is why the interesting statement is a relationship rather than a fact: chunking and joint modelling are coupled decisions, and lengthening chunks without a joint head makes things rapidly worse."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Temporal inconsistency at chunk boundaries: if the replanning frequency is too low or the observation changes significantly between chunks, successive action chunks may be discontinuous, causing jerky motion. Action drift: small errors in early actions of a chunk compound by the end, pushing the robot off-trajectory. Observation staleness: conditioning on observation from the start of the chunk, but the world changes during chunk execution (other moving objects, deformable materials). Symptoms: jerky transitions every $H_e$ steps, robot overshoots targets, performance degrades on dynamic tasks. Fix: increase chunk overlap (execute fewer steps per chunk), use observation re-encoding at chunk boundaries, apply temporal smoothing (exponential blending of overlapping chunk regions: $a_t^{\text{blend}} = \lambda a_t^{\text{new}} + (1-\lambda) a_t^{\text{old}}$), add proprioceptive feedback within the chunk execution loop.
+<Steps>
+<Step title="Jittery motion, little progress, marginals fine → temporal independence">
+The signature of modelling timesteps separately. Check sequence statistics, not
+per-step ones.
+</Step>
 
-## Interview-ready answer
+<Step title="Motion reverses every few steps at a fixed period → seam switching">
+Consecutive chunks are choosing different modes. Blend the overlap or replan less
+often.
+</Step>
 
-Action generation with generative models is the current state-of-the-art for learning manipulation policies from demonstrations. The key design decisions: (1) action horizon $H$ — longer chunks give temporal coherence but less reactivity, typically 8-32 steps; (2) execution horizon $H_e < H$ — execute fewer steps than predicted, then replan for reactivity, typically $H_e = H/2$; (3) observation conditioning — cross-attention is most expressive but FiLM is faster and sufficient for many tasks; (4) denoising steps — 10 DDIM steps is the practical sweet spot for quality vs. speed. The architecture that works: temporal U-Net with FiLM observation conditioning, predicting 16-step chunks, executing 8, replanning at 10Hz. This handles multimodal action distributions (diffusion's key advantage over BC), provides temporal smoothness (chunking), and maintains reactivity (replanning). For deployment, consistency distillation can reduce to 1-2 denoising steps for 20Hz+ control.
+<Step title="Chunks exceed velocity or acceleration limits → no feasibility check">
+Individually plausible actions can be an infeasible path. Measure it on samples
+before hardware does.
+</Step>
+
+<Step title="Good early in the chunk, drifting later → cumulative delta error">
+The cost of the delta parameterisation. Shorten the horizon or move to absolute
+targets for that task.
+</Step>
+
+<Step title="Model is accurate but slow to sample → this is the latency question">
+Step budget is set by the control rate. That is the integrator, coupling and
+distillation trade, not an action-representation problem.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The move that makes this answer land is deriving $M^{1-H}$ on the spot — it takes
+one line, it is exactly right, and it converts "you should model the joint" from
+advice into a quantity. Following it with the measured consequence, 31× the jerk
+and a quarter of the displacement, shows you know what the failure looks like
+rather than only that it exists. And the conclusion that chunking and generative
+heads are one coupled decision is the part that reads as having designed a system
+rather than read about one.
+</Warning>

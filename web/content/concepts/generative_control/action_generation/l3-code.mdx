@@ -1,0 +1,214 @@
+---
+concept: action_generation
+level: 3
+status: final
+recall:
+  prompt: "How do you build and validate an action-generation head? What must the head see, and what must the checks measure?"
+  keyPoints:
+    - "The head generates the whole (H, action_dim) chunk at once — never a per-timestep marginal."
+    - "Normalise per action dimension over the dataset and freeze the statistics; deltas move workspace variation out of the learning problem."
+    - "Validate temporal coherence and dynamic feasibility, not per-step marginals, because a broken model matches those exactly."
+    - "At execution, blend overlapping chunk predictions so consecutive chunks committing to different modes do not reverse the motion."
+check:
+  - id: ag_l3_c1
+    prompt: "Which validation check has power against the temporal independence failure?"
+    options:
+      - "Per-timestep marginal histograms against the data"
+      - "Sequence-level statistics — jerk, net displacement, and whether a sampled chunk stays near a single demonstrated trajectory — since a per-step independent model matches every marginal by construction"
+      - "The training loss on held-out chunks"
+      - "The variance of the first predicted action"
+    answer: 1
+    explanation: "Matching marginals is exactly what the failing model does, so that comparison cannot separate it from a correct one. The measured failure shows up immediately in sequence statistics: 31× the jerk and a quarter of the net displacement. Comparing each sampled chunk against its nearest demonstrated trajectory is the direct test, because a chunk that switches modes is far from every demonstration while each of its steps is close to some demonstration."
+  - id: ag_l3_c2
+    prompt: "Why blend overlapping predictions when executing chunks?"
+    options:
+      - "To reduce inference cost"
+      - "Because consecutive chunks are separate samples and can commit to different modes, so switching at the seam reverses the motion — averaging overlapping predictions for the same timestep makes the handover gradual"
+      - "Because the first action of a chunk is least accurate"
+      - "To correct for actuator latency"
+    answer: 1
+    explanation: "Coherence within a chunk does not give coherence across chunks: each re-prediction is an independent draw from a multi-modal conditional, so a policy can commit to going left, then to going right eight steps later. Averaging the overlapping predictions for a given timestep spreads that transition over several steps instead of concentrating it in one, which is what makes it executable. The cost is that averaging across modes is itself a mode-averaging operation, so heavy blending reintroduces the problem the generative head was for."
+  - id: ag_l3_c3
+    prompt: "Why compute normalisation statistics per action dimension rather than one scale for the whole action?"
+    options:
+      - "It is faster to compute"
+      - "Because dimensions have genuinely different scales and ranges — a gripper command and a wrist rotation are not comparable — so a single scale makes the loss dominated by whichever dimension happens to be largest"
+      - "Because the action dimensions are correlated"
+      - "Because it improves numerical stability of the sampler"
+    answer: 1
+    explanation: "The training loss sums squared errors across dimensions, so a dimension with ten times the natural range contributes a hundred times the gradient, and the model optimises it at the expense of the rest. Per-dimension statistics equalise the contributions so that accuracy is allocated by importance rather than by units. This is the same argument as normalising observation channels, and it fails in the same quiet way — as a model that is simply bad at the small-range dimensions."
+---
+
+## The head generates a chunk
+
+<CodeWalk title="One joint object, shaped (H, action_dim)">
+
+```python title="head.py"
+import torch, torch.nn as nn
+
+class ChunkFlowHead(nn.Module):
+    """Generates the WHOLE chunk in one pass. The output shape is the point:
+    (B, H, A), not H separate (B, A) predictions.
+
+    A per-timestep head with correct marginals stays on one mode with
+    probability 2^(1-H) — 0.003% at H=16 — producing 31x the expert's jerk
+    while every marginal check passes.
+    """
+    def __init__(self, obs_dim, act_dim, horizon, hidden=512):
+        super().__init__()
+        self.H, self.A = horizon, act_dim
+        self.net = nn.Sequential(
+            nn.Linear(obs_dim + horizon * act_dim + 1, hidden), nn.SiLU(),
+            nn.Linear(hidden, hidden), nn.SiLU(),
+            nn.Linear(hidden, horizon * act_dim),
+        )
+
+    def forward(self, x, t, obs):
+        # x: (B, H, A) — the full noisy chunk. Flattening it here is what lets
+        # the network condition every output timestep on every input timestep.
+        B = x.shape[0]
+        h = torch.cat([obs, x.reshape(B, -1), t.view(B, 1)], dim=-1)
+        return self.net(h).view(B, self.H, self.A)
+
+
+def train_step(head, obs, chunk, opt):
+    """Flow matching over the chunk: same objective as for an image, with the
+    chunk as the object being generated."""
+    B = chunk.shape[0]
+    t = torch.rand(B, device=chunk.device)
+    x0 = torch.randn_like(chunk)
+    xt = (1 - t).view(-1, 1, 1) * x0 + t.view(-1, 1, 1) * chunk
+    return torch.nn.functional.mse_loss(head(xt, t, obs), chunk - x0)
+```
+
+</CodeWalk>
+
+## Normalisation and parameterisation
+
+<CodeWalk title="Per-dimension statistics, and the delta decision">
+
+```python title="prep.py"
+import torch
+
+class ChunkNormalizer(torch.nn.Module):
+    """Per DIMENSION, not per chunk and not one global scale. The loss sums
+    squared error across dimensions, so a channel with 10x the range
+    contributes 100x the gradient and gets optimised at the others' expense."""
+
+    def __init__(self, act_dim):
+        super().__init__()
+        self.register_buffer("mean", torch.zeros(act_dim))
+        self.register_buffer("std", torch.ones(act_dim))
+
+    @torch.no_grad()
+    def fit(self, chunks):                      # (N, H, A)
+        flat = chunks.reshape(-1, chunks.shape[-1])
+        self.mean.copy_(flat.mean(0))
+        self.std.copy_(flat.std(0).clamp_min(1e-3))
+
+    def forward(self, c):  return (c - self.mean) / self.std
+    def inverse(self, c):  return c * self.std + self.mean
+
+
+def to_delta(abs_chunk, current_pose):
+    """Absolute targets carry the workspace distribution as well as the skill —
+    measured 1877x the variance for the same motion. Deltas remove that term.
+
+    The cost is real: deltas are cumulative, so an early error displaces every
+    later target and open-loop execution drifts. Choose per task, do not default.
+    """
+    return abs_chunk - current_pose.unsqueeze(1)
+```
+
+</CodeWalk>
+
+## Checks with power
+
+<CodeWalk title="Sequence statistics, not per-step marginals">
+
+```python title="validate.py"
+import numpy as np
+
+def sequence_report(samples, demos, dt, vel_lim, acc_lim):
+    """samples, demos: (N, H, A). Per-step marginal comparisons are matched
+    exactly by the broken model, so they cannot detect anything."""
+    d1 = np.diff(samples, axis=1) / dt
+    d2 = np.diff(samples, n=2, axis=1) / dt ** 2
+
+    print(f"  jerk proxy  sampled {np.abs(np.diff(samples,3,axis=1)).mean():.5f}"
+          f"   demos {np.abs(np.diff(demos,3,axis=1)).mean():.5f}")
+    print(f"  net displacement |sum| sampled {np.abs(samples.sum(1)).mean():.4f}"
+          f"   demos {np.abs(demos.sum(1)).mean():.4f}")
+    print(f"  chunks exceeding velocity limit: {(np.abs(d1) > vel_lim).any((1,2)).mean():.2%}")
+    print(f"  chunks exceeding accel limit:    {(np.abs(d2) > acc_lim).any((1,2)).mean():.2%}")
+
+
+def coherence(samples, demos, k=1):
+    """Distance from each sampled chunk to its nearest demonstrated TRAJECTORY.
+
+    This is the direct test: a chunk that switches modes mid-way is far from
+    every demonstration, while each of its individual steps is close to some
+    demonstration — which is why the sequence-level distance is the one that
+    separates them.
+    """
+    S = samples.reshape(len(samples), -1)
+    D = demos.reshape(len(demos), -1)
+    d = np.linalg.norm(S[:, None, :] - D[None, :, :], axis=-1)
+    return np.sort(d, axis=1)[:, :k].mean(1)
+```
+
+</CodeWalk>
+
+<KeyIdea>
+`coherence` is the check to reach for first. It works because the two failure
+shapes separate cleanly under a trajectory-level distance: a mode-switching chunk
+has every step near *some* demonstration and the whole sequence near *none*.
+Reporting its distribution against the demonstrations' own nearest-neighbour
+distances gives a calibrated reading rather than an arbitrary threshold.
+</KeyIdea>
+
+## Executing chunks
+
+<CodeWalk title="Blend the seams">
+
+```python title="execute.py"
+from collections import deque
+import numpy as np
+
+class ChunkExecutor:
+    """Consecutive chunks are independent samples from a multi-modal
+    conditional, so one can commit to going left and the next to going right.
+    Averaging overlapping predictions spreads that transition over several
+    steps instead of concentrating it in one."""
+
+    def __init__(self, horizon, replan_every, decay=0.5):
+        self.H, self.replan_every, self.decay = horizon, replan_every, decay
+        self.pending = deque()          # (age, chunk) pairs still overlapping
+
+    def step(self, t, predict_fn, obs):
+        if t % self.replan_every == 0:
+            self.pending.append([0, predict_fn(obs)])
+
+        num = np.zeros_like(self.pending[0][1][0]); den = 0.0
+        for entry in self.pending:
+            age, chunk = entry
+            if age < self.H:
+                w = self.decay ** age     # trust newer predictions more
+                num += w * chunk[age]; den += w
+            entry[0] += 1
+        while self.pending and self.pending[0][0] >= self.H:
+            self.pending.popleft()
+        return num / den
+```
+
+</CodeWalk>
+
+<Warning>
+Blending is itself an averaging operation, so it can reintroduce exactly the
+failure the generative head exists to prevent: average a left-going chunk with a
+right-going one and you get the action neither would take. The `decay`
+weighting limits this by making the newest prediction dominant, and heavy
+blending across a genuine mode switch is a real risk. If seams are frequent, the
+better fix is usually re-planning less often, so each committed chunk runs
+further before the policy gets another chance to change its mind.
+</Warning>

@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 300" font-family="system-ui, -apple-system, sans-serif">
+  <title>Modelling a chunk timestep by timestep fails exponentially in the horizon</title>
+  <desc>Left: two smooth expert modes reaching opposite goals, and a chunk sampled independently at each timestep which has the correct marginal at every step yet dithers, travelling a quarter of the distance with thirty-one times the jerk. Right: the probability that an independently sampled chunk stays on one mode is two to the power one minus H, falling from 12.5 percent at horizon four to 0.003 percent at horizon sixteen.</desc>
+  <rect width="640" height="300" fill="#0d1117"/>
+  <line x1="332" y1="40" x2="332" y2="284" stroke="#30363d"/>
+
+  <text x="20" y="24" fill="#e6edf3" font-size="12" font-weight="600">Right marginal at every step, incoherent sequence</text>
+  <line x1="40" y1="150" x2="305" y2="150" stroke="#30363d" stroke-dasharray="3 3"/>
+  <text x="34" y="86" fill="#8b949e" font-size="8.5" text-anchor="end">+1</text>
+  <text x="34" y="224" fill="#8b949e" font-size="8.5" text-anchor="end">−1</text>
+
+  <polyline points="40,150 72,149 105,143 137,132 170,115 202,99 235,87 267,81 300,80"
+            fill="none" stroke="#3fb950" stroke-width="2.2"/>
+  <polyline points="40,150 72,151 105,157 137,168 170,185 202,201 235,213 267,219 300,220"
+            fill="none" stroke="#3fb950" stroke-width="2.2"/>
+  <text x="304" y="83" fill="#3fb950" font-size="9">mode A</text>
+  <text x="304" y="223" fill="#3fb950" font-size="9">mode B</text>
+
+  <polyline points="40,150 56,144 72,152 89,141 105,150 121,138 137,156 153,140 170,152 186,137 202,148 219,133 235,146 251,131 267,142 284,130 300,134"
+            fill="none" stroke="#f85149" stroke-width="1.8"/>
+  <circle cx="300" cy="134" r="4" fill="#f85149"/>
+  <text x="46" y="248" fill="#f85149" font-size="9.5">independent per timestep: 31× the jerk,</text>
+  <text x="46" y="261" fill="#f85149" font-size="9.5">and 0.24 of the distance travelled (vs 1.00)</text>
+  <text x="46" y="278" fill="#8b949e" font-size="9">every per-step marginal is exactly correct</text>
+
+  <text x="352" y="24" fill="#e6edf3" font-size="12" font-weight="600">P(chunk stays on one mode) = 2¹⁻ᴴ</text>
+  <line x1="380" y1="256" x2="626" y2="256" stroke="#30363d"/>
+  <line x1="380" y1="70" x2="380" y2="256" stroke="#30363d"/>
+  <text x="374" y="84" fill="#8b949e" font-size="8.5" text-anchor="end">1</text>
+  <text x="374" y="120" fill="#8b949e" font-size="8.5" text-anchor="end">10⁻²</text>
+  <text x="374" y="188" fill="#8b949e" font-size="8.5" text-anchor="end">10⁻⁶</text>
+  <text x="374" y="240" fill="#8b949e" font-size="8.5" text-anchor="end">10⁻⁹</text>
+
+  <polyline points="380,80 428,85 476,95 524,116 572,157 620,239" fill="none" stroke="#f85149" stroke-width="2"/>
+  <circle cx="476" cy="95" r="3.5" fill="#d29922"/><circle cx="524" cy="116" r="3.5" fill="#d29922"/>
+  <circle cx="572" cy="157" r="4.5" fill="#f85149"/><circle cx="620" cy="239" r="3.5" fill="#f85149"/>
+  <text x="482" y="92" fill="#d29922" font-size="9">12.5%</text>
+  <text x="530" y="113" fill="#d29922" font-size="9">0.78%</text>
+  <text x="578" y="152" fill="#f85149" font-size="9">0.003%</text>
+
+  <text x="380" y="272" fill="#8b949e" font-size="9" text-anchor="middle">1</text>
+  <text x="476" y="272" fill="#8b949e" font-size="9" text-anchor="middle">4</text>
+  <text x="524" y="272" fill="#8b949e" font-size="9" text-anchor="middle">8</text>
+  <text x="572" y="272" fill="#8b949e" font-size="9" text-anchor="middle">16</text>
+  <text x="620" y="272" fill="#8b949e" font-size="9" text-anchor="middle">32</text>
+  <text x="504" y="288" fill="#8b949e" font-size="9.5" text-anchor="middle">chunk horizon H — longer chunks make it worse</text>
+</svg>

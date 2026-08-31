@@ -1,17 +1,18 @@
 id: action_generation
 title: Action Generation with Generative Models
 domain: generative_control
-summary: Instead of predicting one action at a time (which leads to jerky,
-  myopic behavior), action generation produces a whole trajectory segment at
-  once — like planning your next several chess moves rather than just the
-  next...
+summary: >-
+  Generating a chunk means modelling a joint distribution over time, and getting
+  every per-step marginal right is worth nothing — coherence fails as 2^(1-H), so
+  chunking is what turns a generative head from optional into necessary.
 tags:
   - generative_control
   - robot_learning
 difficulty: 3
 importance: 4
 related_concept_ids:
+  - action_chunking
+  - multimodal_distributions
   - diffusion_policy
   - flow_matching
-  - multimodal_distributions
-  - diffusion_models_basics
+  - action_tokenization

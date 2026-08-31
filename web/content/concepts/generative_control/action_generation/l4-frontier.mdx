@@ -1,0 +1,125 @@
+---
+concept: action_generation
+level: 4
+status: final
+recall:
+  prompt: "Trace how generative models came to produce action sequences. What did each paper establish about the object being generated?"
+  keyPoints:
+    - "Diffuser: generate the whole trajectory as one object, so planning becomes sampling and constraints become conditioning."
+    - "Decision Diffuser: drop the value function and condition the generator on the desired return instead."
+    - "Pearce et al.: diffusion heads capture human behavioural diversity that regression heads flatten."
+    - "Reuss et al.: score-based goal-conditioned policies, with the practical finding that sampler choice trades quality against latency."
+papers:
+  - key: janner2022diffuser
+    title: "Planning with Diffusion for Flexible Behavior Synthesis"
+    authors: "Michael Janner, Yilun Du, Joshua B. Tenenbaum, Sergey Levine"
+    venue: ICML
+    year: 2022
+    arxiv: "2205.09991"
+    takeaway: "Generates entire state-action trajectories with a diffusion model, so planning is sampling and constraints or goals enter as conditioning on the same object."
+  - key: ajay2023decisiondiffuser
+    title: "Is Conditional Generative Modeling all you need for Decision-Making?"
+    authors: "Anurag Ajay, Yilun Du, Abhi Gupta, Joshua Tenenbaum, Tommi Jaakkola, Pulkit Agrawal"
+    venue: ICLR
+    year: 2023
+    arxiv: "2211.15657"
+    takeaway: "Conditions a trajectory generator on desired return, constraints or skills and drops the value function entirely — recasting decision-making as conditional generation."
+  - key: pearce2023imitating
+    title: "Imitating Human Behaviour with Diffusion Models"
+    authors: "Tim Pearce, Tabish Rashid, Anssi Kanervisto, Dave Bignell, Mingfei Sun, Raluca Georgescu, Sergio Valcarcel Macua, Shan Zheng Tan"
+    venue: ICLR
+    year: 2023
+    arxiv: "2301.10677"
+    takeaway: "Shows diffusion heads reproduce the diversity of human behaviour in sequential environments, where regression heads collapse the variety that makes the behaviour human."
+  - key: reuss2023scorepolicies
+    title: "Goal-Conditioned Imitation Learning using Score-based Diffusion Policies"
+    authors: "Moritz Reuss, Maximilian Li, Xiaogang Jia, Rudolf Lioutikov"
+    venue: RSS
+    year: 2023
+    arxiv: "2304.02532"
+    takeaway: "Score-based goal-conditioned policies trained on play data, with a systematic treatment of how sampler and step count trade sample quality against inference latency."
+check:
+  - id: ag_l4_c1
+    prompt: "What did Diffuser change about how planning is framed?"
+    options:
+      - "It made planning faster"
+      - "It made the trajectory the generated object, so planning becomes sampling from a distribution over trajectories and goals or constraints become conditioning — rather than a search over actions guided by a learned value"
+      - "It removed the need for a dynamics model"
+      - "It applied diffusion to images of the environment"
+    answer: 1
+    explanation: "Conventional planning searches action sequences using a model and a value estimate, which makes constraints awkward to impose and long horizons expensive. Generating the whole trajectory at once turns those into properties of the sampled object: a goal is conditioning, an obstacle is a region of low density, and the horizon is a fixed shape rather than a depth to search. It also guarantees temporal coherence by construction, since the object being sampled is the sequence."
+  - id: ag_l4_c2
+    prompt: "Decision Diffuser conditions on desired return instead of learning a value function. What is the trade?"
+    options:
+      - "It is strictly better, since value functions are hard to learn"
+      - "It replaces value estimation with conditional generation — avoiding bootstrapping and its instabilities, at the cost of being limited to returns represented in the data, since conditioning on an unseen return asks the model to extrapolate"
+      - "It requires online interaction"
+      - "It only works for discrete actions"
+    answer: 1
+    explanation: "Learning a value function means bootstrapping, which brings the divergence and overestimation problems that make offline RL delicate; conditional generation replaces that with supervised learning and inherits its stability. The limitation is the mirror image: the model reproduces the return-conditioned behaviour it saw, so asking for a return better than anything demonstrated is extrapolation, not planning. That is the same boundary behaviour cloning has, expressed through a conditioning variable."
+  - id: ag_l4_c3
+    prompt: "What is the common structural claim across these four papers?"
+    options:
+      - "That diffusion models are better than transformers"
+      - "That the right object to generate is the whole trajectory or chunk, not one action — which gives temporal coherence by construction and turns goals and constraints into conditioning"
+      - "That offline data is sufficient for control"
+      - "That planning requires a learned dynamics model"
+    answer: 1
+    explanation: "Each one moves the unit of generation from a single action to a sequence, and the benefits follow from that choice rather than from diffusion specifically. Coherence stops being something to enforce because the sampled object is the sequence; constraints become conditioning on that object; and the exponential incoherence of per-step independence never arises. Flow-matching and autoregressive heads over chunks get the same property, which is why the claim is about the object rather than the machinery."
+---
+
+## Generate the trajectory, not the action
+
+<PaperCard refKey="janner2022diffuser" />
+
+The reframing that starts this line: make the *trajectory* the thing the model
+generates. Planning then becomes sampling, a goal becomes conditioning, and a
+constraint becomes a region the density avoids.
+
+The property worth naming is that temporal coherence stops being something you
+have to enforce. When the sampled object is the whole sequence, the
+$M^{1-H}$ incoherence of per-step independence simply cannot arise — the model
+never makes $H$ separate decisions.
+
+<PaperCard refKey="ajay2023decisiondiffuser" />
+
+Pushes it further: condition on the desired return and drop the value function.
+This trades bootstrapping — with its divergence and overestimation problems — for
+supervised conditional generation, and inherits the corresponding limit, since
+conditioning on a return better than anything in the data is extrapolation.
+
+## Into policies
+
+<PaperGrid>
+<PaperCard refKey="pearce2023imitating" />
+<PaperCard refKey="reuss2023scorepolicies" />
+</PaperGrid>
+
+<Steps>
+<Step title="Diversity is the thing being preserved">
+Pearce et al. make the point in a setting where it is easy to see: human
+behaviour is varied, and a regression head produces a single averaged way of
+acting that reads as inhuman.
+</Step>
+
+<Step title="Goal conditioning fits naturally">
+Reuss et al. train on play data with goals as conditioning, which is the same
+move Diffuser makes for constraints applied to a policy.
+</Step>
+
+<Step title="And latency became the axis">
+Their treatment of sampler choice and step count against quality is the practical
+question this whole cluster ends on — the step budget for a policy is set by the
+control rate.
+</Step>
+</Steps>
+
+<KeyIdea>
+Read together, the claim is about the object rather than the machinery. Moving
+the unit of generation from an action to a sequence is what delivers coherence,
+conditioning and constraint handling; diffusion was the first convenient way to
+do it, and flow-matching or autoregressive heads over chunks obtain the same
+property. That is also why this concept sits next to action chunking rather than
+under it: chunking says predict $H$ steps, and this says the $H$ steps have to be
+one object.
+</KeyIdea>

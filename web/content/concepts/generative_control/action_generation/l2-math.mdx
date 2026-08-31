@@ -1,24 +1,147 @@
 ---
 concept: action_generation
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Action Generation with Generative Models,
-    including the key equations.
+  prompt: "Derive how chunk coherence scales with horizon under per-step independence, and state what the action parameterisation changes."
   keyPoints:
-    - Using generative models (diffusion, flow matching, VAEs) to produce robot
-      action sequences conditioned on observations.
-    - "The model generates an action chunk $\\mathbf{a}_{t:t+H} = (a_t, a_{t+1},
-      \\ldots, a_{t+H-1})$ of horizon $H$ steps conditioned on observation
-      history $\\mathbf{o}_{t-K:t}$: $p_\\theta(\\mathbf{a}_{t:t+H} |
-      \\mathbf{o}_{t-K:t})$."
-    - "Denoising process: start from Gaussian noise $\\mathbf{a}^T \\sim
-      \\mathcal{N}(0, I)$ and iteratively denoise: $\\mathbf{a}^{s-1} =
-      \\text{denoise}_\\theta(\\mathbf{a}^s, s, \\mathbf{o})$."
-check: []
-papers: []
+    - "With $M$ modes and per-step independence, coherence is $M^{1-H}$ — exponential decay in the horizon, not a fixed penalty."
+    - "The KL gap is the total correlation across timesteps, which grows roughly linearly in $H$ for a correlated sequence."
+    - "Autoregressive factorisation over timesteps is exact, so 'sequential' and 'independent' are different things."
+    - "Absolute actions carry the workspace distribution as well as the skill: measured 1877× the variance of deltas for the same motion."
+check:
+  - id: ag_l2_c1
+    prompt: "Why is autoregressive prediction over timesteps not subject to the $M^{1-H}$ failure?"
+    options:
+      - "Because it uses a transformer"
+      - "Because $p(a_{1:H}) = \\prod_t p(a_t \\mid a_{<t})$ is an exact factorisation rather than an independence assumption — each step conditions on what was already committed to, so the mode chosen early constrains everything after"
+      - "Because it predicts fewer values"
+      - "Because it uses teacher forcing during training"
+    answer: 1
+    explanation: "The chain rule always holds, so factorising sequentially discards nothing; what fails is dropping the conditioning and writing $\\prod_t p(a_t)$. Once step $t$ sees $a_{<t}$, the mode is effectively decided by the first sample and the rest follow, which is exactly the coupling independence destroys. The practical costs of autoregression are elsewhere — $H$ sequential forward passes at inference, and exposure bias from training on ground-truth prefixes."
+  - id: ag_l2_c2
+    prompt: "For a sequence model, how does the KL gap from ignoring temporal dependence scale with horizon?"
+    options:
+      - "It is constant"
+      - "It grows roughly linearly in $H$: the gap is the total correlation $\\sum_t H(a_t) - H(a_{1:H})$, and each additional timestep of a correlated sequence contributes another roughly constant amount of redundancy"
+      - "It grows as $\\log H$"
+      - "It shrinks as the marginals become better estimated"
+    answer: 1
+    explanation: "The divergence between a joint and the product of its marginals is the total correlation, and for a stationary correlated process each new timestep adds about the same redundancy — so the gap accumulates with length. That is the information-theoretic counterpart of the $M^{1-H}$ coherence result, which is the same statement read as a probability rather than as nats. Better marginal estimates reduce neither, since the quantity being discarded is dependence rather than accuracy."
+  - id: ag_l2_c3
+    prompt: "What does an absolute-pose action parameterisation force the model to represent that a delta parameterisation does not?"
+    options:
+      - "The robot's kinematics"
+      - "The distribution over where the robot happens to be: the same skill executed from different start poses spans the workspace, measured at 1877× the variance of the equivalent deltas, so capacity goes to location rather than to behaviour"
+      - "The action bounds"
+      - "The control frequency"
+    answer: 1
+    explanation: "An absolute target is start pose plus motion, so its distribution convolves the skill with wherever the arm was — and the workspace term dominates when the motion is small relative to the reachable volume. The model then has to learn that a reach looks different at every location, which is a harder function with no task content. Deltas remove that term, at the real cost of accumulating error across the chunk, so it is a trade rather than a strict improvement."
 ---
 
-## Formal definition
+## Coherence under independence
 
-Using generative models (diffusion, flow matching, VAEs) to produce robot action sequences conditioned on observations. The model generates an action chunk $\mathbf{a}_{t:t+H} = (a_t, a_{t+1}, \ldots, a_{t+H-1})$ of horizon $H$ steps conditioned on observation history $\mathbf{o}_{t-K:t}$: $p_\theta(\mathbf{a}_{t:t+H} | \mathbf{o}_{t-K:t})$. Denoising process: start from Gaussian noise $\mathbf{a}^T \sim \mathcal{N}(0, I)$ and iteratively denoise: $\mathbf{a}^{s-1} = \text{denoise}_\theta(\mathbf{a}^s, s, \mathbf{o})$. Observation conditioning methods: (1) concatenation — append $\phi(\mathbf{o})$ to noisy actions as input, (2) cross-attention — noisy action tokens attend to observation tokens, (3) FiLM conditioning — modulate denoising network features via $\gamma(\mathbf{o}) \odot h + \beta(\mathbf{o})$. Temporal consistency enforced through: action chunking (predict $H$ steps, execute $H_e < H$, replan), temporal U-Net architecture that processes the action sequence as a 1D signal, and receding-horizon execution with overlap blending.
+Let the expert have $M$ discrete ways of doing the task, and suppose a model
+predicts each timestep of an $H$-step chunk independently with the correct
+marginal.
+
+<Derivation title="Why the penalty is exponential in the horizon">
+
+At each timestep the marginal places mass $1/M$ on each mode's value (taking them
+equally likely). Sampling independently, the probability that all $H$ steps
+select the same mode is
+
+$$
+P(\text{coherent}) = M \cdot \left(\frac{1}{M}\right)^{H} = M^{\,1-H}
+$$
+
+For $M = 2$:
+
+| $H$ | 1 | 4 | 8 | 16 | 32 |
+| --- | --- | --- | --- | --- | --- |
+| $2^{1-H}$ | 1 | 0.125 | 0.0078 | $3.1\times10^{-5}$ | $4.7\times10^{-10}$ |
+
+**The assumption doing the work is that the modes remain distinguishable at every
+timestep.** Where they coincide — at the start of a reach, before the paths
+separate — a wrong choice costs nothing, so this is an upper bound on the damage
+rather than an exact account. It is the right shape regardless: coherence decays
+geometrically in $H$.
+
+Measured on minimum-jerk trajectories to two opposite goals, $H = 16$, 200k
+samples: coherent fraction $2\times10^{-5}$ against the predicted $3\times10^{-5}$
+— consistent at this sample size, where about six hits were expected.
+
+</Derivation>
+
+<KeyIdea>
+Note what the incoherent samples do rather than just how many there are. Measured
+mean absolute second difference — a jerk proxy — was $0.143$ against the expert's
+$0.0046$, a factor of **31**. And because the sign flips cancel, net displacement
+was $0.24$ against $1.00$. The robot vibrates in place. This is not a mildly
+degraded trajectory; it is a qualitatively different behaviour, produced by a
+model whose every marginal is exactly right.
+</KeyIdea>
+
+## The same statement in nats
+
+$$
+D_{\mathrm{KL}}\!\left(p(a_{1:H}) \,\big\|\, \textstyle\prod_t p(a_t)\right)
+= \sum_{t} H(a_t) - H(a_{1:H})
+$$
+
+the total correlation across time. For a correlated sequence each additional
+timestep contributes roughly a constant amount of redundancy, so the gap grows
+about linearly in $H$ — which is the $M^{1-H}$ result read as information rather
+than as a probability.
+
+<Warning>
+Sequential and independent are different things, and conflating them is a common
+error. The chain rule
+$p(a_{1:H}) = \prod_t p(a_t \mid a_{<t})$ is exact and discards nothing, so an
+autoregressive head over timesteps has no independence failure — the mode is
+decided by the first sample and the conditioning carries it forward. Its costs
+are elsewhere: $H$ sequential forward passes at inference, and exposure bias from
+training on ground-truth prefixes. A diffusion or flow head over the whole chunk
+avoids both by generating all timesteps together.
+</Warning>
+
+## What the parameterisation costs
+
+Write the action as an absolute target pose, $a_t = x_{\text{start}} + \Delta_t$,
+versus as the delta $\Delta_t$ itself.
+
+<Derivation title="Absolute actions carry the workspace distribution">
+
+If start pose and motion are independent,
+
+$$
+\mathrm{Var}[a] = \mathrm{Var}[x_{\text{start}}] + \mathrm{Var}[\Delta]
+$$
+
+The first term has nothing to do with the skill. Measured for one motion — reach
+8 cm forward, execution noise 4 mm — performed from start poses spread over a
+$\pm 30$ cm workspace:
+
+| parameterisation | total variance | differential entropy |
+| --- | --- | --- |
+| absolute pose | $0.0900$ | $-1.00$ nats |
+| delta | $0.00005$ | $-12.31$ nats |
+
+A ratio of **1877×** in variance, and 11.3 nats of entropy the model must
+represent to describe the same behaviour.
+
+</Derivation>
+
+So under an absolute parameterisation the generative head spends capacity
+modelling where the arm happened to be. The conditioning can in principle recover
+this — the observation contains the current pose — but it is a harder function
+to learn for no task-relevant reason.
+
+<Warning>
+Deltas are not strictly better and it matters to say why. They are *cumulative*:
+an error at step 3 displaces every subsequent target, so open-loop execution of a
+long chunk drifts where absolute targets self-correct. Tasks anchored to a fixed
+frame are also more naturally absolute. The real content of the result is that
+the parameterisation determines what the model must learn, so it deserves a
+decision rather than a default.
+</Warning>

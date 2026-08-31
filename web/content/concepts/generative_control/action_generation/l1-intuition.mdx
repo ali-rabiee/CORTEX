@@ -1,28 +1,124 @@
 ---
 concept: action_generation
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Action Generation with Generative Models in plain language:
-    what is it, and why does it matter?"
+  prompt: "What is special about generating an action sequence rather than a single action, and how does the difficulty scale with horizon?"
   keyPoints:
-    - Instead of predicting one action at a time (which leads to jerky, myopic
-      behavior), action generation produces a whole trajectory segment at once —
-      like planning your next several chess moves rather than just the next one.
-    - The denoising process starts with random noise shaped like an action
-      trajectory and gradually sculpts it into a coherent, smooth sequence of
-      actions that responds to what the robot currently sees.
-    - "Executing only the first few steps and then replanning gives you the best
-      of both worlds: temporal coherence from chunk generation and reactivity
-      from frequent replanning."
-check: []
-papers: []
+    - "The chunk is one joint object: getting every per-timestep marginal right says nothing about whether the sequence is coherent."
+    - "Under per-step independence the chance a chunk stays on one mode is $2^{1-H}$ — 12.5% at $H=4$ and 0.003% at $H=16$."
+    - "The measured failure is dithering: 31× the expert's jerk and 0.24 of the distance travelled, with perfect marginals."
+    - "So chunking and generative heads are not two independent choices — longer chunks are what make a joint model necessary."
+media:
+  - kind: article
+    title: "Diffusion Policy: Visuomotor Policy Learning via Action Diffusion"
+    url: https://diffusion-policy.cs.columbia.edu/
+    source: "Chi et al. · RSS 2023"
+    note: "Watch the rollouts with the action-sequence visualisation on. Seeing the whole predicted chunk update each step is what makes the joint-object framing concrete."
+  - kind: article
+    title: "ALOHA: Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware"
+    url: https://tonyzhaozh.github.io/aloha/
+    source: "Zhao et al. · RSS 2023"
+    note: "The videos show what coherent chunk execution looks like at 100-step horizons — and the temporal-ensembling discussion is the seam problem this concept ends on."
+check:
+  - id: ag_l1_c1
+    prompt: "A model predicts each timestep of an action chunk independently, with the correct marginal at every step. What goes wrong?"
+    options:
+      - "Nothing, if each marginal is correct"
+      - "The sequence is incoherent: with two modes, the chance the whole chunk stays on one is $2^{1-H}$, so at a 16-step horizon 99.997% of samples switch modes mid-chunk — producing 31× the expert's jerk while travelling a quarter of the distance"
+      - "The chunk will be too smooth"
+      - "The first action will be wrong"
+    answer: 1
+    explanation: "Correct marginals constrain what happens at each timestep in isolation and say nothing about the relationship between timesteps, which is where a trajectory lives. Independent sign choices produce a path that reverses repeatedly, so the displacements largely cancel — the measured net travel was 0.24 against the expert's 1.00. This is the per-dimension independence failure with time as the dimension, and it is far worse because the penalty compounds exponentially rather than staying fixed."
+  - id: ag_l1_c2
+    prompt: "Why does action chunking make a generative head more necessary rather than less?"
+    options:
+      - "Because longer chunks need more parameters"
+      - "Because the cost of not modelling the joint grows exponentially with horizon: at $H=1$ there is no temporal structure to get wrong, and at $H=16$ independence destroys 99.997% of samples"
+      - "Because chunking increases the number of modes"
+      - "Because chunks are harder to normalise"
+    answer: 1
+    explanation: "Single-step prediction has no cross-timestep structure, so a model that ignores it loses nothing on that axis — which is why the two ideas can look independent. Once you predict a sequence, temporal coherence is most of what makes it a trajectory rather than a list of numbers, and $2^{1-H}$ says the requirement tightens fast. Chunking and generative modelling arrived together in ACT and Diffusion Policy for this reason rather than by coincidence."
 ---
 
-## Intuition
+## A chunk is one object, not $H$ predictions
 
-Instead of predicting one action at a time (which leads to jerky, myopic behavior), action generation produces a whole trajectory segment at once — like planning your next several chess moves rather than just the next one. The denoising process starts with random noise shaped like an action trajectory and gradually sculpts it into a coherent, smooth sequence of actions that responds to what the robot currently sees. Executing only the first few steps and then replanning gives you the best of both worlds: temporal coherence from chunk generation and reactivity from frequent replanning.
+<Intuition>
+Predicting a sequence of actions looks like predicting several actions, and that
+framing is what breaks. What makes a chunk a *trajectory* is the relationship
+between its timesteps: consecutive actions are strongly correlated, the sequence
+has to be dynamically feasible, and — crucially — the whole chunk has to commit
+to one way of doing the task. A model that gets every timestep right in isolation
+can still produce something no robot could execute and no expert would attempt.
+</Intuition>
 
-## In practice
+The cleanest way to see it is to take the marginals as given and vary only the
+dependence structure.
 
-Diffusion Policy implementation: observation encoder (ResNet-18 on 2 camera views + proprioception MLP) produces conditioning vector $\mathbf{c} = [\phi_{\text{img}}(o_{t-1}), \phi_{\text{img}}(o_t), \phi_{\text{prop}}(q_t)]$. Temporal U-Net takes noisy action chunk $\mathbf{a}^s \in \mathbb{R}^{16 \times 7}$ (16 steps, 7-DOF) with FiLM conditioning from $\mathbf{c}$. Train with DDPM loss, sample with DDIM (10 steps). Execute first 8 of 16 predicted steps, then replan — the 8-step overlap provides smooth transitions between chunks. Running at 10Hz on an NVIDIA 3090, the system controls a bimanual ALOHA robot for folding clothes.
+<Figure src="/figures/action-sequence-independence.svg" alt="Left: two smooth expert modes reaching opposite goals, and an independently sampled chunk that dithers around the middle with 31 times the jerk and a quarter of the distance travelled. Right: the probability an independently sampled chunk stays on one mode, falling as two to the one minus H from 12.5 percent at horizon 4 to 0.003 percent at horizon 16." caption="Every per-timestep marginal is exactly correct in the red trajectory. That buys nothing." />
+
+Suppose the expert reaches one of two goals with a smooth minimum-jerk profile,
+so at each timestep the action is one of two values. Sample each timestep
+independently from its correct marginal and the chunk stays on a single mode with
+probability
+
+$$
+P(\text{coherent}) = 2^{\,1-H}
+$$
+
+| $H$ | 4 | 8 | 16 | 32 |
+| --- | --- | --- | --- | --- |
+| coherent | 12.5% | 0.78% | **0.003%** | $5\times10^{-10}$ |
+
+What the incoherent 99.997% look like, measured: **31×** the expert's jerk, and a
+net displacement of **0.24** against the expert's 1.00. The robot dithers and
+goes almost nowhere, while every marginal check passes.
+
+<KeyIdea>
+This is the per-dimension independence failure from multimodal action
+distributions, with time as the dimension — and it is much more severe, because
+the penalty compounds exponentially in the horizon instead of sitting at a fixed
+50%. Which yields the connection worth remembering: **action chunking and
+generative action heads are not two independent design choices.** At $H=1$ there
+is no temporal structure to lose. At $H=16$ ignoring it destroys almost every
+sample. Chunking is what turns a joint model from a refinement into a
+requirement, and it is why ACT and Diffusion Policy adopted both at once.
+</KeyIdea>
+
+## What the model has to get right
+
+<Steps>
+<Step title="Mode coherence across the chunk">
+One way of doing the task, held for the whole horizon. This is the failure that
+scales as $2^{1-H}$.
+</Step>
+
+<Step title="Dynamic feasibility">
+Bounded velocity, acceleration and jerk. A sequence can be individually plausible
+at every step and exceed the arm's limits as a path.
+</Step>
+
+<Step title="A parameterisation that does not fragment the distribution">
+The same reaching motion executed from different start poses has **1877×** the
+variance as an absolute target pose than as a delta. Under absolute actions the
+spread of the distribution is the workspace rather than the skill.
+</Step>
+
+<Step title="Seams between consecutive chunks">
+Chunks are re-predicted before the previous one finishes, and independent mode
+choices across chunks reverse the motion. Temporal ensembling averages
+overlapping predictions to smooth the handover.
+</Step>
+</Steps>
+
+<Warning>
+The delta parameterisation is not a free win, and presenting it as one is a
+mistake. Deltas accumulate: an error early in the chunk shifts everything after
+it, so open-loop execution drifts in a way absolute targets do not. Tasks
+anchored to a fixed frame — place the object in *this* bin — are also more
+naturally expressed absolutely. The honest statement is that the parameterisation
+determines what the model must learn, and deltas move workspace variation out of
+the learning problem at the cost of making errors cumulative.
+</Warning>
+
+<WatchThis />
