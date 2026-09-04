@@ -1,12 +1,18 @@
 id: point_cloud_processing
-title: Point Cloud Processing for Robotics
+title: Point Cloud Processing
 domain: perception
-summary: A point cloud is like a 3D scan made of millions of dots.
+summary: >-
+  A point cloud is a set, so the network must be permutation invariant — and the
+  standard way to achieve that, max-pooling, means a measured 9% of the points
+  determine the output exactly. Robustness and blindness are the same property.
 tags:
   - perception
+  - robot_learning
 difficulty: 3
 importance: 4
 related_concept_ids:
   - depth_estimation
+  - rgb_depth_sensing
+  - pose_estimation_6d
   - object_segmentation
-  - grasp_prediction
+  - diffusion_policy

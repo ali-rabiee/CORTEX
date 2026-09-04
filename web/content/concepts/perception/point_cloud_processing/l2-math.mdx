@@ -1,22 +1,161 @@
 ---
 concept: point_cloud_processing
 level: 2
-status: seed
+status: final
 recall:
-  prompt: State the formal definition of Point Cloud Processing for Robotics,
-    including the key equations.
+  prompt: "State the permutation-invariance requirement, the max-pool universality result, and the critical-set bound."
   keyPoints:
-    - Point clouds are unordered sets of 3D points $\{(x_i, y_i,
-      z_i)\}_{i=1}^{N}$ from depth sensors (LiDAR, RGB-D cameras).
-    - "Processed by architectures like PointNet (per-point MLP + symmetric
-      function for permutation invariance: $f(\\{x_1, \\ldots, x_n\\}) =
-      \\gamma(\\max_{i} h(x_i))$ where $h$ is a learned per-point function and
-      $\\gamma$ is a global MLP), PointNet++ (hierarchical grouping with
-      farthest point sampling), or voxelization approaches."
-check: []
-papers: []
+    - "$f(\\{x_1,\\dots,x_n\\})$ must equal $f(\\{x_{\\pi(1)},\\dots\\})$ for every permutation $\\pi$."
+    - "$f(S) = \\gamma(\\max_{x \\in S} h(x))$ is invariant by construction, and can approximate any continuous set function given enough width."
+    - "The same construction bounds the influential subset by $K$: each of the $K$ maxima is attained at one point, so the rest are irrelevant."
+    - "Measured 93.6 of 1024, with the prediction unchanged in 512/512 clouds when the rest were removed."
+check:
+  - id: pc_l2_c1
+    prompt: "Why does max-pooling give permutation invariance where summation over an ordering would not?"
+    options:
+      - "Because max is nonlinear"
+      - "Because max is a symmetric function of its arguments — its value depends on the multiset of inputs and not their order — which is exactly the property required, and sum, mean and other symmetric aggregators share it"
+      - "Because max discards the smaller values"
+      - "Because max is scale invariant"
+    answer: 1
+    explanation: "Symmetry is the whole requirement, and max, sum and mean all satisfy it — max is not special for invariance. What distinguishes max is the resulting *sensitivity* structure: a sum spreads influence across every point, while a max concentrates it on one per dimension. That is why the critical-set bound applies to max-pooling specifically and not to sum-pooling, which has no such bound."
+  - id: pc_l2_c2
+    prompt: "What exactly does the critical-set result bound?"
+    options:
+      - "The number of points needed for training"
+      - "The number of input points that can affect the output of a max-pool architecture: at most $K$, the bottleneck width, since each of the $K$ features is attained at a single point"
+      - "The approximation error of the network"
+      - "The number of distinguishable object classes"
+    answer: 1
+    explanation: "The argument is elementary once stated: the global descriptor is $K$ independent maxima, each realised by one point, so at most $K$ points appear anywhere in the computation of the descriptor. Perturbing or removing any other point cannot change it, provided the perturbation does not make that point become a new maximiser. This gives both the robustness to deletion and the upper limit on what the architecture can attend to."
+  - id: pc_l2_c3
+    prompt: "For a depth camera, how does the number of points in a fixed-radius neighbourhood scale with range?"
+    options:
+      - "It is constant"
+      - "As $1/Z^2$: angular resolution is fixed, so the physical spacing between points grows linearly with range and areal density falls with its square — measured 5215 points in a 2 cm radius at 0.3 m and 19 at 5 m"
+      - "As $1/Z$"
+      - "It depends only on the surface orientation"
+    answer: 1
+    explanation: "Each pixel subtends a fixed solid angle, so at range $Z$ it covers a patch whose linear size grows as $Z$ and whose area grows as $Z^2$ — meaning a fixed physical patch is covered by proportionally fewer pixels. The measured 278-fold density change between 0.3 m and 5 m is why a single radius parameter cannot serve a whole scene, and why voxel downsampling to a uniform density is a common first step even though it discards resolution."
 ---
 
-## Formal definition
+## The invariance requirement
 
-Point clouds are unordered sets of 3D points $\{(x_i, y_i, z_i)\}_{i=1}^{N}$ from depth sensors (LiDAR, RGB-D cameras). Processed by architectures like PointNet (per-point MLP + symmetric function for permutation invariance: $f(\{x_1, \ldots, x_n\}) = \gamma(\max_{i} h(x_i))$ where $h$ is a learned per-point function and $\gamma$ is a global MLP), PointNet++ (hierarchical grouping with farthest point sampling), or voxelization approaches.
+A point cloud $S = \{x_1, \dots, x_n\}$, $x_i \in \mathbb{R}^3$, is a *set*. Any
+function of it must satisfy
+
+$$
+f(x_1, \dots, x_n) = f(x_{\pi(1)}, \dots, x_{\pi(n)}) \quad \text{for every permutation } \pi
+$$
+
+This rules out anything that indexes points by position — including convolution,
+which assumes each element has the same relative neighbours on a lattice.
+
+<Derivation title="Max-pooling is invariant, and universal">
+
+The PointNet form is
+
+$$
+f(S) = \gamma\!\left(\max_{x \in S} h(x)\right)
+$$
+
+with $h : \mathbb{R}^3 \to \mathbb{R}^K$ applied per point, $\max$ taken
+elementwise, and $\gamma$ a final network.
+
+**Invariance** is immediate: the elementwise max over a set depends on the
+multiset of values, not their order. Note that sum and mean share this property —
+max is not special *for invariance*.
+
+**Universality** is the harder half. The construction is to choose $h$ so that
+each output dimension is an indicator for one region of a partition of the input
+space; then $\max_{x \in S} h_k(x)$ is 1 exactly when $S$ intersects region $k$,
+so the pooled vector is an occupancy code for the partition. Refining the
+partition approximates any continuous set function arbitrarily well, given enough
+$K$.
+
+**The assumption doing the work is that $K$ may grow with the desired accuracy.**
+At fixed $K$ the representable functions are limited in a specific way, which the
+next result makes precise.
+
+</Derivation>
+
+## The critical set
+
+<Derivation title="At most $K$ points can matter">
+
+Fix $S$ and let $u = \max_{x \in S} h(x) \in \mathbb{R}^K$. For each dimension
+$k$, the maximum is attained at some point
+
+$$
+c_k = \arg\max_{x \in S} h_k(x)
+$$
+
+Define $C_S = \{c_1, \dots, c_K\}$, of size at most $K$ since dimensions may
+share a maximiser. Then
+
+$$
+\max_{x \in C_S} h(x) = u = \max_{x \in S} h(x)
+$$
+
+so $f(C_S) = f(S)$: the critical set alone reproduces the output exactly. And for
+any $T$ with $C_S \subseteq T \subseteq S$, the same holds — **you may delete any
+non-critical points, in any number, without changing the answer.**
+
+</Derivation>
+
+Measured on a trained four-class model, $K = 256$, $N = 1024$:
+
+| | |
+| --- | --- |
+| mean $\lvert C_S \rvert$ | 93.6 (9.1% of the cloud) |
+| range across clouds | 63 to 156 |
+| $f(C_S) = f(S)$ | 512 / 512 |
+| unchanged after deleting 90% of $S \setminus C_S$ | 512 / 512 |
+
+<KeyIdea>
+The bound is on *influence*, not on information, and the distinction is what
+makes it double-edged. Robustness follows: occlusion, dropout and sparse returns
+remove points that mostly were not being used. Blindness follows from the same
+line: a feature present only in the 91% cannot reach the classifier, so the
+architecture cannot represent it however much data you supply. Sum-pooling has no
+analogous bound — every point contributes — which is one reason later
+architectures moved away from a single global max.
+</KeyIdea>
+
+## Density is not uniform, and the two fixes disagree
+
+For a camera with angular resolution $\alpha$ per pixel, points on a surface at
+range $Z$ are separated by $s = Z\alpha$, so areal density is
+
+$$
+\rho(Z) = \frac{1}{(Z\alpha)^2} \;\propto\; \frac{1}{Z^2}
+$$
+
+At $\alpha = 1.64$ mrad (640 px over 60°):
+
+| range | spacing | density | points in $r = 2$ cm |
+| --- | --- | --- | --- |
+| 0.3 m | 0.49 mm | 415 /cm² | 5215 |
+| 1.0 m | 1.64 mm | 37.4 /cm² | 469 |
+| 5.0 m | 8.18 mm | 1.5 /cm² | **19** |
+
+The two standard neighbourhood definitions each keep one thing constant and let
+the other vary:
+
+$$
+\text{fixed radius } r: \quad n(Z) = \frac{\pi r^2}{(Z\alpha)^2} \propto Z^{-2}
+\qquad
+\text{fixed } k: \quad r(Z) = \sqrt{\tfrac{k}{\pi}}\,Z\alpha \propto Z
+$$
+
+Holding $k = 32$: a 1.6 mm neighbourhood at 0.3 m and 26.1 mm at 5 m.
+
+<Warning>
+So the choice is which distortion you prefer, and it should follow from what the
+feature means. A curvature or normal estimate describes a physical scale, so a
+fixed radius keeps it honest and you accept the varying sample count. A learned
+descriptor that expects a fixed input size wants fixed $k$ and will silently
+describe a different physical extent in the far field. Voxel downsampling to a
+uniform grid removes the dilemma by equalising density, at the price of throwing
+away the near-field resolution you paid for.
+</Warning>

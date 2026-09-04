@@ -1,24 +1,117 @@
 ---
 concept: point_cloud_processing
 level: 1
-status: seed
+status: final
 recall:
-  prompt: "Explain Point Cloud Processing for Robotics in plain language: what is
-    it, and why does it matter?"
+  prompt: "What makes point clouds different from images, and what does the standard fix cost?"
   keyPoints:
-    - A point cloud is like a 3D scan made of millions of dots.
-    - Unlike images (ordered grid), points have no fixed order — shuffling them
-      should give the same result.
-    - "PointNet's key trick: process each point independently, then take the max
-      across all points to get a global summary."
-check: []
-papers: []
+    - "A cloud is an unordered set with no grid, so the network must be permutation invariant — convolution does not apply."
+    - "Max-pooling over per-point features gives that invariance, and it means at most K points can influence the output."
+    - "Measured: 93.6 of 1024 points on average, and keeping only those left the prediction unchanged in 512/512 clouds."
+    - "Sensor density falls as $1/Z^2$ — a 2 cm neighbourhood holds 5215 points at 0.3 m and 19 at 5 m, so neither fixed radius nor fixed k is scale-consistent."
+media:
+  - kind: article
+    title: "PointNet: Deep Learning on Point Sets for 3D Classification and Segmentation"
+    url: https://arxiv.org/abs/1612.00593
+    source: "Qi et al. · CVPR 2017"
+    note: "Section 4.3 proves the critical-set result — the output is determined by a bounded subset of points. It is the paper's most interesting claim and the one least often quoted."
+  - kind: article
+    title: "Open3D — A Modern Library for 3D Data Processing"
+    url: https://www.open3d.org/docs/release/
+    source: "Open3D"
+    note: "The practical counterpart. Read the sections on voxel downsampling and normal estimation; both have a radius parameter whose right value depends on range."
+check:
+  - id: pc_l1_c1
+    prompt: "Why can't you apply a convolution to a point cloud directly?"
+    options:
+      - "Point clouds are too large"
+      - "Convolution needs a fixed neighbourhood structure on a grid, and a cloud is an unordered set of coordinates — there is no canonical ordering, no fixed number of neighbours, and permuting the points must not change the answer"
+      - "Point clouds have no colour information"
+      - "The z-coordinate breaks translation invariance"
+    answer: 1
+    explanation: "Convolution's weight sharing is defined over a lattice: the kernel assumes each element has the same set of relative neighbours. A point cloud supplies neither an ordering nor a fixed neighbourhood size, and any function of it must give the same output under any permutation of the input rows. That constraint is what drives the whole architecture — either build a symmetric function over the set, or impose a grid by voxelising and pay the discretisation cost."
+  - id: pc_l1_c2
+    prompt: "A trained PointNet with a 256-dimensional bottleneck classifies a 1024-point cloud. How many of those points actually affect the output?"
+    options:
+      - "All 1024, weighted by relevance"
+      - "At most 256, and measured about 94 — because each bottleneck feature is a max over points, only the winning point per feature matters, and keeping only those left the prediction unchanged in every one of 512 test clouds"
+      - "Roughly half"
+      - "It depends on the object class only"
+    answer: 1
+    explanation: "The global feature is an elementwise max over per-point features, so each of the $K$ dimensions is decided by exactly one point and the rest contribute nothing. That bounds the influential set by $K$, and in practice several dimensions share a winner, so the measured mean was 93.6 of 1024. This is why deleting most of a cloud often changes nothing — and equally why anything visible only in the discarded points cannot be seen at all."
 ---
 
-## Intuition
+## A set, not a grid
 
-A point cloud is like a 3D scan made of millions of dots. Unlike images (ordered grid), points have no fixed order — shuffling them should give the same result. PointNet's key trick: process each point independently, then take the max across all points to get a global summary. Like asking each witness for their observation, then taking the most extreme/notable one.
+<Intuition>
+An image is a grid: every pixel has the same relative neighbours, which is what
+lets a convolution share weights. A point cloud has none of that. It is an
+unordered collection of coordinates, of varying size, with no canonical ordering
+— so any function of it must give the same answer when you shuffle the rows.
+Permutation invariance is not a nice property to have here; it is a hard
+constraint that determines the architecture.
+</Intuition>
 
-## In practice
+The standard solution is to compute a feature per point independently, then
+combine them with a symmetric function — a max. That is genuinely invariant, and
+it has a consequence people underuse.
 
-Grasping pipeline: RGB-D camera $\rightarrow$ point cloud $\rightarrow$ PointNet++ segmentation $\rightarrow$ per-object point clusters $\rightarrow$ GraspNet grasp pose prediction $\rightarrow$ execution. Preprocessing: voxel downsampling ($0.005\,\text{m}$ voxel), RANSAC plane removal (table), statistical outlier removal. Typical scene: $\sim 10^5$ points after downsampling.
+## The output sees a fraction of the input
+
+<Figure src="/figures/pointcloud-critical-set-density.svg" alt="Left: a point cloud with a small subset highlighted, annotated that 93.6 of 1024 points determine the output on average and that keeping only those leaves the prediction unchanged in all 512 test clouds. Right: points inside a 2 cm radius against range, falling from 5215 at 0.3 m to 19 at 5 m." caption="The max-pool bottleneck makes most of the cloud provably irrelevant, and the sensor makes density vary by two orders of magnitude across a scene." />
+
+If the global feature is an elementwise max over $K$ dimensions, then each
+dimension is decided by exactly one point. So **at most $K$ points can influence
+the output**, regardless of how many you feed in.
+
+Trained on a four-class shape task with $K = 256$ and 1024 input points:
+
+| measurement | result |
+| --- | --- |
+| mean critical-set size | **93.6 of 1024 (9.1%)** |
+| prediction unchanged keeping only the critical set | **512 / 512** |
+| prediction unchanged after deleting 90% of the rest | **512 / 512** |
+
+<KeyIdea>
+Read this twice, because it is the same fact in two moods. It is a *robustness*
+result — the network is immune to losing most of its input, which matters for
+sparse and noisy sensors. And it is a *blindness* result — 91% of the cloud
+cannot affect the answer, so anything that shows up only there is invisible.
+Fine detail, small objects in a large scene, and subtle geometry are structurally
+out of reach for this architecture, not merely hard.
+</KeyIdea>
+
+## The sensor makes the data non-uniform
+
+<Steps>
+<Step title="Angular resolution is fixed, so spacing grows with range">
+A 640×480 depth camera with a 60° field of view resolves 1.64 mrad per pixel:
+0.49 mm between points at 0.3 m, 8.2 mm at 5 m.
+</Step>
+
+<Step title="Density therefore falls as $1/Z^2$">
+415 points/cm² at 0.3 m against 1.5 at 5 m — a factor of 278 across one scene.
+</Step>
+
+<Step title="So a fixed radius means different things in different places">
+A 2 cm neighbourhood holds 5215 points at 0.3 m and 19 points at 5 m. Any feature
+computed over it is built from wildly different amounts of evidence.
+</Step>
+
+<Step title="And a fixed k does too">
+Holding $k = 32$ neighbours spans 1.6 mm at 0.3 m and 26 mm at 5 m — a 16-fold
+difference in the physical scale being described.
+</Step>
+</Steps>
+
+<Warning>
+Neither choice is scale-consistent, which is worth stating plainly because the
+two options exhaust what most libraries offer. Fixed radius keeps the geometric
+meaning and varies the statistics; fixed $k$ keeps the statistics and varies the
+geometry. Which is less wrong depends on whether your feature is describing a
+physical scale — surface curvature, say — or needs a stable sample count. Voxel
+downsampling before feature extraction is the usual compromise, and it works by
+making density uniform at the cost of discarding resolution where you had it.
+</Warning>
+
+<WatchThis />

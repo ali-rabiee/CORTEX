@@ -1,23 +1,162 @@
 ---
 concept: point_cloud_processing
 level: 5
-status: seed
+status: final
 recall:
-  prompt: How does Point Cloud Processing for Robotics fail in practice, and how
-    would you present it in an interview?
+  prompt: "Give your interview answer on point cloud processing. What is the constraint, and what does the standard solution cost?"
   keyPoints:
-    - Sensor noise at object edges creates phantom points between objects.
-    - Transparent/reflective objects produce missing/incorrect depth.
-    - "Symptoms: segmentation leaks between adjacent objects, grasps planned on
-      phantom geometry."
-check: []
-papers: []
+    - "A cloud is a set, so the function must be permutation invariant — that constraint determines the architecture."
+    - "Max-pooling delivers it and bounds the influential subset by the bottleneck width — measured 9.1% of points, 512/512 unchanged."
+    - "Robustness and blindness are the same fact, which is why attention-based aggregators help."
+    - "Sensor density falls as $1/Z^2$, so neither fixed radius nor fixed k is scale-consistent."
+interview:
+  answer: >-
+    The thing that makes point clouds different from images is that a cloud is a
+    set. There's no grid, no canonical ordering, and the number of points varies
+    — so any function of it has to give the same answer when you shuffle the
+    rows. That rules out convolution, whose weight sharing assumes every element
+    has the same relative neighbours on a lattice. Permutation invariance isn't a
+    nice property here, it's a hard constraint, and it determines the
+    architecture. The standard answer, from PointNet, is to embed each point
+    independently and then combine them with a symmetric function — an
+    elementwise max. That's genuinely invariant. What I find more interesting is
+    what it costs, because it's provable rather than empirical. If the global
+    descriptor is K independent maxima, each one is attained at exactly one
+    point, so at most K points can influence the output no matter how many you
+    feed in. I measured this on a trained four-class model with a
+    two-hundred-fifty-six-dimensional bottleneck and a thousand-and-twenty-four
+    points: the mean critical set was ninety-three point six points, about nine
+    percent. Keeping only those and discarding the rest left the prediction
+    unchanged in five hundred and twelve out of five hundred and twelve test
+    clouds, and deleting ninety percent of the non-critical points also changed
+    nothing in all of them. And I'd read that twice, because it's the same fact
+    in two moods. It's a robustness result — the network is immune to losing most
+    of its input, which is exactly what you want from a sparse noisy sensor. And
+    it's a blindness result — ninety-one percent of the cloud provably cannot
+    affect the answer, so anything that only shows up there is unreachable, not
+    just hard. That's the principled reason attention-based aggregators like
+    Point Transformer help: a weighted sum lets every neighbour contribute, so
+    the bound doesn't apply. It's a property of the aggregator, not of point
+    clouds. The other thing I'd raise is that the data is radically non-uniform.
+    A depth camera has fixed angular resolution, so point spacing grows linearly
+    with range and areal density falls as one over Z squared. For a
+    six-forty-by-four-eighty camera with a sixty-degree field of view, a
+    two-centimetre neighbourhood holds about five thousand two hundred points at
+    thirty centimetres and nineteen points at five metres. So a fixed radius
+    means completely different things in different parts of one scene — and a
+    fixed k doesn't fix it either, it just moves the problem, because holding k
+    at thirty-two spans one point six millimetres near and twenty-six
+    millimetres far.
+  followUps:
+    - q: "So which do you pick, fixed radius or fixed k?"
+      a: >-
+        It follows from what the feature means, and I'd resist a global default.
+        If the feature describes a physical scale — a normal, a curvature, an
+        FPFH descriptor — then the radius is the thing that has to stay
+        meaningful, and you accept that the sample count varies. If it's a
+        learned descriptor that expects a fixed input size, you hold k and accept
+        that it's describing a different physical extent in the far field. The
+        cleaner move is usually to voxel downsample first so density is uniform,
+        and then the parameter means one thing everywhere. That costs you the
+        near-field resolution you paid for, which is a real trade rather than a
+        free fix.
+    - q: "How would you check what your point cloud model is actually using?"
+      a: >-
+        Extract the critical set — it's two lines, an argmax over the per-point
+        features, and unlike most attribution methods it's exact rather than
+        approximate, because those points are literally the only ones reaching
+        the classifier. Then plot them over the cloud. If they're sitting on the
+        table rather than the object, the model has found a shortcut and the
+        accuracy number is answering a different question. It's the same
+        diagnostic role as a channel ablation for a policy: high accuracy plus a
+        model that isn't looking at the object is the failure that survives every
+        aggregate metric.
+    - q: "When would you use point clouds over images for a policy?"
+      a: >-
+        When demonstration count is the binding constraint, which it usually is
+        in robot learning. The argument is about what the model doesn't have to
+        learn: geometry is measured directly by a depth sensor and expensive to
+        infer from pixels, so supplying it explicitly removes a whole thing from
+        the learning problem. It's the same category of move as delta actions or
+        a canonical object frame — decide which variation you supply and which
+        the model acquires from data. Against that, you inherit the depth
+        sensor's failure modes, and those are worse than people expect: holes on
+        transparent and specular surfaces, multi-path in corners, and quadratic
+        error growth with range on stereo.
+    - q: "Does the canonical frame matter?"
+      a: >-
+        Quite a lot, and for the same reason. If you hand the encoder raw sensor
+        coordinates it has to learn that the same object at a different location
+        is the same object, which is a large invariance to acquire from data for
+        no benefit. Centring on the centroid and scaling by the extent supplies
+        it directly. The wrinkle is that scaling throws away metric size, which
+        is sometimes exactly what you want — a toy cup and a real cup have the
+        same normalised shape — and sometimes the thing you needed. When size is
+        task-relevant I'd pass the scale factor back in as an explicit feature
+        rather than leaving it entangled with shape in the coordinates.
+  traps:
+    - "Treating permutation invariance as a design preference. It is a constraint that rules out convolution outright."
+    - "Presenting the critical-set result only as robustness. The same argument bounds what the architecture can see."
+    - "Assuming a fixed neighbourhood parameter is scale-consistent. Density varies by a factor of a few hundred across one scene."
+    - "Reaching for attention because transformers work well. The reason here is specific — a weighted sum removes the single-winner bound."
+check:
+  - id: pc_l5_c1
+    prompt: "Your PointNet classifier is accurate but fails when the object is partly occluded by a similar-looking object. What would you check first?"
+    options:
+      - "Whether the model needs more capacity"
+      - "The critical set — if the points determining the output sit on context rather than on the object, the model is using a shortcut, and that is exactly what a similar distractor breaks"
+      - "Whether the depth sensor resolution is sufficient"
+      - "Whether the training set includes occlusions"
+    answer: 1
+    explanation: "The failure pattern — fine normally, broken by a distractor — is the signature of a model keyed on something correlated with the answer rather than on the object, and the critical set answers that directly and exactly. Adding occluded training data is a reasonable response afterwards and it treats the symptom without telling you what went wrong. Capacity is unlikely to be the issue in a model that is already accurate on the clean case."
+  - id: pc_l5_c2
+    prompt: "You compute surface normals with a 2 cm radius and they are clean nearby and noisy at range. What is happening, and what is the fix?"
+    options:
+      - "Sensor noise increases with range; use a larger radius everywhere"
+      - "Density falls as $1/Z^2$, so the same radius holds about 5200 points at 0.3 m and 19 at 5 m — too few to fit a plane robustly. Voxel downsample to a uniform density first, or scale the radius with range"
+      - "The normals are being computed in the wrong frame"
+      - "Distant points need a different normal estimator"
+    answer: 1
+    explanation: "The estimate degrades because the number of samples supporting it collapses, not because the individual points got noisier — though depth noise does grow with range too, which compounds it. A larger radius everywhere would fix the far field by over-smoothing the near field, which is the wrong trade in the region you can see best. Equalising density first makes one radius mean the same thing across the scene, which is the reason voxel downsampling is a standard first step rather than merely a speed optimisation."
 ---
 
-## Failure modes
+## Reading the symptoms
 
-Sensor noise at object edges creates phantom points between objects. Transparent/reflective objects produce missing/incorrect depth. Symptoms: segmentation leaks between adjacent objects, grasps planned on phantom geometry. Fix: temporal point cloud filtering, use learned depth completion for specular surfaces, RGB-based segmentation as prior.
+<Steps>
+<Step title="Accurate but fooled by a distractor → check the critical set">
+Two lines of argmax, and it is exact. Points on context rather than the object
+means a shortcut.
+</Step>
 
-## Interview-ready answer
+<Step title="Features clean near, noisy far → density, not sensor noise">
+A fixed radius holds a few hundred times fewer points at range. Downsample to
+uniform density first.
+</Step>
 
-Point clouds are the standard 3D representation for manipulation. PointNet/PointNet++ handle the key challenge of permutation invariance through the symmetric function $f(\{x_1, \ldots, x_n\}) = \gamma(\max_i h(x_i))$. In practice, I preprocess with voxel downsampling, outlier removal, and workspace cropping. For manipulation, PointNet++ with per-point features works well for segmentation and grasp prediction. Key engineering detail: depth sensor choice matters — structured light (RealSense) has different noise characteristics than time-of-flight (Azure Kinect). For transparent objects, RGB-guided depth completion or multi-view fusion is necessary.
+<Step title="Model ignores fine detail entirely → the aggregator">
+A single global max bounds what can reach the output. This is architectural, not
+a capacity problem.
+</Step>
+
+<Step title="Same object at a new location fails → no canonical frame">
+The encoder is spending capacity on position. Centre and scale, and keep the
+transform.
+</Step>
+
+<Step title="Holes on glass or dark surfaces → the sensor, not the pipeline">
+Depth failure modes propagate into every downstream stage. Handle missing data
+explicitly rather than treating absence as empty space.
+</Step>
+</Steps>
+
+<InterviewAnswer />
+
+<Warning>
+The strongest move in this answer is deriving the critical-set bound rather than
+citing it — one sentence about $K$ maxima each attained at one point, and it
+follows. It converts "PointNet is robust to missing points" into a statement with
+a consequence, and the consequence is the interesting half: the architecture
+cannot see most of its input. Being able to say why attention fixes that, in
+terms of the aggregator's sensitivity rather than in terms of transformers being
+good, is what separates having used these models from having read about them.
+</Warning>

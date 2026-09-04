@@ -1,0 +1,188 @@
+---
+concept: point_cloud_processing
+level: 3
+status: final
+recall:
+  prompt: "Write a permutation-invariant encoder, extract its critical set, and handle non-uniform density. What must never appear in the pipeline?"
+  keyPoints:
+    - "Never index points by position or sort them — the encoder must be a symmetric function of the set."
+    - "The critical set is one argmax away and tells you what the network is actually looking at."
+    - "Voxel downsample before feature extraction to make density uniform, then pick radius or k for what the feature means."
+    - "Normalise each cloud into a canonical frame; otherwise the encoder spends capacity on where the sensor was."
+check:
+  - id: pc_l3_c1
+    prompt: "Why extract the critical set as a routine diagnostic?"
+    options:
+      - "To reduce inference cost"
+      - "Because it shows what the network is actually using: it is an argmax over the per-point features, and if the critical points sit on the table rather than the object, the model has found a shortcut regardless of its accuracy"
+      - "To compress the stored point clouds"
+      - "To choose the bottleneck width"
+    answer: 1
+    explanation: "It is a free interpretability probe that most pipelines never run, and it is exact rather than approximate — these are literally the only points reaching the classifier. Seeing them concentrated on background geometry is the point-cloud analogue of a policy that ignores its camera: the accuracy number can be high while the model is answering a different question. It also localises what the architecture cannot see, since anything outside the critical set is provably not contributing."
+  - id: pc_l3_c2
+    prompt: "Why voxel downsample before computing local features rather than after?"
+    options:
+      - "It is faster"
+      - "Because the point of downsampling here is to make density uniform, so that a single radius or $k$ means the same thing across the scene — applying it afterwards leaves the features already computed from wildly different sample counts"
+      - "Because features are not defined on raw clouds"
+      - "Because it removes sensor noise"
+    answer: 1
+    explanation: "Density varies by a factor of a few hundred across a normal scene, so a feature computed on the raw cloud has already absorbed that variation before any downsampling could help. Equalising first makes the neighbourhood parameter interpretable, which is the whole reason to do it. Speed and denoising are real side benefits and would not by themselves justify discarding near-field resolution."
+  - id: pc_l3_c3
+    prompt: "What should the canonical frame for an object point cloud be?"
+    options:
+      - "The sensor frame, unchanged"
+      - "Centred on the cloud's centroid and scaled by its extent, so the encoder sees shape rather than where the sensor happened to be — otherwise capacity goes to representing position, which the translation head already has"
+      - "The world frame"
+      - "The frame of the largest planar surface"
+    answer: 1
+    explanation: "An encoder given raw sensor coordinates has to learn that the same object at a different location is the same object, which is a large and pointless invariance to acquire from data. Centring and scaling supplies it directly, exactly as delta actions remove workspace variance from an action head. Keep the transform you applied, since anything you predict in the canonical frame has to be mapped back."
+---
+
+## An encoder that is a set function
+
+<CodeWalk title="Per-point features, then a symmetric aggregator">
+
+```python title="encoder.py"
+import torch, torch.nn as nn
+
+class SetEncoder(nn.Module):
+    """No indexing by position, no sorting, no assumption about N. Each point is
+    embedded independently and combined by an elementwise max, which depends on
+    the multiset of values rather than their order.
+
+    Consequence: at most K points can influence the output, since each of the K
+    maxima is attained at a single point. Measured on a trained model, 93.6 of
+    1024 points on average.
+    """
+    def __init__(self, k=256, in_dim=3):
+        super().__init__()
+        self.point = nn.Sequential(
+            nn.Linear(in_dim, 64), nn.ReLU(),
+            nn.Linear(64, 128), nn.ReLU(),
+            nn.Linear(128, k),
+        )
+
+    def per_point(self, x):            # (B, N, K)
+        return self.point(x)
+
+    def forward(self, x):
+        return self.per_point(x).max(dim=1).values      # (B, K)
+```
+
+</CodeWalk>
+
+## The diagnostic that is one argmax away
+
+<CodeWalk title="What is the network actually looking at?">
+
+```python title="critical.py"
+import torch
+
+@torch.no_grad()
+def critical_set(encoder, cloud):
+    """The points that attain each of the K maxima. These are EXACTLY the points
+    reaching the classifier — not an attribution heuristic.
+
+    If they sit on the table rather than the object, the model has found a
+    shortcut, and its accuracy number is answering a different question.
+    """
+    h = encoder.per_point(cloud.unsqueeze(0))[0]        # (N, K)
+    idx = torch.unique(h.argmax(dim=0))
+    return idx, cloud[idx]
+
+
+@torch.no_grad()
+def verify_criticality(model, cloud):
+    """Sanity check: the critical set alone must reproduce the prediction, and
+    deleting non-critical points must change nothing. Both held 512/512 in the
+    measurement, so a failure here means the encoder is not a pure max-pool —
+    worth knowing before you trust the diagnostic.
+    """
+    idx, pts = critical_set(model.encoder, cloud)
+    full = model(cloud.unsqueeze(0)).argmax(1)
+    crit = model(pts.unsqueeze(0)).argmax(1)
+    return bool((full == crit).item()), len(idx), len(cloud)
+```
+
+</CodeWalk>
+
+<KeyIdea>
+Two lines of `argmax` give an exact account of what the model reads, which is
+rarer than it sounds — most attribution methods approximate. Plotting the
+critical set over the cloud is the point-cloud counterpart of the channel
+ablation in `states_observations`, and it answers the same question: is this
+model solving the task or something correlated with it?
+</KeyIdea>
+
+## Density, made uniform before it matters
+
+<CodeWalk title="Voxel downsample, then choose the neighbourhood deliberately">
+
+```python title="density.py"
+import numpy as np
+
+def voxel_downsample(pts, voxel):
+    """One point per occupied voxel — the centroid of its members.
+
+    Do this BEFORE local features. Density varies ~278x across a normal scene
+    (415 pts/cm^2 at 0.3 m, 1.5 at 5 m), so a feature computed on the raw cloud
+    has already absorbed that variation and no later step recovers it.
+    """
+    keys = np.floor(pts / voxel).astype(np.int64)
+    _, inv = np.unique(keys, axis=0, return_inverse=True)
+    out = np.zeros((inv.max() + 1, 3))
+    np.add.at(out, inv, pts)
+    return out / np.bincount(inv)[:, None]
+
+
+def neighbourhood_advice(voxel, feature_kind):
+    """Fixed radius keeps the physical meaning and varies the sample count;
+    fixed k keeps the count and varies the physical extent. Choose by what the
+    feature means, not by what the library defaults to."""
+    if feature_kind in ("normal", "curvature", "fpfh"):
+        # Describes a physical scale — hold the radius.
+        return {"mode": "radius", "radius": 3.0 * voxel}
+    # Learned descriptor expecting a fixed input size — hold k, and accept
+    # that it spans 1.6 mm at 0.3 m and 26 mm at 5 m on a raw cloud.
+    return {"mode": "knn", "k": 32}
+```
+
+</CodeWalk>
+
+## Canonical frame
+
+<CodeWalk title="Remove the pose the encoder should not be learning">
+
+```python title="canonical.py"
+import numpy as np
+
+def canonicalise(pts):
+    """Centre and scale. Without this the encoder must learn that the same
+    object at a different location is the same object — a large invariance to
+    acquire from data for no reason, exactly like an absolute-pose action space
+    making a head learn the workspace instead of the skill.
+
+    Return the transform: anything predicted in this frame has to come back.
+    """
+    c = pts.mean(0)
+    p = pts - c
+    s = np.linalg.norm(p, axis=1).max()
+    return p / max(s, 1e-8), c, s
+
+
+def decanonicalise(pred_pts, c, s):
+    return pred_pts * s + c
+```
+
+</CodeWalk>
+
+<Warning>
+Scaling by the extent throws away metric size, which is often exactly what you
+need — a toy cup and a real cup have the same normalised shape. Keep the scale
+factor as an explicit input feature when size is task-relevant, rather than
+leaving it implicit in the coordinates where the encoder has to disentangle it
+from shape. This is the same decision as choosing between absolute and delta
+actions: you are deciding which variation the model must learn and which you
+supply.
+</Warning>

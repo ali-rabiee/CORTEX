@@ -1,0 +1,129 @@
+---
+concept: point_cloud_processing
+level: 4
+status: final
+recall:
+  prompt: "Trace point-cloud architectures. What did each one add, and what limitation drove it?"
+  keyPoints:
+    - "PointNet: per-point features plus a symmetric aggregator — invariance solved, with no local structure and a bounded critical set."
+    - "PointNet++: apply PointNet in local neighbourhoods hierarchically, recovering the multi-scale structure convolution provides on images."
+    - "Point Transformer: replace the fixed aggregator with attention over neighbourhoods, so weighting is learned rather than a max."
+    - "3D Diffusion Policy: sparse point clouds as the policy input, where the sample efficiency gain over images is the practical argument."
+papers:
+  - key: qi2017pointnet
+    title: "PointNet: Deep Learning on Point Sets for 3D Classification and Segmentation"
+    authors: "Charles R. Qi, Hao Su, Kaichun Mo, Leonidas J. Guibas"
+    venue: CVPR
+    year: 2017
+    arxiv: "1612.00593"
+    takeaway: "Per-point MLP plus a global max makes a network a genuine set function, and the same construction proves the output depends on a bounded critical subset of points."
+  - key: qi2017pointnetpp
+    title: "PointNet++: Deep Hierarchical Feature Learning on Point Sets in a Metric Space"
+    authors: "Charles R. Qi, Li Yi, Hao Su, Leonidas J. Guibas"
+    year: 2017
+    arxiv: "1706.02413"
+    takeaway: "Applies PointNet recursively on nested neighbourhoods, adding the local and multi-scale structure the single global max discards — and confronting non-uniform density directly."
+  - key: zhao2021pointtransformer
+    title: "Point Transformer"
+    authors: "Hengshuang Zhao, Li Jiang, Jiaya Jia, Philip Torr, Vladlen Koltun"
+    year: 2021
+    arxiv: "2012.09164"
+    takeaway: "Replaces the fixed symmetric aggregator with self-attention over local neighbourhoods, so how neighbours are combined is learned — still permutation invariant, without the single-winner bottleneck."
+  - key: ze2024dp3
+    title: "3D Diffusion Policy: Generalizable Visuomotor Policy Learning via Simple 3D Representations"
+    authors: "Yanjie Ze, Gu Zhang, Kangning Zhang, Chenyuan Hu, Muhan Wang, Huazhe Xu"
+    venue: RSS
+    year: 2024
+    arxiv: "2403.03954"
+    takeaway: "Feeds a sparse point cloud to a diffusion policy instead of images, arguing the explicit 3D representation buys sample efficiency and generalisation that image encoders have to learn from scratch."
+check:
+  - id: pc_l4_c1
+    prompt: "What limitation of PointNet does PointNet++ address?"
+    options:
+      - "Its lack of permutation invariance"
+      - "Its lack of local structure: a single global max jumps from per-point features straight to a whole-cloud descriptor, with nothing in between — so it cannot build the hierarchy of local patterns that makes convolutional features work on images"
+      - "Its inability to handle colour"
+      - "Its computational cost"
+    answer: 1
+    explanation: "PointNet is already fully invariant, so that is not what needed fixing. What it lacks is any notion of neighbourhood — features are per-point and then immediately global, which means no composition of local geometry into larger structure. Applying the same construction recursively on nested neighbourhoods restores that hierarchy, and it also forces the paper to confront non-uniform density, since neighbourhood radius is now a parameter that must mean something across the scene."
+  - id: pc_l4_c2
+    prompt: "How does attention over neighbourhoods differ from max-pooling, in terms of what can influence the output?"
+    options:
+      - "It is not permutation invariant"
+      - "Attention weights every neighbour with a learned, input-dependent coefficient, so all of them contribute — whereas a max lets exactly one point per feature dimension through, which is what bounds the critical set"
+      - "It requires a fixed number of points"
+      - "It removes the need for a canonical frame"
+    answer: 1
+    explanation: "Attention is a weighted sum with weights computed from the inputs, and a weighted sum over a set is permutation invariant provided the weights are too — so invariance is preserved. The difference is the sensitivity structure: no single point monopolises a dimension, so the bounded-critical-set argument does not apply and features present in the majority of the cloud remain reachable. The cost is quadratic neighbourhood computation and a considerably heavier model."
+  - id: pc_l4_c3
+    prompt: "What is the argument for feeding a policy point clouds rather than images?"
+    options:
+      - "Point clouds are lower dimensional"
+      - "The 3D structure is given rather than inferred: an image encoder must learn to recover geometry from appearance before it can use it, so an explicit representation can buy sample efficiency in the low-data regime typical of robot demonstrations"
+      - "Point clouds are invariant to lighting"
+      - "Diffusion models require 3D input"
+    answer: 1
+    explanation: "The binding constraint in robot learning is usually demonstration count rather than compute, so anything that removes a thing the model would otherwise learn from data is valuable. Geometry is exactly such a thing — it is directly measured by a depth sensor and expensive to infer from pixels. Lighting invariance is a genuine secondary benefit and not the main argument, and point clouds are often higher-dimensional than the image they came from."
+---
+
+## Invariance, solved and paid for
+
+<PaperCard refKey="qi2017pointnet" />
+
+The architecture is almost minimal: embed each point independently, take an
+elementwise max, classify. That is enough to be a genuine set function, and the
+paper proves both what it can represent and what determines its output.
+
+The critical-set theorem is the half worth carrying. Measured on a trained model,
+93.6 of 1024 points determined the answer, and removing everything else changed
+nothing in 512 of 512 clouds. Robustness and blindness are one property.
+
+## Putting the structure back
+
+<PaperCard refKey="qi2017pointnetpp" />
+
+PointNet jumps from per-point features to a global descriptor with nothing
+between, so it has no analogue of the local-to-global hierarchy that makes
+convolutional features effective.
+
+<Steps>
+<Step title="Sample centres, group neighbours, apply PointNet locally">
+Each neighbourhood gets its own descriptor by the same construction.
+</Step>
+
+<Step title="Repeat on the resulting sparser set">
+Which builds the hierarchy — local geometry composed into larger structure.
+</Step>
+
+<Step title="And density becomes a first-class problem">
+Once neighbourhood radius is a parameter, the $1/Z^2$ variation matters
+explicitly. The paper proposes multi-scale grouping to cope.
+</Step>
+</Steps>
+
+## Learning the aggregator
+
+<PaperCard refKey="zhao2021pointtransformer" />
+
+Max is a fixed choice of how to combine neighbours. Attention makes it learned
+while staying permutation invariant — a weighted sum with input-dependent
+weights, symmetric provided the weights are.
+
+<KeyIdea>
+This also dissolves the critical-set bound rather than merely improving accuracy.
+A max lets one point per dimension through; a weighted sum lets every neighbour
+contribute, so features that live in the diffuse 91% remain reachable. That is
+the principled reason attention helps here, and it is a better answer than
+"transformers work well" — the bound was a property of the aggregator, and
+changing the aggregator removes it.
+</KeyIdea>
+
+## Into policies
+
+<PaperCard refKey="ze2024dp3" />
+
+The robotics argument is about what the model does not have to learn. Geometry is
+measured directly by a depth sensor and expensive to infer from pixels, and
+demonstration count — not compute — is the binding constraint. Supplying the 3D
+structure explicitly is the same kind of move as delta actions or a canonical
+frame: remove a variation the model would otherwise have to acquire from data.
